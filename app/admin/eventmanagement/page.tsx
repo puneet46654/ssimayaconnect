@@ -140,7 +140,11 @@ export default function EventsManagementPage() {
     }, []);
 
   useEffect(() => {
-    void fetchEvents();
+    const timer = window.setTimeout(() => {
+      void fetchEvents();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [fetchEvents]);
 
   useRealtimeRefresh(

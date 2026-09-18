@@ -92,9 +92,11 @@ export default function AdminLayout({
   */
 
   useEffect(() => {
-    setMobileSidebarOpen(
-      false,
-    );
+    const timer = window.setTimeout(() => {
+      setMobileSidebarOpen(false);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [
     pathname,
   ]);

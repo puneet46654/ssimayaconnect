@@ -222,7 +222,11 @@ export default function EventBookingPage() {
     );
 
   useEffect(() => {
-    void loadEvent();
+    const timer = window.setTimeout(() => {
+      void loadEvent();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [
     loadEvent,
   ]);

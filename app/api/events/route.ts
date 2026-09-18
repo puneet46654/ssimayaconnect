@@ -16,6 +16,9 @@ import {
 import {
   generateSlotTimes,
 } from '@/lib/events/slots';
+import {
+  validateSchedule,
+} from '@/lib/events/schedule-validation';
 
 import { Event } from '@/models/Event';
 
@@ -28,6 +31,7 @@ import { Slot } from '@/models/Slot';
 import {
   emitRealtimeChange,
 } from '@/lib/realtime';
+import { requireAdminSession } from '@/lib/admin-server-auth';
 
 type EventType =
   | 'conference'
@@ -343,6 +347,13 @@ export async function GET() {
 export async function POST(
   req: NextRequest,
 ) {
+  if (!(await requireAdminSession())) {
+    return NextResponse.json(
+      { success: false, error: 'Authentication required.' },
+      { status: 401 },
+    );
+  }
+
   try {
     await connectDB();
 
@@ -564,6 +575,23 @@ export async function POST(
           status: 400,
         },
       );
+    }
+
+    for (
+      let index = 0;
+      index < daySchedulesInput.length;
+      index += 1
+    ) {
+      const scheduleError = validateSchedule(
+        daySchedulesInput[index],
+        index,
+      );
+      if (scheduleError) {
+        return NextResponse.json(
+          { success: false, error: scheduleError },
+          { status: 400 },
+        );
+      }
     }
 
     const thumbnailEntry =

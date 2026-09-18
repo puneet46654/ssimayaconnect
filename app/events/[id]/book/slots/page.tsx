@@ -254,7 +254,11 @@ export default function TimeSlotsPage() {
     );
 
   useEffect(() => {
-    void loadSlots();
+    const timer = window.setTimeout(() => {
+      void loadSlots();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [
     loadSlots,
   ]);

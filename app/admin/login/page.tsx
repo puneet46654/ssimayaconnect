@@ -30,18 +30,6 @@ type LoginState =
   | 'loading'
   | 'success';
 
-type AdminTokenPayload = {
-  username: string;
-  loggedInAt: number;
-};
-
-const USERS: Record<string, string> = {
-  puneet: 'puneet@ssi',
-  naveen: 'naveen@ssi',
-  rohan: 'rohan@ssi',
-  anand: 'anand@ssi',
-};
-
 const LOGO_SRC =
   '/logos/ssilogo.png';
 
@@ -79,21 +67,6 @@ const formVariants: Variants = {
     },
   },
 };
-
-function createAdminToken(
-  username: string,
-) {
-  const payload: AdminTokenPayload = {
-    username,
-    loggedInAt: Date.now(),
-  };
-
-  return btoa(
-    encodeURIComponent(
-      JSON.stringify(payload),
-    ),
-  );
-}
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -191,32 +164,35 @@ export default function AdminLoginPage() {
       },
     );
 
-    const validPassword =
-      USERS[username];
+    const response = await fetch('/api/admin/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ username, password }),
+    });
 
-    if (
-      !validPassword ||
-      validPassword !== password
-    ) {
+    if (!response.ok) {
       setLoginState('idle');
-
       setError(
         'Invalid login ID or password.',
       );
-
       return;
     }
 
-    const token =
-      createAdminToken(
-        username,
-      );
+    const session = await response.json() as {
+      username: string;
+      loggedInAt: number;
+    };
 
     localStorage.setItem(
       ADMIN_TOKEN_KEY,
-      token,
+      btoa(
+        encodeURIComponent(
+          JSON.stringify(session),
+        ),
+      ),
     );
-
     setLoginState('success');
 
     window.setTimeout(

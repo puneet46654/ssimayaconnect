@@ -262,6 +262,9 @@ export default function Sidebar({
     );
 
     clearAdminSession();
+    await fetch('/api/admin/logout', {
+      method: 'POST',
+    });
 
     setCurrentUser(
       null,
