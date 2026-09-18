@@ -77,8 +77,10 @@ export default function HomePage() {
     );
 
   const fetchEvents =
-    useCallback(async () => {
-      setLoading(true);
+    useCallback(async (showLoading = true) => {
+      if (showLoading) {
+        setLoading(true);
+      }
 
       try {
         const res = await fetch(
@@ -113,19 +115,23 @@ export default function HomePage() {
 
         setEvents([]);
       } finally {
-        setLoading(false);
+        if (showLoading) {
+          setLoading(false);
+        }
       }
     }, []);
 
   useEffect(() => {
     void Promise.resolve().then(
-      fetchEvents,
+      () => fetchEvents(),
     );
   }, [fetchEvents]);
 
   useRealtimeRefresh(
     'events',
-    fetchEvents,
+    () => {
+      void fetchEvents(false);
+    },
   );
 
   const hasActiveFilters =

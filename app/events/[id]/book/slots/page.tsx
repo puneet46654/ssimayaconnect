@@ -147,18 +147,13 @@ export default function TimeSlotsPage() {
             await fetch(
               `/api/events/${encodeURIComponent(
                 eventId,
-              )}/slots?refresh=${Date.now()}`,
+              )}/slots`,
               {
                 method:
                   'GET',
 
                 cache:
                   'no-store',
-
-                headers: {
-                  'Cache-Control':
-                    'no-cache',
-                },
               },
             );
 
@@ -268,25 +263,52 @@ export default function TimeSlotsPage() {
    * This keeps bookedCount / availability
    * fresher while the user is on this page.
    *
-   * Later your realtime layer can replace
-   * this polling with slot-specific events.
+    * Poll only while visible so background tabs do not
+    * continuously reload the full availability response.
    */
   useEffect(() => {
-    const timer =
-      window.setInterval(
-        () => {
-          void loadSlots(
-            true,
-          );
-        },
-        15000,
-      );
+     let timer: number | undefined;
 
-    return () => {
-      window.clearInterval(
-        timer,
-      );
-    };
+     const schedulePolling = () => {
+       if (document.visibilityState !== 'visible') {
+         return;
+       }
+
+       timer = window.setTimeout(() => {
+           void loadSlots(
+             true,
+           );
+           schedulePolling();
+         }, 30000);
+     };
+
+     const handleVisibilityChange = () => {
+       if (timer !== undefined) {
+         window.clearTimeout(timer);
+         timer = undefined;
+       }
+
+       if (document.visibilityState === 'visible') {
+         void loadSlots(true);
+         schedulePolling();
+       }
+     };
+
+     schedulePolling();
+     document.addEventListener(
+       'visibilitychange',
+       handleVisibilityChange,
+     );
+
+     return () => {
+       if (timer !== undefined) {
+         window.clearTimeout(timer);
+       }
+       document.removeEventListener(
+         'visibilitychange',
+         handleVisibilityChange,
+       );
+     };
   }, [
     loadSlots,
   ]);

@@ -21,5 +21,15 @@ const SlotSchema = new Schema<ISlot>(
   { timestamps: true }
 );
 
+SlotSchema.index({
+  eventId: 1,
+  dayScheduleId: 1,
+});
+SlotSchema.index({
+  eventId: 1,
+  dayScheduleId: 1,
+  startTime: 1,
+});
+
 export const Slot: Model<ISlot> =
   mongoose.models.Slot || mongoose.model<ISlot>('Slot', SlotSchema);

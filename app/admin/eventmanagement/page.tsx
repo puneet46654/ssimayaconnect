@@ -91,15 +91,17 @@ export default function EventsManagementPage() {
     );
 
   const fetchEvents =
-    useCallback(async () => {
-      setLoading(true);
+    useCallback(async (showLoading = true) => {
+      if (showLoading) {
+        setLoading(true);
+      }
 
       setError('');
 
       try {
         const response =
           await fetch(
-            `/api/events?refresh=${Date.now()}`,
+            '/api/events',
             {
               method: 'GET',
               cache: 'no-store',
@@ -135,7 +137,9 @@ export default function EventsManagementPage() {
             : 'An unexpected error occurred.',
         );
       } finally {
-        setLoading(false);
+        if (showLoading) {
+          setLoading(false);
+        }
       }
     }, []);
 
@@ -150,7 +154,7 @@ export default function EventsManagementPage() {
   useRealtimeRefresh(
     'events',
     () => {
-      void fetchEvents();
+      void fetchEvents(false);
     },
   );
 

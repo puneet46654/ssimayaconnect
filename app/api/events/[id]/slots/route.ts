@@ -94,6 +94,9 @@ export async function GET(
         eventId:
           event._id,
       })
+        .select(
+          'dayNumber date startTime endTime',
+        )
         .sort({
           dayNumber: 1,
         })
@@ -104,6 +107,9 @@ export async function GET(
         eventId:
           event._id,
       })
+        .select(
+          '_id dayScheduleId startTime endTime capacity bookedCount',
+        )
         .sort({
           startTime: 1,
         })

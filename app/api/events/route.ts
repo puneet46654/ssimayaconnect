@@ -115,6 +115,9 @@ export async function GET() {
 
     const events =
       await Event.find()
+        .select(
+          'eventName eventType bookingFormTemplate venue startDate endDate description imageUrl status createdAt updatedAt',
+        )
         .sort({
           startDate: 1,
         })
@@ -242,25 +245,24 @@ export async function GET() {
         },
       );
 
-    const changedStatuses =
-      responseEvents.filter(
-        (
-          responseEvent,
-        ) => {
-          const storedEvent =
-            events.find(
-              (candidate) =>
-                candidate._id.toString() ===
-                responseEvent._id,
-            );
+    const storedStatuses = new Map(
+      events.map((event) => [
+        event._id.toString(),
+        event.status,
+      ]),
+    );
 
-          return (
-            storedEvent &&
-            storedEvent.status !==
-              responseEvent.status
-          );
-        },
-      );
+    const changedStatuses =
+      responseEvents.filter((responseEvent) => {
+        const storedStatus = storedStatuses.get(
+          responseEvent._id,
+        );
+
+        return (
+          storedStatus &&
+          storedStatus !== responseEvent.status
+        );
+      });
 
     if (
       changedStatuses.length >
@@ -312,7 +314,7 @@ export async function GET() {
       {
         headers: {
           'Cache-Control':
-            'no-store, no-cache, must-revalidate',
+            'public, max-age=0, s-maxage=5, stale-while-revalidate=30',
         },
       },
     );
@@ -644,116 +646,91 @@ export async function POST(
     await newEvent.save();
 
     try {
-      for (
-        let index = 0;
-        index <
-        numberOfDays;
-        index += 1
-      ) {
-        const scheduleData =
-          daySchedulesInput[
-            index
-          ];
-
-        const createdDaySchedule =
-          new DaySchedule({
+      const scheduleDocs =
+        daySchedulesInput.map(
+          (scheduleData, index) =>
+            new DaySchedule({
             eventId:
               newEvent._id,
-
             dayNumber:
               index + 1,
-
             date:
               new Date(
                 scheduleData.date,
               ),
-
             startTime:
               scheduleData.startTime,
-
             endTime:
               scheduleData.endTime,
-
             lunchEnabled:
               Boolean(
                 scheduleData.lunchEnabled,
               ),
-
             lunchStart:
               scheduleData.lunchStart ||
               '',
-
             lunchEnd:
               scheduleData.lunchEnd ||
               '',
-
             slotDuration:
               Number(
                 scheduleData.slotDuration,
               ),
-
             slotGap:
               Number(
                 scheduleData.slotGap,
               ),
-
             capacity:
               Number(
                 scheduleData.capacity,
               ),
-
             sameAsDay1:
               Boolean(
                 scheduleData.sameAsDay1,
               ),
-          });
+            }),
+        );
 
-        await createdDaySchedule.save();
+      await DaySchedule.insertMany(
+        scheduleDocs,
+      );
 
-        const generatedSlots =
-          generateSlotTimes(
-            scheduleData.startTime,
-            scheduleData.endTime,
-            scheduleData.slotDuration,
-            scheduleData.slotGap,
-            scheduleData.lunchEnabled,
-            scheduleData.lunchStart,
-            scheduleData.lunchEnd,
-          );
+      const slotDocs = scheduleDocs.flatMap(
+        (schedule, index) => {
+          const scheduleData =
+            daySchedulesInput[index];
+          const generatedSlots =
+            generateSlotTimes(
+              scheduleData.startTime,
+              scheduleData.endTime,
+              scheduleData.slotDuration,
+              scheduleData.slotGap,
+              scheduleData.lunchEnabled,
+              scheduleData.lunchStart,
+              scheduleData.lunchEnd,
+            );
 
-        const slotDocs =
-          generatedSlots.map(
-            (slot) => ({
+          return generatedSlots.map((slot) => ({
               eventId:
                 newEvent._id,
-
               dayScheduleId:
-                createdDaySchedule._id,
-
+                schedule._id,
               startTime:
                 slot.startTime,
-
               endTime:
                 slot.endTime,
-
               capacity:
                 Number(
                   scheduleData.capacity,
                 ),
-
               bookedCount:
                 0,
-            }),
-          );
+            }));
+        },
+      );
 
-        if (
-          slotDocs.length >
-          0
-        ) {
-          await Slot.insertMany(
-            slotDocs,
-          );
-        }
+      if (slotDocs.length > 0) {
+        await Slot.insertMany(slotDocs);
       }
     } catch (error) {
       await Promise.all([

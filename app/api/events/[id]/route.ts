@@ -157,40 +157,36 @@ export async function GET(
       );
     }
 
-    const daySchedules =
-      await DaySchedule.find({
-        eventId:
-          event._id,
-      })
-        .sort({
-          dayNumber: 1,
+    const [daySchedules, slotTotals] =
+      await Promise.all([
+        DaySchedule.find({
+          eventId: event._id,
         })
-        .lean();
-
-    const slotTotals =
-      await Slot.aggregate([
-        {
-          $match: {
-            eventId:
-              event._id,
-          },
-        },
-
-        {
-          $group: {
-            _id: null,
-
-            totalSlots: {
-              $sum:
-                '$capacity',
-            },
-
-            bookedSlots: {
-              $sum:
-                '$bookedCount',
+          .select(
+            'dayNumber date startTime endTime lunchEnabled lunchStart lunchEnd slotDuration slotGap capacity sameAsDay1',
+          )
+          .sort({
+            dayNumber: 1,
+          })
+          .lean(),
+        Slot.aggregate([
+          {
+            $match: {
+              eventId: event._id,
             },
           },
-        },
+          {
+            $group: {
+              _id: null,
+              totalSlots: {
+                $sum: '$capacity',
+              },
+              bookedSlots: {
+                $sum: '$bookedCount',
+              },
+            },
+          },
+        ]),
       ]);
 
     const totals =
@@ -204,23 +200,6 @@ export async function GET(
         event.startDate,
         event.endDate,
       );
-
-    if (
-      event.status !==
-      status
-    ) {
-      await Event.updateOne(
-        {
-          _id:
-            event._id,
-        },
-        {
-          $set: {
-            status,
-          },
-        },
-      );
-    }
 
     return NextResponse.json(
       {
@@ -330,7 +309,7 @@ export async function GET(
       {
         headers: {
           'Cache-Control':
-            'no-store, no-cache, must-revalidate',
+            'public, max-age=0, s-maxage=5, stale-while-revalidate=30',
         },
       },
     );

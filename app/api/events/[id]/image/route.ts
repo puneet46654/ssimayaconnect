@@ -97,13 +97,7 @@ export async function GET(
             'application/octet-stream',
 
           'Cache-Control':
-            'no-store, no-cache, must-revalidate, proxy-revalidate',
-
-          Pragma:
-            'no-cache',
-
-          Expires:
-            '0',
+            'public, max-age=31536000, immutable',
         },
       },
     );

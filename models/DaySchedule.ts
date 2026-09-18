@@ -33,6 +33,11 @@ const DayScheduleSchema = new Schema<IDaySchedule>(
   { timestamps: true }
 );
 
+DayScheduleSchema.index({
+  eventId: 1,
+  dayNumber: 1,
+});
+
 export const DaySchedule: Model<IDaySchedule> =
   mongoose.models.DaySchedule || mongoose.model<IDaySchedule>('DaySchedule', DayScheduleSchema);
   
