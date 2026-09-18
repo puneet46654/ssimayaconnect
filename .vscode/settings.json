@@ -1,5 +1,13 @@
 {
     "chat.tools.terminal.autoApprove": {
-        "npm run build": true
+        "npm run build": true,
+        "/^node -e \"const fs=require\\('fs'\\);const s=fs\\.readFileSync\\('README\\.md','utf8'\\);const re=/\\[\\\\u\\{1F000\\}-\\\\u\\{1FAFF\\}\\\\u\\{2600\\}-\\\\u\\{27BF\\}\\]/gu;s\\.split\\(/\\\\r\\?\\\\n/\\)\\.forEach\\(\\(l,i\\)=>\\{let a=\\[\\.\\.\\.l\\.matchAll\\(re\\)\\]\\.map\\(m=>m\\[0\\]\\+' U\\+'\\+m\\[0\\]\\.codePointAt\\(0\\)\\.toString\\(16\\)\\.toUpperCase\\(\\)\\);if\\(a\\.length\\) console\\.log\\(i\\+1,a\\.join\\(', '\\)\\)\\}\\)\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node -e \"const fs=require\\('fs'\\);const p='README\\.md';let s=fs\\.readFileSync\\(p,'utf8'\\);s=s\\.replace\\(/\\[\\\\u\\{1F000\\}-\\\\u\\{1FAFF\\}\\\\u\\{2600\\}-\\\\u\\{27BF\\}\\]/gu,''\\)\\.replace\\(/\\[\\\\uFE0E\\\\uFE0F\\\\u200D\\]/g,''\\);fs\\.writeFileSync\\(p,s,'utf8'\\)\"; node -e \"const fs=require\\('fs'\\);const s=fs\\.readFileSync\\('README\\.md','utf8'\\);const re=/\\[\\\\u\\{1F000\\}-\\\\u\\{1FAFF\\}\\\\u\\{2600\\}-\\\\u\\{27BF\\}\\]/gu;let n=0;s\\.split\\(/\\\\r\\?\\\\n/\\)\\.forEach\\(\\(l,i\\)=>\\{let a=\\[\\.\\.\\.l\\.matchAll\\(re\\)\\];if\\(a\\.length\\)\\{n\\+=a\\.length;console\\.log\\(i\\+1,l\\)\\}\\}\\);console\\.log\\('remaining:',n\\)\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
     }
 }

@@ -11,7 +11,7 @@ The platform is built using **Next.js, React, TypeScript, Tailwind CSS, MongoDB,
 
 ---
 
-## 🚀 Features
+ Features
 
 ### User Portal
 
@@ -44,7 +44,7 @@ The platform is built using **Next.js, React, TypeScript, Tailwind CSS, MongoDB,
 
 ---
 
-## 🛠 Admin Portal
+ Admin Portal
 
 The Admin Portal allows administrators to manage events and booking configuration.
 
@@ -75,7 +75,7 @@ The Admin Portal allows administrators to manage events and booking configuratio
 
 ---
 
-# 🧰 Technology Stack
+ Technology Stack
 
 ## Frontend
 
@@ -107,7 +107,7 @@ AWS S3 is used to store event images.
 
 ---
 
-# 📁 Project Structure
+ Project Structure
 
 ```text
 ssimayaconnect/
@@ -204,7 +204,7 @@ ssimayaconnect/
 
 ---
 
-# 🎫 Event Management
+ Event Management
 
 The application supports multiple event types.
 
@@ -236,7 +236,7 @@ updatedAt
 
 ---
 
-# 📌 Event Status
+ Event Status
 
 Supported event statuses are:
 
@@ -251,7 +251,7 @@ These statuses are used throughout both the admin and public interfaces.
 
 ---
 
-# 📝 Dynamic Booking Templates
+ Dynamic Booking Templates
 
 Each event can have its own registration form.
 
@@ -288,7 +288,7 @@ This means administrators can change the registration form for an event without 
 
 ---
 
-# 👨‍⚕️ Practitioner / Institutional Registration
+ Practitioner / Institutional Registration
 
 The practitioner/institutional registration form can collect:
 
@@ -309,7 +309,7 @@ The form also supports international users.
 
 ---
 
-# 🌎 Country & Phone System
+ Country & Phone System
 
 The booking forms include dynamic country information.
 
@@ -326,7 +326,7 @@ Supported functionality includes:
 Example:
 
 ```text
-🇮🇳 India
+India
 IN
 +91
 ```
@@ -341,7 +341,7 @@ IN
 
 ---
 
-# 📅 Multi-Day Event Scheduling
+ Multi-Day Event Scheduling
 
 Events can run for multiple days.
 
@@ -420,7 +420,7 @@ Capacity:
 
 ---
 
-# 🕐 Time Slots
+ Time Slots
 
 Slots are generated from event schedules.
 
@@ -470,7 +470,7 @@ and cannot be selected.
 
 ---
 
-# 🔄 Booking Flow
+ Booking Flow
 
 The intended booking journey is:
 
@@ -498,7 +498,7 @@ Booking Confirmation
 
 ---
 
-# 📝 Registration Form Flow
+ Registration Form Flow
 
 The booking form is available at:
 
@@ -532,7 +532,7 @@ Mantram Form
 
 ---
 
-# ➡️ Continue To Time Slots
+ Continue To Time Slots
 
 After completing the registration form, the user continues to time-slot selection.
 
@@ -556,7 +556,7 @@ The user is then redirected to:
 
 ---
 
-# 🕒 Time Slot Selection Page
+ Time Slot Selection Page
 
 The slot page loads actual event schedules and slots from the database.
 
@@ -585,7 +585,7 @@ Availability
 
 ---
 
-# 📆 Date Selection
+ Date Selection
 
 For multi-day events, users can choose an event date.
 
@@ -605,7 +605,7 @@ Selecting a date displays only the slots belonging to that day.
 
 ---
 
-# 🎟 Slot Availability
+ Slot Availability
 
 Example:
 
@@ -626,7 +626,7 @@ Available slots can be selected before proceeding to final confirmation.
 
 ---
 
-# 🖼 Event Images
+ Event Images
 
 Event images are stored using AWS S3.
 
@@ -654,7 +654,7 @@ Caching is controlled so updated event images can appear correctly after adminis
 
 ---
 
-# ✏️ Event Editing
+ Event Editing
 
 Administrators can edit an event from:
 
@@ -691,7 +691,7 @@ The updated registration template is stored in MongoDB and then used by the publ
 
 ---
 
-# 🆕 Event Creation
+ Event Creation
 
 New events can be created from:
 
@@ -725,7 +725,7 @@ Save Event
 
 ---
 
-# 🔐 Admin Authentication
+ Admin Authentication
 
 Protected admin routes verify the administrator session before rendering.
 
@@ -743,7 +743,7 @@ If the administrator is not authenticated, protected routes redirect to:
 
 ---
 
-# 📱 Responsive Admin Layout
+ Responsive Admin Layout
 
 The admin interface supports desktop, tablet, and mobile screens.
 
@@ -762,7 +762,7 @@ Mobile:
 
 ```text
 ┌───────────────────────────────┐
-│ SSI Maya Connect         ☰    │
+│ SSI Maya Connect             │
 ├───────────────────────────────┤
 │                               │
 │         Main Content          │
@@ -774,7 +774,7 @@ The mobile navigation can use a slide-in drawer rather than keeping the desktop 
 
 ---
 
-# 🎨 UI / UX Direction
+ UI / UX Direction
 
 The interface follows a clean and professional design direction.
 
@@ -800,7 +800,7 @@ Minimal visual noise
 
 ---
 
-# 📱 Responsive Design
+ Responsive Design
 
 The application is designed for:
 
@@ -832,7 +832,7 @@ Time slots can also adapt their column count according to available screen width
 
 ---
 
-# 🔌 API Routes
+ API Routes
 
 ## Get Events
 
@@ -904,7 +904,7 @@ Returns real time-slot information for an event.
 
 ---
 
-# 🗄 Database Architecture
+ Database Architecture
 
 The basic relationship is:
 
@@ -936,7 +936,7 @@ Each Slot belongs to an Event and a DaySchedule.
 
 ---
 
-# ⚠️ Booking Safety
+ Booking Safety
 
 The frontend must never be the final authority for slot availability.
 
@@ -972,7 +972,7 @@ MongoDB should perform the capacity check and update atomically to prevent overb
 
 ---
 
-# 🔨 Remaining Development
+ Remaining Development
 
 The core event and slot infrastructure is in place.
 
@@ -1054,7 +1054,7 @@ QR Code
 
 ---
 
-# 📊 Future Admin Modules
+ Future Admin Modules
 
 The admin navigation provides the foundation for additional modules.
 
@@ -1112,7 +1112,7 @@ Excel export
 
 ---
 
-# 🔄 Data-Driven Architecture
+ Data-Driven Architecture
 
 The project follows this approach:
 
@@ -1159,7 +1159,7 @@ Event Status
 
 ---
 
-# ⚡ Realtime Updates
+ Realtime Updates
 
 The project includes a realtime refresh layer.
 
@@ -1181,7 +1181,7 @@ This allows management screens to refresh after event mutations.
 
 ---
 
-# 💻 Local Development
+ Local Development
 
 Clone the repository:
 
@@ -1215,7 +1215,7 @@ http://localhost:3000
 
 ---
 
-# 🔑 Environment Variables
+ Environment Variables
 
 Create:
 
@@ -1243,7 +1243,7 @@ Use the exact variable names expected by the project's implementation.
 
 ---
 
-# 🔒 Security
+ Security
 
 Never commit:
 
@@ -1266,7 +1266,7 @@ Make sure `.gitignore` contains:
 
 ---
 
-# 🧪 Production Checklist
+ Production Checklist
 
 Before deploying:
 
@@ -1294,7 +1294,7 @@ Before deploying:
 
 ---
 
-# 📌 Current Development Progress
+ Current Development Progress
 
 ### Completed
 
@@ -1348,7 +1348,7 @@ Before deploying:
 
 ---
 
-# 🧭 Overall Application Flow
+ Overall Application Flow
 
 ```text
                      SSI MAYA CONNECT
@@ -1384,7 +1384,7 @@ Before deploying:
 
 ---
 
-# 🎯 Project Goal
+ Project Goal
 
 The goal of **SSI Maya Connect** is to provide SSI with one centralized platform for managing:
 
@@ -1404,7 +1404,7 @@ The platform is being developed around reusable components, dynamic database-dri
 
 ---
 
-# 👨‍💻 Development Guidelines
+ Development Guidelines
 
 When continuing development:
 
