@@ -114,12 +114,14 @@ export default function EventDetailsPage() {
   ============================================================ */
 
   const fetchEvent =
-    useCallback(async () => {
+    useCallback(async (showLoading = true) => {
       if (!eventId) {
         return;
       }
 
-      setLoading(true);
+      if (showLoading) {
+        setLoading(true);
+      }
       setError('');
 
       try {
@@ -157,12 +159,16 @@ export default function EventDetailsPage() {
             : 'Failed to load event.',
         );
       } finally {
-        setLoading(false);
+        if (showLoading) {
+          setLoading(false);
+        }
       }
     }, [eventId]);
 
   useEffect(() => {
-    void Promise.resolve().then(fetchEvent);
+    void Promise.resolve().then(
+      () => fetchEvent(),
+    );
   }, [fetchEvent]);
 
   useRealtimeRefresh(
@@ -172,7 +178,7 @@ export default function EventDetailsPage() {
         !change.id ||
         change.id === eventId
       ) {
-        void fetchEvent();
+        void fetchEvent(false);
       }
     },
   );

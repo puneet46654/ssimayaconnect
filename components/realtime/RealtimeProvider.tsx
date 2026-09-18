@@ -30,11 +30,11 @@ export function RealtimeProvider({
   );
 
   useEffect(() => {
-    let socketConnected = false;
     let knownEvents: Map<
       string,
       string
     > | null = null;
+    let pollInFlight = false;
 
     const socket: Socket = io({
       autoConnect: true,
@@ -57,17 +57,22 @@ export function RealtimeProvider({
 
     const pollChanges = async () => {
       if (
-        socketConnected ||
+        pollInFlight ||
         document.visibilityState !== 'visible'
       ) {
         return;
       }
+
+      pollInFlight = true;
 
       try {
         const response = await fetch(
           '/api/realtime',
           {
             cache: 'no-store',
+            headers: {
+              'Cache-Control': 'no-cache',
+            },
           },
         );
 
@@ -131,20 +136,12 @@ export function RealtimeProvider({
           'Realtime fallback poll failed:',
           error,
         );
+      } finally {
+        pollInFlight = false;
       }
     };
 
-    const handleConnect = () => {
-      socketConnected = true;
-    };
-
-    const handleDisconnect = () => {
-      socketConnected = false;
-    };
-
     socket.on('data.changed', handleChange);
-    socket.on('connect', handleConnect);
-    socket.on('disconnect', handleDisconnect);
 
     void pollChanges();
     const fallbackTimer = window.setInterval(
@@ -163,8 +160,6 @@ export function RealtimeProvider({
 
     return () => {
       socket.off('data.changed', handleChange);
-      socket.off('connect', handleConnect);
-      socket.off('disconnect', handleDisconnect);
       socket.disconnect();
       window.clearInterval(fallbackTimer);
       document.removeEventListener(
