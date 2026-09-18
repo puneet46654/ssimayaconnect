@@ -10,14 +10,20 @@ import {
   ArrowRight,
   Eye,
   EyeOff,
+  LoaderCircle,
 } from 'lucide-react';
 
 import {
   FormEvent,
+  useEffect,
   useState,
 } from 'react';
 
 import { useRouter } from 'next/navigation';
+import {
+  ADMIN_TOKEN_KEY,
+  getAdminTokenPayload,
+} from '@/lib/admin-auth';
 
 type LoginState =
   | 'idle'
@@ -36,7 +42,8 @@ const USERS: Record<string, string> = {
   anand: 'anand@ssi',
 };
 
-const LOGO_SRC = '/logos/ssilogo.png';
+const LOGO_SRC =
+  '/logos/ssilogo.png';
 
 const PREMIUM_EASE: [
   number,
@@ -48,7 +55,7 @@ const PREMIUM_EASE: [
 const itemVariants: Variants = {
   hidden: {
     opacity: 0,
-    y: 18,
+    y: 16,
   },
 
   visible: {
@@ -56,7 +63,7 @@ const itemVariants: Variants = {
     y: 0,
 
     transition: {
-      duration: 0.55,
+      duration: 0.52,
       ease: PREMIUM_EASE,
     },
   },
@@ -67,8 +74,8 @@ const formVariants: Variants = {
 
   visible: {
     transition: {
-      staggerChildren: 0.075,
-      delayChildren: 0.2,
+      staggerChildren: 0.07,
+      delayChildren: 0.18,
     },
   },
 };
@@ -90,6 +97,12 @@ function createAdminToken(
 
 export default function AdminLoginPage() {
   const router = useRouter();
+
+  useEffect(() => {
+    if (getAdminTokenPayload()) {
+      router.replace('/admin/landing');
+    }
+  }, [router]);
 
   const [
     credentials,
@@ -116,13 +129,6 @@ export default function AdminLoginPage() {
   const isInteracting =
     loginState === 'loading' ||
     loginState === 'success';
-
-  const iosSpring = {
-    type: 'spring' as const,
-    stiffness: 480,
-    damping: 28,
-    mass: 0.8,
-  };
 
   function handleInputChange(
     event: React.ChangeEvent<HTMLInputElement>,
@@ -180,7 +186,7 @@ export default function AdminLoginPage() {
       (resolve) => {
         window.setTimeout(
           resolve,
-          900,
+          950,
         );
       },
     );
@@ -207,19 +213,22 @@ export default function AdminLoginPage() {
       );
 
     localStorage.setItem(
-      'ssi_admin_token',
+      ADMIN_TOKEN_KEY,
       token,
     );
 
     setLoginState('success');
 
-    window.setTimeout(() => {
-      router.push(
-        '/admin/landing',
-      );
+    window.setTimeout(
+      () => {
+        router.replace(
+          '/admin/landing',
+        );
 
-      router.refresh();
-    }, 850);
+        router.refresh();
+      },
+      750,
+    );
   }
 
   return (
@@ -230,44 +239,42 @@ export default function AdminLoginPage() {
       className="
         mx-auto
         w-full
-        max-w-[370px]
+        max-w-[390px]
       "
     >
-      {/* Mobile Brand */}
+      {/* Mobile logo */}
       <motion.div
         variants={itemVariants}
         className="
-          mb-10
+          mb-9
           flex
           flex-col
           items-center
           justify-center
-          text-center
           md:hidden
         "
       >
         <div
           className="
             relative
-            mb-4
             grid
             h-16
             w-16
             place-items-center
             overflow-hidden
-            rounded-[21px]
+            rounded-[20px]
             border
-            border-primary/[0.16]
-            bg-white/[0.92]
-            shadow-[0_14px_40px_rgba(27,75,107,0.14)]
-            backdrop-blur-xl
+            border-primary/20
+            bg-white
+            shadow-[0_14px_35px_rgba(27,75,107,0.13)]
           "
         >
           <div
             className="
-              absolute inset-0
+              absolute
+              inset-0
               bg-gradient-to-br
-              from-primary/[0.06]
+              from-primary/[0.08]
               to-transparent
             "
           />
@@ -283,18 +290,6 @@ export default function AdminLoginPage() {
             "
           />
         </div>
-
-        <p
-          className="
-            text-[11px]
-            font-bold
-            uppercase
-            tracking-[0.16em]
-            text-secondary
-          "
-        >
-          SSI Maya Connect
-        </p>
       </motion.div>
 
       {/* Error */}
@@ -305,7 +300,7 @@ export default function AdminLoginPage() {
               key="login-error"
               initial={{
                 opacity: 0,
-                scale: 0.96,
+                scale: 0.97,
                 y: -8,
               }}
               animate={{
@@ -315,27 +310,26 @@ export default function AdminLoginPage() {
               }}
               exit={{
                 opacity: 0,
-                scale: 0.96,
-                y: -8,
+                scale: 0.97,
+                y: -6,
               }}
               transition={{
-                duration: 0.32,
+                duration: 0.28,
                 ease: PREMIUM_EASE,
               }}
               className="
                 mb-4
-                rounded-[16px]
+                rounded-[14px]
                 border
-                border-red-200/[0.85]
-                bg-red-50/[0.78]
+                border-red-200
+                bg-red-50
                 px-4
                 py-3
                 text-center
                 text-[12px]
                 font-semibold
                 text-red-600
-                shadow-[0_10px_28px_rgba(239,68,68,0.08)]
-                backdrop-blur-xl
+                shadow-[0_8px_24px_rgba(239,68,68,0.08)]
               "
             >
               {error}
@@ -347,145 +341,104 @@ export default function AdminLoginPage() {
       <motion.form
         variants={formVariants}
         onSubmit={handleLogin}
-        className="space-y-6"
+        className="space-y-5"
       >
         {/* Login ID */}
         <motion.div
           variants={itemVariants}
-          className="space-y-2.5"
+          className="space-y-2"
         >
           <label
             htmlFor="username"
             className="
-              ml-3
+              ml-1
               block
               text-[11px]
               font-bold
               uppercase
-              tracking-[0.13em]
-              text-gray-500
+              tracking-[0.12em]
+              text-secondary/65
             "
           >
             Login ID
           </label>
 
-          <div
+          <input
+            id="username"
+            type="text"
+            name="username"
+            autoComplete="username"
+            placeholder="Enter login ID"
+            value={
+              credentials.username
+            }
+            disabled={
+              isInteracting
+            }
+            onChange={
+              handleInputChange
+            }
             className="
-              group
-              relative
+              h-[56px]
+              w-full
+
+              rounded-[18px]
+
+              border
+              border-gray-200
+
+              bg-[#F6F8FB]
+
+              px-5
+
+              text-[14px]
+              font-medium
+              text-secondary
+
+              outline-none
+
+              transition-all
+              duration-250
+
+              placeholder:text-gray-400
+
+              shadow-[inset_0_1px_2px_rgba(15,23,42,0.025)]
+
+              hover:border-primary/25
+              hover:bg-white
+
+              focus:border-primary/50
+              focus:bg-white
+
+              focus:shadow-[0_0_0_4px_rgba(26,158,143,0.08),0_10px_28px_rgba(27,75,107,0.06)]
+
+              disabled:cursor-not-allowed
+              disabled:opacity-60
             "
-          >
-            <div
-              className="
-                pointer-events-none
-                absolute
-                inset-0
-                rounded-[22px]
-                bg-gradient-to-br
-                from-white/[0.95]
-                via-white/[0.62]
-                to-primary/[0.035]
-                opacity-0
-                transition-opacity
-                duration-300
-                group-focus-within:opacity-100
-              "
-            />
-
-            <input
-              id="username"
-              type="text"
-              name="username"
-              autoComplete="username"
-              placeholder="Enter login ID"
-              value={
-                credentials.username
-              }
-              disabled={
-                isInteracting
-              }
-              onChange={
-                handleInputChange
-              }
-              className="
-                relative
-                h-[58px]
-                w-full
-                rounded-[22px]
-                border
-                border-white/[0.76]
-                bg-[#F3F6FA]/[0.88]
-                px-6
-                text-[14px]
-                font-medium
-                text-secondary
-                outline-none
-                backdrop-blur-xl
-                transition-all
-                duration-300
-
-                placeholder:font-normal
-                placeholder:text-gray-400
-
-                shadow-[inset_4px_4px_10px_rgba(15,23,42,0.035),inset_-4px_-4px_12px_rgba(255,255,255,0.95),0_4px_14px_rgba(15,23,42,0.015)]
-
-                hover:border-primary/[0.12]
-                hover:bg-[#F7F9FC]
-
-                focus:border-primary/[0.38]
-                focus:bg-white/[0.96]
-                focus:shadow-[0_14px_36px_rgba(26,158,143,0.10),0_0_0_4px_rgba(26,158,143,0.055)]
-
-                disabled:cursor-not-allowed
-                disabled:opacity-65
-              "
-            />
-          </div>
+          />
         </motion.div>
 
         {/* Password */}
         <motion.div
           variants={itemVariants}
-          className="space-y-2.5"
+          className="space-y-2"
         >
           <label
             htmlFor="password"
             className="
-              ml-3
+              ml-1
               block
               text-[11px]
               font-bold
               uppercase
-              tracking-[0.13em]
-              text-gray-500
+              tracking-[0.12em]
+              text-secondary/65
             "
           >
             Password
           </label>
 
-          <div
-            className="
-              group
-              relative
-            "
-          >
-            <div
-              className="
-                pointer-events-none
-                absolute
-                inset-0
-                rounded-[22px]
-                bg-gradient-to-br
-                from-white/[0.95]
-                via-white/[0.62]
-                to-primary/[0.035]
-                opacity-0
-                transition-opacity
-                duration-300
-                group-focus-within:opacity-100
-              "
-            />
-
+          <div className="relative">
             <input
               id="password"
               type={
@@ -506,36 +459,42 @@ export default function AdminLoginPage() {
                 handleInputChange
               }
               className="
-                relative
-                h-[58px]
+                h-[56px]
                 w-full
-                rounded-[22px]
+
+                rounded-[18px]
+
                 border
-                border-white/[0.76]
-                bg-[#F3F6FA]/[0.88]
-                px-6
-                pr-16
+                border-gray-200
+
+                bg-[#F6F8FB]
+
+                px-5
+                pr-14
+
                 text-[14px]
                 font-medium
                 text-secondary
+
                 outline-none
-                backdrop-blur-xl
+
                 transition-all
-                duration-300
+                duration-250
 
                 placeholder:text-gray-400
 
-                shadow-[inset_4px_4px_10px_rgba(15,23,42,0.035),inset_-4px_-4px_12px_rgba(255,255,255,0.95),0_4px_14px_rgba(15,23,42,0.015)]
+                shadow-[inset_0_1px_2px_rgba(15,23,42,0.025)]
 
-                hover:border-primary/[0.12]
-                hover:bg-[#F7F9FC]
+                hover:border-primary/25
+                hover:bg-white
 
-                focus:border-primary/[0.38]
-                focus:bg-white/[0.96]
-                focus:shadow-[0_14px_36px_rgba(26,158,143,0.10),0_0_0_4px_rgba(26,158,143,0.055)]
+                focus:border-primary/50
+                focus:bg-white
+
+                focus:shadow-[0_0_0_4px_rgba(26,158,143,0.08),0_10px_28px_rgba(27,75,107,0.06)]
 
                 disabled:cursor-not-allowed
-                disabled:opacity-65
+                disabled:opacity-60
               "
             />
 
@@ -544,20 +503,12 @@ export default function AdminLoginPage() {
               disabled={
                 isInteracting
               }
-              whileHover={
-                !isInteracting
-                  ? {
-                      scale: 1.08,
-                    }
-                  : undefined
-              }
-              whileTap={
-                !isInteracting
-                  ? {
-                      scale: 0.92,
-                    }
-                  : undefined
-              }
+              whileHover={{
+                scale: 1.06,
+              }}
+              whileTap={{
+                scale: 0.94,
+              }}
               onClick={() =>
                 setShowPassword(
                   (current) =>
@@ -571,20 +522,27 @@ export default function AdminLoginPage() {
               }
               className="
                 absolute
-                right-4
+                right-3
                 top-1/2
-                z-10
+
                 grid
                 h-9
                 w-9
+
                 -translate-y-1/2
+
                 cursor-pointer
                 place-items-center
+
                 rounded-xl
+
                 text-gray-400
+
                 transition-colors
-                hover:bg-white/[0.75]
+
+                hover:bg-primary/[0.06]
                 hover:text-primary
+
                 disabled:cursor-not-allowed
               "
             >
@@ -594,10 +552,10 @@ export default function AdminLoginPage() {
               >
                 {showPassword ? (
                   <motion.span
-                    key="eye-open"
+                    key="show"
                     initial={{
                       opacity: 0,
-                      scale: 0.7,
+                      scale: 0.75,
                     }}
                     animate={{
                       opacity: 1,
@@ -605,20 +563,20 @@ export default function AdminLoginPage() {
                     }}
                     exit={{
                       opacity: 0,
-                      scale: 0.7,
+                      scale: 0.75,
                     }}
                   >
                     <Eye
-                      size={19}
-                      strokeWidth={1.8}
+                      size={18}
+                      strokeWidth={1.9}
                     />
                   </motion.span>
                 ) : (
                   <motion.span
-                    key="eye-closed"
+                    key="hide"
                     initial={{
                       opacity: 0,
-                      scale: 0.7,
+                      scale: 0.75,
                     }}
                     animate={{
                       opacity: 1,
@@ -626,12 +584,12 @@ export default function AdminLoginPage() {
                     }}
                     exit={{
                       opacity: 0,
-                      scale: 0.7,
+                      scale: 0.75,
                     }}
                   >
                     <EyeOff
-                      size={19}
-                      strokeWidth={1.8}
+                      size={18}
+                      strokeWidth={1.9}
                     />
                   </motion.span>
                 )}
@@ -640,78 +598,72 @@ export default function AdminLoginPage() {
           </div>
         </motion.div>
 
-        {/* Login Action */}
+        {/* Login button */}
         <motion.div
           variants={itemVariants}
-          className="
-            flex
-            items-center
-            justify-between
-            pt-7
-            pl-3
-          "
+          className="pt-4"
         >
-          <p
-            className="
-              text-[13px]
-              font-semibold
-              text-gray-500
-            "
-          >
-            SSI Maya Connect
-          </p>
-
           <motion.button
             type="submit"
             disabled={
               isInteracting
             }
             whileHover={
-              !isInteracting
+              loginState === 'idle'
                 ? {
-                    scale: 1.09,
-                    y: -3,
+                    y: -2,
+                    scale: 1.01,
                   }
                 : undefined
             }
             whileTap={
-              !isInteracting
+              loginState === 'idle'
                 ? {
-                    scale: 0.91,
-                    y: 1,
+                    y: 0,
+                    scale: 0.985,
                   }
                 : undefined
             }
-            transition={iosSpring}
-            aria-label="Login"
+            transition={{
+              type: 'spring',
+              stiffness: 420,
+              damping: 28,
+            }}
             className={`
-              group
               relative
-              grid
-              h-[66px]
-              w-[66px]
-              shrink-0
+              flex
+              h-[56px]
+              w-full
+
               cursor-pointer
-              place-items-center
+              items-center
+              justify-center
+
               overflow-hidden
-              rounded-full
+
+              rounded-[18px]
+
+              px-5
+
+              text-[14px]
+              font-bold
               text-white
-              transition-colors
+
+              transition-all
               duration-300
+
               disabled:cursor-not-allowed
 
               ${
                 loginState === 'success'
                   ? `
-                    bg-success
-                    shadow-[0_18px_42px_rgba(16,185,129,0.34),inset_0_2px_2px_rgba(255,255,255,0.30)]
+                    bg-[#16A36A]
+                    shadow-[0_12px_30px_rgba(22,163,106,0.28)]
                   `
                   : `
-                    bg-gradient-to-br
-                    from-primary
-                    via-primary
-                    to-secondary-mid
-                    shadow-[0_18px_42px_rgba(26,158,143,0.38),inset_0_2px_2px_rgba(255,255,255,0.34)]
+                    bg-[linear-gradient(135deg,#168F82_0%,#146E8A_100%)]
+                    shadow-[0_14px_32px_rgba(20,110,138,0.28)]
+                    hover:shadow-[0_18px_38px_rgba(20,110,138,0.34)]
                   `
               }
             `}
@@ -721,9 +673,9 @@ export default function AdminLoginPage() {
                 pointer-events-none
                 absolute
                 inset-[1px]
-                rounded-full
+                rounded-[17px]
                 border
-                border-white/[0.15]
+                border-white/15
               "
             />
 
@@ -733,23 +685,23 @@ export default function AdminLoginPage() {
                   x: '-180%',
                 }}
                 animate={{
-                  x: '220%',
+                  x: '230%',
                 }}
                 transition={{
-                  duration: 2.6,
+                  duration: 2.2,
                   repeat: Infinity,
-                  repeatDelay: 2.8,
+                  repeatDelay: 3,
                   ease: 'easeInOut',
                 }}
                 className="
                   pointer-events-none
                   absolute
                   inset-y-0
-                  w-[35%]
+                  w-[30%]
                   -skew-x-12
                   bg-gradient-to-r
                   from-transparent
-                  via-white/[0.28]
+                  via-white/20
                   to-transparent
                 "
               />
@@ -759,12 +711,13 @@ export default function AdminLoginPage() {
               mode="wait"
               initial={false}
             >
-              {loginState === 'loading' ? (
-                <motion.span
+              {loginState ===
+              'loading' ? (
+                <motion.div
                   key="loading"
                   initial={{
                     opacity: 0,
-                    scale: 0.7,
+                    scale: 0.9,
                   }}
                   animate={{
                     opacity: 1,
@@ -772,166 +725,148 @@ export default function AdminLoginPage() {
                   }}
                   exit={{
                     opacity: 0,
-                    scale: 0.7,
+                    scale: 0.9,
                   }}
                   className="
                     relative
-                    h-7
-                    w-7
+                    z-10
+                    flex
+                    items-center
+                    gap-2.5
                   "
                 >
-                  <span
-                    className="
-                      absolute
-                      inset-0
-                      rounded-full
-                      border-[2.5px]
-                      border-white/[0.24]
-                    "
-                  />
-
                   <motion.span
                     animate={{
                       rotate: 360,
                     }}
                     transition={{
-                      duration: 0.8,
+                      duration: 0.75,
                       repeat: Infinity,
                       ease: 'linear',
                     }}
-                    className="
-                      absolute
-                      inset-0
-                      rounded-full
-                      border-[2.5px]
-                      border-transparent
-                      border-r-white
-                      border-t-white
-                    "
-                  />
-                </motion.span>
+                  >
+                    <LoaderCircle
+                      size={19}
+                      strokeWidth={2.4}
+                    />
+                  </motion.span>
+
+                  <span>
+                    Signing in...
+                  </span>
+                </motion.div>
               ) : loginState ===
                 'success' ? (
-                <motion.svg
+                <motion.div
                   key="success"
                   initial={{
                     opacity: 0,
-                    scale: 0.25,
-                    rotate: -25,
+                    scale: 0.9,
                   }}
                   animate={{
                     opacity: 1,
                     scale: 1,
-                    rotate: 0,
-                  }}
-                  transition={{
-                    type: 'spring',
-                    stiffness: 520,
-                    damping: 23,
                   }}
                   className="
-                    relative z-10
-                    h-7 w-7
+                    relative
+                    z-10
+                    flex
+                    items-center
+                    gap-2.5
                   "
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2.8}
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="m5 12 4 4L19 6"
-                  />
-                </motion.svg>
+                  <motion.svg
+                    initial={{
+                      scale: 0.4,
+                      rotate: -20,
+                    }}
+                    animate={{
+                      scale: 1,
+                      rotate: 0,
+                    }}
+                    transition={{
+                      type: 'spring',
+                      stiffness: 500,
+                      damping: 23,
+                    }}
+                    className="h-5 w-5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2.8}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="m5 12 4 4L19 6"
+                    />
+                  </motion.svg>
+
+                  <span>
+                    Login successful
+                  </span>
+                </motion.div>
               ) : (
-                <motion.span
-                  key="arrow"
+                <motion.div
+                  key="idle"
                   initial={{
                     opacity: 0,
-                    x: -5,
+                    y: 3,
                   }}
                   animate={{
                     opacity: 1,
-                    x: 0,
-                  }}
-                  exit={{
-                    opacity: 0,
-                    x: 6,
+                    y: 0,
                   }}
                   className="
-                    relative z-10
+                    relative
+                    z-10
+                    flex
+                    items-center
+                    gap-2.5
                   "
                 >
+                  <span>
+                    Login
+                  </span>
+
                   <ArrowRight
-                    size={27}
-                    strokeWidth={2.4}
-                    className="
-                      transition-transform
-                      duration-300
-                      group-hover:translate-x-1
-                    "
+                    size={19}
+                    strokeWidth={2.3}
                   />
-                </motion.span>
+                </motion.div>
               )}
             </AnimatePresence>
           </motion.button>
         </motion.div>
 
-        {/* Status */}
-        <div className="h-7">
-          <AnimatePresence mode="wait">
-            {loginState === 'loading' && (
-              <motion.p
-                key="signing"
-                initial={{
-                  opacity: 0,
-                  y: 6,
-                }}
-                animate={{
-                  opacity: 1,
-                  y: 0,
-                }}
-                exit={{
-                  opacity: 0,
-                  y: -4,
-                }}
-                className="
-                  text-center
-                  text-[11px]
-                  font-semibold
-                  tracking-wide
-                  text-primary
-                "
-              >
-                Signing in...
-              </motion.p>
-            )}
-
-            {loginState === 'success' && (
-              <motion.p
-                key="success-text"
-                initial={{
-                  opacity: 0,
-                  y: 6,
-                }}
-                animate={{
-                  opacity: 1,
-                  y: 0,
-                }}
-                className="
-                  text-center
-                  text-[11px]
-                  font-semibold
-                  tracking-wide
-                  text-success
-                "
-              >
-                Login successful
-              </motion.p>
-            )}
-          </AnimatePresence>
-        </div>
+        {/* Status spacing */}
+        <AnimatePresence>
+          {loginState ===
+            'loading' && (
+            <motion.p
+              initial={{
+                opacity: 0,
+                y: 5,
+              }}
+              animate={{
+                opacity: 1,
+                y: 0,
+              }}
+              exit={{
+                opacity: 0,
+              }}
+              className="
+                text-center
+                text-[11px]
+                font-medium
+                tracking-wide
+                text-secondary/55
+              "
+            >
+              Verifying credentials
+            </motion.p>
+          )}
+        </AnimatePresence>
       </motion.form>
     </motion.div>
   );

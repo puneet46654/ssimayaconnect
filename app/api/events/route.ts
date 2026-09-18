@@ -1,270 +1,816 @@
-import { NextRequest, NextResponse } from 'next/server';
+import {
+  NextRequest,
+  NextResponse,
+} from 'next/server';
+
 import { connectDB } from '@/lib/db';
-import { uploadImageToS3 } from '@/lib/s3';
+
+import {
+  uploadImageToS3,
+} from '@/lib/s3';
+
+import {
+  getEventStatus,
+} from '@/lib/events/status';
+
+import {
+  generateSlotTimes,
+} from '@/lib/events/slots';
+
 import { Event } from '@/models/Event';
-import { DaySchedule } from '@/models/DaySchedule';
+
+import {
+  DaySchedule,
+} from '@/models/DaySchedule';
+
 import { Slot } from '@/models/Slot';
 
-function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'Internal Server Error';
-}
+import {
+  emitRealtimeChange,
+} from '@/lib/realtime';
 
-function getEventStatus(startDate: Date, endDate: Date, now = new Date()) {
-  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const start = new Date(Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), startDate.getUTCDate()));
-  const end = new Date(Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth(), endDate.getUTCDate()));
+type EventType =
+  | 'conference'
+  | 'mantram'
+  | 'event';
 
-  if (today > end) return 'COMPLETED' as const;
-  if (today >= start) return 'LIVE' as const;
-  return 'UPCOMING' as const;
-}
+type BookingFormTemplate =
+  | 'practitioner-institutional'
+  | 'template-2'
+  | 'template-3';
 
-function timeToMinutes(value: string) {
-  const [hours, minutes] = value.split(':').map(Number);
-  return hours * 60 + minutes;
-}
+type DayScheduleInput = {
+  date: string;
 
-function formatTime(totalMinutes: number) {
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-}
+  startTime: string;
 
-function generateSlotTimes(
-  startTime: string,
-  endTime: string,
-  durationStr: string,
-  gapStr: string,
-  lunchEnabled: boolean,
-  lunchStartStr: string,
-  lunchEndStr: string
+  endTime: string;
+
+  lunchEnabled: boolean;
+
+  lunchStart: string;
+
+  lunchEnd: string;
+
+  slotDuration: string;
+
+  slotGap: string;
+
+  capacity: string;
+
+  sameAsDay1: boolean;
+};
+
+const BOOKING_TEMPLATES:
+  BookingFormTemplate[] = [
+    'practitioner-institutional',
+    'template-2',
+    'template-3',
+  ];
+
+function getErrorMessage(
+  error: unknown,
 ) {
-  const start = timeToMinutes(startTime);
-  const end = timeToMinutes(endTime);
-  const duration = Number(durationStr);
-  const gap = Number(gapStr);
-
-  const lunchStart = lunchEnabled ? timeToMinutes(lunchStartStr) : 0;
-  const lunchEnd = lunchEnabled ? timeToMinutes(lunchEndStr) : 0;
-
-  const slots: { startTime: string; endTime: string }[] = [];
-  let cursor = start;
-
-  while (cursor + duration <= end) {
-    const slotEnd = cursor + duration;
-    const overlapsLunch = lunchEnabled && cursor < lunchEnd && slotEnd > lunchStart;
-
-    if (overlapsLunch) {
-      cursor = lunchEnd;
-      continue;
-    }
-
-    slots.push({
-      startTime: formatTime(cursor),
-      endTime: formatTime(slotEnd),
-    });
-
-    cursor = slotEnd + gap;
-  }
-
-  return slots;
+  return error instanceof Error
+    ? error.message
+    : 'Internal Server Error';
 }
+
+function isBookingTemplate(
+  value: string,
+): value is BookingFormTemplate {
+  return BOOKING_TEMPLATES.includes(
+    value as BookingFormTemplate,
+  );
+}
+
+function getPublicImageUrl(
+  eventId: string,
+  updatedAt:
+    | Date
+    | string
+    | undefined,
+) {
+  const version =
+    updatedAt
+      ? new Date(
+          updatedAt,
+        ).getTime()
+      : Date.now();
+
+  return `/api/events/${eventId}/image?v=${version}`;
+}
+
+/* ============================================================
+   GET ALL EVENTS
+============================================================ */
 
 export async function GET() {
   try {
     await connectDB();
 
-    const events = await Event.find().sort({ startDate: 1 }).lean();
-    const eventIds = events.map((event) => event._id);
-    const slotTotals = await Slot.aggregate([
-      { $match: { eventId: { $in: eventIds } } },
-      {
-        $group: {
-          _id: '$eventId',
-          totalSlots: { $sum: '$capacity' },
-          bookedSlots: { $sum: '$bookedCount' },
-        },
-      },
-    ]);
-    const totalsByEventId = new Map(
-      slotTotals.map((total) => [total._id.toString(), total])
-    );
-    const now = new Date();
+    const events =
+      await Event.find()
+        .sort({
+          startDate: 1,
+        })
+        .lean();
 
-    const responseEvents = events.map((event) => {
-      const totals = totalsByEventId.get(event._id.toString()) || {
-        totalSlots: 0,
-        bookedSlots: 0,
-      };
-      const status = getEventStatus(event.startDate, event.endDate, now);
-
-      return {
-        _id: event._id.toString(),
-        eventName: event.eventName,
-        eventType: event.eventType,
-        venue: event.venue,
-        startDate: event.startDate,
-        endDate: event.endDate,
-        description: event.description,
-        imageUrl: event.imageUrl
-          ? `/api/events/${event._id.toString()}/image`
-          : '',
-        totalSlots: totals.totalSlots,
-        bookedSlots: totals.bookedSlots,
-        status,
-      };
-    });
-
-    await Event.bulkWrite(
-      responseEvents.map((event) => ({
-        updateOne: {
-          filter: { _id: event._id },
-          update: { $set: { status: event.status } },
-        },
-      }))
-    );
-
-    return NextResponse.json({ success: true, events: responseEvents });
-  } catch (error: unknown) {
-    console.error('Failed to fetch events:', error);
-    return NextResponse.json(
-      { success: false, error: getErrorMessage(error) },
-      { status: 500 }
-    );
-  }
-}
-
-export async function POST(req: NextRequest) {
-  try {
-    await connectDB();
-
-    const formData = await req.formData();
-
-    const eventName = formData.get('eventName') as string;
-    const eventType = formData.get('eventType') as 'conference' | 'mantram' | 'event';
-    const venue = formData.get('venue') as string;
-    const description = formData.get('description') as string;
-    const numberOfDays = Number(formData.get('numberOfDays'));
-    const startDate = formData.get('startDate') as string;
-    const endDate = formData.get('endDate') as string;
-
-    const thumbnailFile = formData.get('thumbnail') as File | null;
-    let imageUrl = '';
-
-    if (thumbnailFile && thumbnailFile.size > 0) {
-      imageUrl = await uploadImageToS3(thumbnailFile, 'thumbnails');
-    }
-
-    const daysJson = formData.get('daySchedules') as string;
-    const daySchedulesInput = JSON.parse(daysJson || '[]');
-
-    // 1. Create Parent Event Document
-    const newEvent = new Event({
-      eventName,
-      eventType,
-      venue,
-      description,
-      imageUrl,
-      numberOfDays,
-      startDate: new Date(startDate),
-      endDate: new Date(endDate),
-      status: getEventStatus(new Date(startDate), new Date(endDate)),
-    });
-    await newEvent.save();
-
-    // 2. Process Relational DaySchedules and Slots
-    for (let index = 0; index < numberOfDays; index++) {
-      const scheduleData = daySchedulesInput[index];
-
-      const createdDaySchedule = new DaySchedule({
-        eventId: newEvent._id,
-        dayNumber: index + 1,
-        date: new Date(scheduleData.date),
-        startTime: scheduleData.startTime,
-        endTime: scheduleData.endTime,
-        lunchEnabled: scheduleData.lunchEnabled,
-        lunchStart: scheduleData.lunchStart || '',
-        lunchEnd: scheduleData.lunchEnd || '',
-        slotDuration: Number(scheduleData.slotDuration),
-        slotGap: Number(scheduleData.slotGap),
-        capacity: Number(scheduleData.capacity),
-        sameAsDay1: scheduleData.sameAsDay1 || false,
-      });
-      await createdDaySchedule.save();
-
-      // 3. Generate Relational Slots linked to both Event and DaySchedule
-      const generatedSlots = generateSlotTimes(
-        scheduleData.startTime,
-        scheduleData.endTime,
-        scheduleData.slotDuration,
-        scheduleData.slotGap,
-        scheduleData.lunchEnabled,
-        scheduleData.lunchStart,
-        scheduleData.lunchEnd
+    const eventIds =
+      events.map(
+        (event) =>
+          event._id,
       );
 
-      const slotDocs = generatedSlots.map((slot) => ({
-        eventId: newEvent._id,
-        dayScheduleId: createdDaySchedule._id,
-        startTime: slot.startTime,
-        endTime: slot.endTime,
-        capacity: Number(scheduleData.capacity),
-        bookedCount: 0,
-      }));
+    const slotTotals =
+      eventIds.length > 0
+        ? await Slot.aggregate([
+            {
+              $match: {
+                eventId: {
+                  $in:
+                    eventIds,
+                },
+              },
+            },
 
-      if (slotDocs.length > 0) {
-        await Slot.insertMany(slotDocs);
-      }
+            {
+              $group: {
+                _id:
+                  '$eventId',
+
+                totalSlots: {
+                  $sum:
+                    '$capacity',
+                },
+
+                bookedSlots: {
+                  $sum:
+                    '$bookedCount',
+                },
+              },
+            },
+          ])
+        : [];
+
+    const totalsByEventId =
+      new Map(
+        slotTotals.map(
+          (total) => [
+            total._id.toString(),
+            total,
+          ],
+        ),
+      );
+
+    const now =
+      new Date();
+
+    const responseEvents =
+      events.map(
+        (event) => {
+          const eventId =
+            event._id.toString();
+
+          const totals =
+            totalsByEventId.get(
+              eventId,
+            ) || {
+              totalSlots: 0,
+              bookedSlots: 0,
+            };
+
+          const status =
+            getEventStatus(
+              event.startDate,
+              event.endDate,
+              now,
+            );
+
+          return {
+            _id:
+              eventId,
+
+            eventName:
+              event.eventName,
+
+            eventType:
+              event.eventType,
+
+            bookingFormTemplate:
+              event.bookingFormTemplate ||
+              'practitioner-institutional',
+
+            venue:
+              event.venue,
+
+            startDate:
+              event.startDate,
+
+            endDate:
+              event.endDate,
+
+            description:
+              event.description,
+
+            imageUrl:
+              event.imageUrl
+                ? getPublicImageUrl(
+                    eventId,
+                    event.updatedAt,
+                  )
+                : '',
+
+            totalSlots:
+              totals.totalSlots,
+
+            bookedSlots:
+              totals.bookedSlots,
+
+            status,
+
+            createdAt:
+              event.createdAt,
+
+            updatedAt:
+              event.updatedAt,
+          };
+        },
+      );
+
+    const changedStatuses =
+      responseEvents.filter(
+        (
+          responseEvent,
+        ) => {
+          const storedEvent =
+            events.find(
+              (candidate) =>
+                candidate._id.toString() ===
+                responseEvent._id,
+            );
+
+          return (
+            storedEvent &&
+            storedEvent.status !==
+              responseEvent.status
+          );
+        },
+      );
+
+    if (
+      changedStatuses.length >
+      0
+    ) {
+      await Event.bulkWrite(
+        changedStatuses.map(
+          (event) => ({
+            updateOne: {
+              filter: {
+                _id:
+                  event._id,
+              },
+
+              update: {
+                $set: {
+                  status:
+                    event.status,
+                },
+              },
+            },
+          }),
+        ),
+      );
+
+      changedStatuses.forEach(
+        (event) => {
+          emitRealtimeChange({
+            resource:
+              'events',
+
+            action:
+              'updated',
+
+            id:
+              event._id,
+          });
+        },
+      );
     }
 
     return NextResponse.json(
       {
         success: true,
-        message: 'Event and relational schedules created successfully',
-        eventId: newEvent._id,
+
+        events:
+          responseEvents,
       },
-      { status: 201 }
+      {
+        headers: {
+          'Cache-Control':
+            'no-store, no-cache, must-revalidate',
+        },
+      },
     );
-  } catch (error: unknown) {
-    console.error('Failed to create event:', error);
+  } catch (
+    error: unknown
+  ) {
+    console.error(
+      'Failed to fetch events:',
+      error,
+    );
+
     return NextResponse.json(
-      { success: false, error: getErrorMessage(error) },
-      { status: 500 }
+      {
+        success: false,
+
+        error:
+          getErrorMessage(
+            error,
+          ),
+      },
+      {
+        status: 500,
+      },
     );
   }
 }
 
-export async function DELETE(req: NextRequest) {
+/* ============================================================
+   CREATE EVENT
+============================================================ */
+
+export async function POST(
+  req: NextRequest,
+) {
   try {
     await connectDB();
 
-    const eventId = req.nextUrl.searchParams.get('id');
-    if (!eventId) {
+    const formData =
+      await req.formData();
+
+    const eventName =
+      String(
+        formData.get(
+          'eventName',
+        ) || '',
+      ).trim();
+
+    const eventType =
+      String(
+        formData.get(
+          'eventType',
+        ) || '',
+      ) as EventType;
+
+    const bookingTemplateValue =
+      String(
+        formData.get(
+          'bookingFormTemplate',
+        ) ||
+          'practitioner-institutional',
+      );
+
+    const venue =
+      String(
+        formData.get(
+          'venue',
+        ) || '',
+      ).trim();
+
+    const description =
+      String(
+        formData.get(
+          'description',
+        ) || '',
+      ).trim();
+
+    const numberOfDays =
+      Number(
+        formData.get(
+          'numberOfDays',
+        ),
+      );
+
+    const startDateValue =
+      String(
+        formData.get(
+          'startDate',
+        ) || '',
+      );
+
+    const endDateValue =
+      String(
+        formData.get(
+          'endDate',
+        ) || '',
+      );
+
+    if (
+      !eventName ||
+      !venue ||
+      !description ||
+      !startDateValue ||
+      !endDateValue
+    ) {
       return NextResponse.json(
-        { success: false, error: 'Event ID is required.' },
-        { status: 400 }
+        {
+          success: false,
+
+          error:
+            'Required event information is missing.',
+        },
+        {
+          status: 400,
+        },
       );
     }
 
-    const deletedEvent = await Event.findByIdAndDelete(eventId);
-    if (!deletedEvent) {
+    if (
+      ![
+        'conference',
+        'mantram',
+        'event',
+      ].includes(
+        eventType,
+      )
+    ) {
       return NextResponse.json(
-        { success: false, error: 'Event not found.' },
-        { status: 404 }
+        {
+          success: false,
+
+          error:
+            'Invalid event type.',
+        },
+        {
+          status: 400,
+        },
       );
     }
 
-    await Promise.all([
-      DaySchedule.deleteMany({ eventId: deletedEvent._id }),
-      Slot.deleteMany({ eventId: deletedEvent._id }),
-    ]);
+    if (
+      !isBookingTemplate(
+        bookingTemplateValue,
+      )
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
 
-    return NextResponse.json({ success: true });
-  } catch (error: unknown) {
-    console.error('Failed to delete event:', error);
+          error:
+            'Invalid registration form template.',
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    if (
+      !Number.isInteger(
+        numberOfDays,
+      ) ||
+      numberOfDays < 1 ||
+      numberOfDays > 10
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+
+          error:
+            'Number of days must be between 1 and 10.',
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const startDate =
+      new Date(
+        startDateValue,
+      );
+
+    const endDate =
+      new Date(
+        endDateValue,
+      );
+
+    if (
+      Number.isNaN(
+        startDate.getTime(),
+      ) ||
+      Number.isNaN(
+        endDate.getTime(),
+      )
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+
+          error:
+            'Invalid event dates.',
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const daysJson =
+      String(
+        formData.get(
+          'daySchedules',
+        ) || '[]',
+      );
+
+    let daySchedulesInput:
+      DayScheduleInput[];
+
+    try {
+      daySchedulesInput =
+        JSON.parse(
+          daysJson,
+        );
+    } catch {
+      return NextResponse.json(
+        {
+          success: false,
+
+          error:
+            'Invalid day schedule data.',
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    if (
+      !Array.isArray(
+        daySchedulesInput,
+      ) ||
+      daySchedulesInput.length !==
+        numberOfDays
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+
+          error:
+            'Day schedule count does not match the number of event days.',
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const thumbnailEntry =
+      formData.get(
+        'thumbnail',
+      );
+
+    let imageUrl = '';
+
+    if (
+      thumbnailEntry instanceof
+        File &&
+      thumbnailEntry.size > 0
+    ) {
+      imageUrl =
+        await uploadImageToS3(
+          thumbnailEntry,
+          'thumbnails',
+        );
+    }
+
+    const newEvent =
+      new Event({
+        eventName,
+
+        eventType,
+
+        bookingFormTemplate:
+          bookingTemplateValue,
+
+        venue,
+
+        description,
+
+        imageUrl,
+
+        numberOfDays,
+
+        startDate,
+
+        endDate,
+
+        status:
+          getEventStatus(
+            startDate,
+            endDate,
+          ),
+      });
+
+    await newEvent.save();
+
+    try {
+      for (
+        let index = 0;
+        index <
+        numberOfDays;
+        index += 1
+      ) {
+        const scheduleData =
+          daySchedulesInput[
+            index
+          ];
+
+        const createdDaySchedule =
+          new DaySchedule({
+            eventId:
+              newEvent._id,
+
+            dayNumber:
+              index + 1,
+
+            date:
+              new Date(
+                scheduleData.date,
+              ),
+
+            startTime:
+              scheduleData.startTime,
+
+            endTime:
+              scheduleData.endTime,
+
+            lunchEnabled:
+              Boolean(
+                scheduleData.lunchEnabled,
+              ),
+
+            lunchStart:
+              scheduleData.lunchStart ||
+              '',
+
+            lunchEnd:
+              scheduleData.lunchEnd ||
+              '',
+
+            slotDuration:
+              Number(
+                scheduleData.slotDuration,
+              ),
+
+            slotGap:
+              Number(
+                scheduleData.slotGap,
+              ),
+
+            capacity:
+              Number(
+                scheduleData.capacity,
+              ),
+
+            sameAsDay1:
+              Boolean(
+                scheduleData.sameAsDay1,
+              ),
+          });
+
+        await createdDaySchedule.save();
+
+        const generatedSlots =
+          generateSlotTimes(
+            scheduleData.startTime,
+            scheduleData.endTime,
+            scheduleData.slotDuration,
+            scheduleData.slotGap,
+            scheduleData.lunchEnabled,
+            scheduleData.lunchStart,
+            scheduleData.lunchEnd,
+          );
+
+        const slotDocs =
+          generatedSlots.map(
+            (slot) => ({
+              eventId:
+                newEvent._id,
+
+              dayScheduleId:
+                createdDaySchedule._id,
+
+              startTime:
+                slot.startTime,
+
+              endTime:
+                slot.endTime,
+
+              capacity:
+                Number(
+                  scheduleData.capacity,
+                ),
+
+              bookedCount:
+                0,
+            }),
+          );
+
+        if (
+          slotDocs.length >
+          0
+        ) {
+          await Slot.insertMany(
+            slotDocs,
+          );
+        }
+      }
+    } catch (error) {
+      await Promise.all([
+        Slot.deleteMany({
+          eventId:
+            newEvent._id,
+        }),
+
+        DaySchedule.deleteMany(
+          {
+            eventId:
+              newEvent._id,
+          },
+        ),
+
+        Event.deleteOne({
+          _id:
+            newEvent._id,
+        }),
+      ]);
+
+      throw error;
+    }
+
+    emitRealtimeChange({
+      resource:
+        'events',
+
+      action:
+        'created',
+
+      id:
+        newEvent._id.toString(),
+    });
+
     return NextResponse.json(
-      { success: false, error: getErrorMessage(error) },
-      { status: 500 }
+      {
+        success: true,
+
+        message:
+          'Event and relational schedules created successfully',
+
+        eventId:
+          newEvent._id.toString(),
+
+        bookingFormTemplate:
+          newEvent.bookingFormTemplate,
+
+        imageUrl:
+          newEvent.imageUrl
+            ? getPublicImageUrl(
+                newEvent._id.toString(),
+                newEvent.updatedAt,
+              )
+            : '',
+      },
+      {
+        status: 201,
+
+        headers: {
+          'Cache-Control':
+            'no-store',
+        },
+      },
+    );
+  } catch (
+    error: unknown
+  ) {
+    console.error(
+      'Failed to create event:',
+      error,
+    );
+
+    return NextResponse.json(
+      {
+        success: false,
+
+        error:
+          getErrorMessage(
+            error,
+          ),
+      },
+      {
+        status: 500,
+      },
     );
   }
 }

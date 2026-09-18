@@ -20,71 +20,66 @@ import {
   useState,
 } from 'react';
 
+import {
+  ADMIN_TOKEN_KEY,
+  clearAdminSession,
+  decodeAdminToken,
+} from '@/lib/admin-auth';
+
+interface SidebarProps {
+  mobile?: boolean;
+  onNavigate?: () => void;
+}
+
 const navItems = [
   {
     name: 'Dashboard',
     href: '/admin/landing',
-    icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001 1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6',
+
+    icon:
+      'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001 1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6',
   },
+
   {
     name: 'Events Management',
     href: '/admin/eventmanagement',
-    icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z',
+
+    icon:
+      'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z',
   },
+
   {
     name: 'Bookings',
     href: '/admin/bookings',
-    icon: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253',
+
+    icon:
+      'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253',
   },
+
   {
     name: 'Attendees',
     href: '/admin/attendees',
-    icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z',
+
+    icon:
+      'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z',
   },
+
   {
     name: 'Check-in',
     href: '/admin/check-in',
-    icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z',
+
+    icon:
+      'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z',
   },
+
   {
     name: 'Reports & Export',
     href: '/admin/reports',
-    icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
+
+    icon:
+      'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
   },
 ];
-
-type AdminTokenPayload = {
-  username: string;
-  loggedInAt: number;
-};
-
-function decodeAdminToken(
-  token: string,
-): AdminTokenPayload | null {
-  try {
-    const decoded =
-      decodeURIComponent(
-        atob(token),
-      );
-
-    const payload =
-      JSON.parse(decoded);
-
-    if (
-      !payload ||
-      typeof payload.username !==
-        'string' ||
-      typeof payload.loggedInAt !==
-        'number'
-    ) {
-      return null;
-    }
-
-    return payload;
-  } catch {
-    return null;
-  }
-}
 
 function formatUsername(
   username: string,
@@ -113,7 +108,10 @@ function getInitials(
     .toUpperCase();
 }
 
-export default function Sidebar() {
+export default function Sidebar({
+  mobile = false,
+  onNavigate,
+}: SidebarProps) {
   const pathname =
     usePathname();
 
@@ -123,25 +121,34 @@ export default function Sidebar() {
   const [
     currentUser,
     setCurrentUser,
-  ] =
-    useState<AdminTokenPayload | null>(
-      null,
-    );
+  ] = useState<
+    ReturnType<
+      typeof decodeAdminToken
+    >
+  >(null);
 
   const [
     showLogoutModal,
     setShowLogoutModal,
-  ] = useState(false);
+  ] =
+    useState(false);
 
   const [
     loggingOut,
     setLoggingOut,
-  ] = useState(false);
+  ] =
+    useState(false);
+
+  /*
+  |--------------------------------------------------------------------------
+  | LOAD CURRENT ADMIN
+  |--------------------------------------------------------------------------
+  */
 
   useEffect(() => {
     const token =
       localStorage.getItem(
-        'ssi_admin_token',
+        ADMIN_TOKEN_KEY,
       );
 
     if (!token) {
@@ -153,11 +160,13 @@ export default function Sidebar() {
     }
 
     const payload =
-      decodeAdminToken(token);
+      decodeAdminToken(
+        token,
+      );
 
     if (!payload) {
       localStorage.removeItem(
-        'ssi_admin_token',
+        ADMIN_TOKEN_KEY,
       );
 
       router.replace(
@@ -167,8 +176,15 @@ export default function Sidebar() {
       return;
     }
 
-    setCurrentUser(payload);
-  }, [router]);
+    void Promise.resolve().then(
+      () =>
+        setCurrentUser(
+          payload,
+        ),
+    );
+  }, [
+    router,
+  ]);
 
   const displayName =
     useMemo(() => {
@@ -179,7 +195,9 @@ export default function Sidebar() {
       return formatUsername(
         currentUser.username,
       );
-    }, [currentUser]);
+    }, [
+      currentUser,
+    ]);
 
   const initials =
     useMemo(() => {
@@ -190,15 +208,21 @@ export default function Sidebar() {
       return getInitials(
         currentUser.username,
       );
-    }, [currentUser]);
+    }, [
+      currentUser,
+    ]);
 
   function isActiveRoute(
     href: string,
   ) {
     if (
-      href === '/admin/landing'
+      href ===
+      '/admin/landing'
     ) {
-      return pathname === href;
+      return (
+        pathname ===
+        href
+      );
     }
 
     return (
@@ -209,29 +233,49 @@ export default function Sidebar() {
     );
   }
 
+  function handleNavigation() {
+    if (
+      onNavigate
+    ) {
+      onNavigate();
+    }
+  }
+
   async function handleLogout() {
-    if (loggingOut) {
+    if (
+      loggingOut
+    ) {
       return;
     }
 
-    setLoggingOut(true);
+    setLoggingOut(
+      true,
+    );
 
     await new Promise(
       (resolve) => {
         window.setTimeout(
           resolve,
-          450,
+          400,
         );
       },
     );
 
-    localStorage.removeItem(
-      'ssi_admin_token',
+    clearAdminSession();
+
+    setCurrentUser(
+      null,
     );
 
-    setCurrentUser(null);
+    setShowLogoutModal(
+      false,
+    );
 
-    setShowLogoutModal(false);
+    if (
+      onNavigate
+    ) {
+      onNavigate();
+    }
 
     router.replace(
       '/admin/login',
@@ -243,40 +287,69 @@ export default function Sidebar() {
   return (
     <>
       <aside
-        className="
-          sticky
-          top-0
+        className={`
           flex
-          h-screen
-          w-[var(--sidebar-width)]
-          flex-shrink-0
+          h-full
+          min-h-0
+          w-full
           flex-col
-          border-r
-          border-gray-200
+
           bg-white
-        "
+
+          ${
+            mobile
+              ? ''
+              : `
+                sticky
+                top-0
+                h-screen
+              `
+          }
+        `}
       >
-        {/* Brand */}
+        {/* =====================================================
+            BRAND
+        ===================================================== */}
+
         <div
-          className="
-            px-5
+          className={`
+            shrink-0
+
+            px-4
             pb-4
-            pt-6
-          "
+
+            ${
+              mobile
+                ? 'pt-4 pr-14'
+                : 'pt-5 lg:px-5 lg:pt-6'
+            }
+          `}
         >
           <Link
             href="/admin/landing"
+            onClick={
+              handleNavigation
+            }
             className="
               group
+
               flex
               cursor-pointer
               items-center
+
               gap-3
+
               rounded-xl
+
               px-2
               py-2
+
               transition-colors
+              duration-200
+
               hover:bg-gray-50
+
+              active:scale-[0.99]
             "
           >
             <div
@@ -286,13 +359,18 @@ export default function Sidebar() {
                 w-10
                 shrink-0
                 place-items-center
+
                 rounded-xl
+
                 border
                 border-primary/15
-                bg-primary/[0.06]
-                transition
+
+                bg-primary/[0.05]
+
+                transition-colors
+
                 group-hover:border-primary/25
-                group-hover:bg-primary/[0.09]
+                group-hover:bg-primary/[0.08]
               "
             >
               <Image
@@ -309,14 +387,23 @@ export default function Sidebar() {
               />
             </div>
 
-            <div className="min-w-0">
+            <div
+              className="
+                min-w-0
+                flex-1
+              "
+            >
               <p
                 className="
                   truncate
+
                   font-heading
-                  text-sm
+
+                  text-[14px]
                   font-bold
+
                   tracking-[-0.02em]
+
                   text-secondary
                 "
               >
@@ -328,22 +415,42 @@ export default function Sidebar() {
 
         <div
           className="
-            mx-5
+            mx-4
             h-px
+            shrink-0
             bg-gray-100
+
+            lg:mx-5
           "
         />
 
-        {/* Navigation */}
+        {/* =====================================================
+            NAVIGATION
+        ===================================================== */}
+
         <nav
           className="
+            min-h-0
             flex-1
+
             overflow-y-auto
-            px-4
-            py-5
+            overscroll-contain
+
+            px-3
+            py-4
+
+            [scrollbar-width:thin]
+
+            lg:px-4
+            lg:py-5
           "
         >
-          <div className="space-y-1.5">
+          <div
+            className="
+              space-y-1
+              lg:space-y-1.5
+            "
+          >
             {navItems.map(
               (item) => {
                 const active =
@@ -359,79 +466,110 @@ export default function Sidebar() {
                     href={
                       item.href
                     }
+                    onClick={
+                      handleNavigation
+                    }
                     className={`
                       group
                       relative
+
                       flex
                       cursor-pointer
                       items-center
-                      gap-3
+
+                      gap-2.5
+
                       overflow-hidden
+
                       rounded-xl
-                      px-3.5
-                      py-3
-                      text-sm
+
+                      px-3
+                      py-2.5
+
+                      text-[13px]
                       font-medium
+
                       transition-all
                       duration-200
+
+                      lg:gap-3
+                      lg:px-3.5
+                      lg:py-3
+                      lg:text-sm
 
                       ${
                         active
                           ? `
-                            bg-primary/[0.08]
+                            bg-primary/[0.07]
                             text-primary
-                            shadow-[inset_0_0_0_1px_rgba(26,158,143,0.06)]
                           `
                           : `
                             text-gray-500
+
                             hover:bg-gray-50
                             hover:text-secondary
                           `
                       }
                     `}
                   >
-                    {/* Active marker */}
+                    {/* ACTIVE LINE */}
+
                     <span
                       className={`
                         absolute
                         bottom-2
                         left-0
                         top-2
+
                         w-[3px]
+
                         rounded-r-full
+
                         bg-primary
-                        transition-all
-                        duration-200
 
-                        ${
-                          active
-                            ? 'scale-y-100 opacity-100'
-                            : 'scale-y-50 opacity-0'
-                        }
-                      `}
-                    />
-
-                    {/* Icon */}
-                    <span
-                      className={`
-                        grid
-                        h-8
-                        w-8
-                        shrink-0
-                        place-items-center
-                        rounded-lg
                         transition-all
                         duration-200
 
                         ${
                           active
                             ? `
-                              bg-primary/10
+                              scale-y-100
+                              opacity-100
+                            `
+                            : `
+                              scale-y-50
+                              opacity-0
+                            `
+                        }
+                      `}
+                    />
+
+                    {/* ICON */}
+
+                    <span
+                      className={`
+                        grid
+
+                        h-8
+                        w-8
+
+                        shrink-0
+
+                        place-items-center
+
+                        rounded-lg
+
+                        transition-colors
+                        duration-200
+
+                        ${
+                          active
+                            ? `
                               text-primary
                             `
                             : `
                               text-gray-400
-                              group-hover:bg-white
+
                               group-hover:text-secondary
                             `
                         }
@@ -445,9 +583,7 @@ export default function Sidebar() {
                         fill="none"
                         viewBox="0 0 24 24"
                         stroke="currentColor"
-                        strokeWidth={
-                          1.9
-                        }
+                        strokeWidth={1.9}
                       >
                         <path
                           strokeLinecap="round"
@@ -459,7 +595,13 @@ export default function Sidebar() {
                       </svg>
                     </span>
 
-                    <span className="truncate">
+                    <span
+                      className="
+                        min-w-0
+                        flex-1
+                        truncate
+                      "
+                    >
                       {item.name}
                     </span>
                   </Link>
@@ -469,48 +611,72 @@ export default function Sidebar() {
           </div>
         </nav>
 
-        {/* Logged In User */}
+        {/* =====================================================
+            USER + LOGOUT
+        ===================================================== */}
+
         <div
           className="
+            shrink-0
+
             border-t
             border-gray-100
-            p-4
+
+            bg-white
+
+            p-3
+
+            lg:p-4
           "
         >
           {currentUser && (
             <div
               className="
-                mb-3
+                mb-2.5
+
                 flex
+                min-w-0
                 items-center
+
                 gap-3
+
                 rounded-xl
-                border
-                border-gray-100
-                bg-gray-50/70
-                p-3
+
+                bg-gray-50
+
+                p-2.5
+
+                lg:mb-3
+                lg:p-3
               "
             >
-              {/* Initials */}
               <div
                 className="
                   grid
-                  h-10
-                  w-10
+
+                  h-9
+                  w-9
+
                   shrink-0
+
                   place-items-center
+
                   rounded-full
+
                   bg-primary
-                  text-xs
+
+                  text-[11px]
                   font-bold
                   text-white
-                  shadow-sm
+
+                  lg:h-10
+                  lg:w-10
+                  lg:text-xs
                 "
               >
                 {initials}
               </div>
 
-              {/* Actual Username */}
               <div
                 className="
                   min-w-0
@@ -520,9 +686,13 @@ export default function Sidebar() {
                 <p
                   className="
                     truncate
-                    text-sm
+
+                    text-[13px]
                     font-semibold
+
                     text-secondary
+
+                    lg:text-sm
                   "
                 >
                   {displayName}
@@ -531,7 +701,6 @@ export default function Sidebar() {
             </div>
           )}
 
-          {/* Logout */}
           <button
             type="button"
             onClick={() =>
@@ -541,33 +710,47 @@ export default function Sidebar() {
             }
             className="
               group
+
               flex
               w-full
+
               cursor-pointer
               items-center
-              gap-3
+
+              gap-2.5
+
               rounded-xl
+
               px-3
               py-2.5
-              text-sm
+
+              text-[13px]
               font-medium
+
               text-gray-500
-              transition-all
+
+              transition-colors
               duration-200
 
               hover:bg-red-50
               hover:text-red-600
+
+              lg:gap-3
+              lg:text-sm
             "
           >
             <span
               className="
                 grid
+
                 h-8
                 w-8
+
+                shrink-0
+
                 place-items-center
+
                 rounded-lg
-                transition-colors
-                group-hover:bg-white
               "
             >
               <svg
@@ -578,9 +761,7 @@ export default function Sidebar() {
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
-                strokeWidth={
-                  1.9
-                }
+                strokeWidth={1.9}
               >
                 <path
                   strokeLinecap="round"
@@ -590,12 +771,17 @@ export default function Sidebar() {
               </svg>
             </span>
 
-            Log out
+            <span>
+              Log out
+            </span>
           </button>
         </div>
       </aside>
 
-      {/* Logout Popup */}
+      {/* =====================================================
+          LOGOUT MODAL
+      ===================================================== */}
+
       <AnimatePresence>
         {showLogoutModal && (
           <motion.div
@@ -628,18 +814,28 @@ export default function Sidebar() {
               fixed
               inset-0
               z-[200]
-              grid
-              place-items-center
+
+              flex
+              items-end
+              justify-center
+
               bg-secondary/25
-              px-4
-              backdrop-blur-[5px]
+
+              px-3
+              pb-3
+
+              backdrop-blur-[4px]
+
+              sm:items-center
+              sm:px-4
+              sm:pb-0
             "
           >
             <motion.div
               initial={{
                 opacity: 0,
-                scale: 0.94,
-                y: 14,
+                scale: 0.97,
+                y: 20,
               }}
               animate={{
                 opacity: 1,
@@ -648,200 +844,220 @@ export default function Sidebar() {
               }}
               exit={{
                 opacity: 0,
-                scale: 0.96,
-                y: 8,
+                scale: 0.98,
+                y: 12,
               }}
               transition={{
-                type: 'spring',
-                stiffness: 380,
-                damping: 28,
+                type:
+                  'spring',
+
+                stiffness:
+                  380,
+
+                damping:
+                  30,
               }}
               className="
-                relative
                 w-full
-                max-w-[360px]
-                overflow-hidden
-                rounded-2xl
+                max-w-[370px]
+
+                rounded-[20px]
+
                 border
-                border-white/70
-                bg-white/95
-                p-6
-                shadow-[0_24px_70px_rgba(27,75,107,0.20)]
-                backdrop-blur-2xl
+                border-gray-200
+
+                bg-white
+
+                p-5
+
+                shadow-[0_22px_70px_rgba(27,75,107,0.18)]
+
+                sm:p-6
               "
             >
               <div
                 className="
-                  pointer-events-none
-                  absolute
-                  -right-16
-                  -top-20
-                  h-40
-                  w-40
-                  rounded-full
-                  bg-primary/[0.08]
-                  blur-3xl
+                  grid
+                  h-10
+                  w-10
+                  place-items-center
+
+                  rounded-xl
+
+                  bg-red-50
+
+                  text-red-500
                 "
-              />
-
-              <div className="relative">
-                <div
-                  className="
-                    mb-4
-                    grid
-                    h-11
-                    w-11
-                    place-items-center
-                    rounded-xl
-                    bg-red-50
-                    text-red-500
-                  "
+              >
+                <svg
+                  className="h-5 w-5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={1.9}
                 >
-                  <svg
-                    className="
-                      h-5
-                      w-5
-                    "
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={
-                      1.9
-                    }
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-                    />
-                  </svg>
-                </div>
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                  />
+                </svg>
+              </div>
 
-                <h2
-                  className="
-                    font-heading
-                    text-lg
-                    font-bold
-                    text-secondary
-                  "
-                >
-                  Log out?
-                </h2>
+              <h2
+                className="
+                  mt-4
 
-                <p
-                  className="
-                    mt-2
-                    text-sm
-                    leading-6
-                    text-gray-500
-                  "
-                >
-                  Are you sure you want
-                  to log out
-                  {displayName
-                    ? ` ${displayName}?`
-                    : '?'}
-                </p>
+                  font-heading
 
-                <div
+                  text-lg
+                  font-bold
+
+                  text-secondary
+                "
+              >
+                Log out?
+              </h2>
+
+              <p
+                className="
+                  mt-1.5
+
+                  text-sm
+                  leading-6
+
+                  text-gray-500
+                "
+              >
+                Are you sure you want
+                to log out
+                {displayName
+                  ? ` ${displayName}?`
+                  : '?'}
+              </p>
+
+              <div
+                className="
+                  mt-5
+
+                  grid
+                  grid-cols-2
+
+                  gap-2.5
+                "
+              >
+                <button
+                  type="button"
+                  disabled={
+                    loggingOut
+                  }
+                  onClick={() =>
+                    setShowLogoutModal(
+                      false,
+                    )
+                  }
                   className="
-                    mt-6
-                    flex
+                    inline-flex
+                    h-10
+
+                    cursor-pointer
+
                     items-center
-                    justify-end
-                    gap-2
+                    justify-center
+
+                    rounded-lg
+
+                    border
+                    border-gray-200
+
+                    bg-white
+
+                    px-4
+
+                    text-sm
+                    font-semibold
+
+                    text-gray-600
+
+                    transition
+
+                    hover:bg-gray-50
+                    hover:text-secondary
+
+                    active:scale-[0.98]
+
+                    disabled:cursor-not-allowed
+                    disabled:opacity-50
                   "
                 >
-                  {/* Cancel */}
-                  <button
-                    type="button"
-                    disabled={
-                      loggingOut
-                    }
-                    onClick={() =>
-                      setShowLogoutModal(
-                        false,
-                      )
-                    }
-                    className="
-                      inline-flex
-                      h-10
-                      cursor-pointer
-                      items-center
-                      justify-center
-                      rounded-lg
-                      border
-                      border-gray-200
-                      bg-white
-                      px-4
-                      text-sm
-                      font-semibold
-                      text-gray-600
-                      transition
+                  Cancel
+                </button>
 
-                      hover:bg-gray-50
-                      hover:text-secondary
+                <button
+                  type="button"
+                  disabled={
+                    loggingOut
+                  }
+                  onClick={() =>
+                    void handleLogout()
+                  }
+                  className="
+                    inline-flex
+                    h-10
 
-                      disabled:cursor-not-allowed
-                      disabled:opacity-50
-                    "
-                  >
-                    Cancel
-                  </button>
+                    cursor-pointer
 
-                  {/* Confirm Logout */}
-                  <button
-                    type="button"
-                    disabled={
-                      loggingOut
-                    }
-                    onClick={() =>
-                      void handleLogout()
-                    }
-                    className="
-                      inline-flex
-                      h-10
-                      min-w-[96px]
-                      cursor-pointer
-                      items-center
-                      justify-center
-                      gap-2
-                      rounded-lg
-                      bg-red-500
-                      px-4
-                      text-sm
-                      font-semibold
-                      text-white
-                      shadow-sm
-                      transition
+                    items-center
+                    justify-center
 
-                      hover:bg-red-600
+                    gap-2
 
-                      disabled:cursor-not-allowed
-                      disabled:opacity-70
-                    "
-                  >
-                    {loggingOut ? (
-                      <>
-                        <span
-                          className="
-                            h-4
-                            w-4
-                            animate-spin
-                            rounded-full
-                            border-2
-                            border-white/30
-                            border-t-white
-                          "
-                        />
+                    rounded-lg
 
+                    bg-red-500
+
+                    px-4
+
+                    text-sm
+                    font-semibold
+
+                    text-white
+
+                    transition-colors
+
+                    hover:bg-red-600
+
+                    active:scale-[0.98]
+
+                    disabled:cursor-not-allowed
+                    disabled:opacity-70
+                  "
+                >
+                  {loggingOut ? (
+                    <>
+                      <span
+                        className="
+                          h-4
+                          w-4
+
+                          animate-spin
+
+                          rounded-full
+
+                          border-2
+                          border-white/30
+                          border-t-white
+                        "
+                      />
+
+                      <span className="hidden min-[360px]:inline">
                         Logging out
-                      </>
-                    ) : (
-                      'Log out'
-                    )}
-                  </button>
-                </div>
+                      </span>
+                    </>
+                  ) : (
+                    'Log out'
+                  )}
+                </button>
               </div>
             </motion.div>
           </motion.div>

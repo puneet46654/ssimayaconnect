@@ -1,61 +1,133 @@
-import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { NextResponse } from 'next/server';
+import {
+  NextRequest,
+  NextResponse,
+} from 'next/server';
+
+import mongoose from 'mongoose';
+
 import { connectDB } from '@/lib/db';
+
+import {
+  downloadImageFromS3,
+} from '@/lib/s3';
+
 import { Event } from '@/models/Event';
 
-const s3Client = new S3Client({
-  region: process.env.AWS_REGION || 'ap-south-1',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-  },
-});
+export const dynamic =
+  'force-dynamic';
+
+export const revalidate = 0;
+
+type RouteContext = {
+  params: Promise<{
+    id: string;
+  }>;
+};
 
 export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> },
+  _request: NextRequest,
+  context: RouteContext,
 ) {
   try {
     await connectDB();
 
-    const { id } = await params;
-    const event = await Event.findById(id).select('imageUrl').lean();
+    const { id } =
+      await context.params;
 
-    if (!event?.imageUrl) {
+    if (
+      !mongoose.Types.ObjectId.isValid(
+        id,
+      )
+    ) {
       return NextResponse.json(
-        { error: 'Event image not found.' },
-        { status: 404 },
+        {
+          success: false,
+          error:
+            'Invalid event ID.',
+        },
+        {
+          status: 400,
+          headers: {
+            'Cache-Control':
+              'no-store',
+          },
+        },
       );
     }
 
-    const imageUrl = new URL(event.imageUrl);
-    const key = decodeURIComponent(imageUrl.pathname.replace(/^\/+/, ''));
-    const result = await s3Client.send(
-      new GetObjectCommand({
-        Bucket: process.env.AWS_S3_BUCKET_NAME || 'ssi-studio-events',
-        Key: key,
-      }),
+    const event =
+      await Event.findById(id)
+        .select('imageUrl')
+        .lean();
+
+    if (
+      !event ||
+      !event.imageUrl
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            'Event image not found.',
+        },
+        {
+          status: 404,
+
+          headers: {
+            'Cache-Control':
+              'no-store, no-cache, must-revalidate',
+          },
+        },
+      );
+    }
+
+    const image =
+      await downloadImageFromS3(
+        event.imageUrl,
+      );
+
+    return new NextResponse(
+      image.body,
+      {
+        status: 200,
+
+        headers: {
+          'Content-Type':
+            image.contentType ||
+            'application/octet-stream',
+
+          'Cache-Control':
+            'no-store, no-cache, must-revalidate, proxy-revalidate',
+
+          Pragma:
+            'no-cache',
+
+          Expires:
+            '0',
+        },
+      },
+    );
+  } catch (error) {
+    console.error(
+      'Failed to fetch event image:',
+      error,
     );
 
-    if (!result.Body) {
-      return NextResponse.json(
-        { error: 'Event image is empty.' },
-        { status: 404 },
-      );
-    }
-
-    const bytes = await result.Body.transformToByteArray();
-    return new NextResponse(Buffer.from(bytes), {
-      headers: {
-        'Cache-Control': 'public, max-age=3600',
-        'Content-Type': result.ContentType || 'application/octet-stream',
-      },
-    });
-  } catch (error) {
-    console.error('Failed to fetch event image:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch event image.' },
-      { status: 500 },
+      {
+        success: false,
+
+        error:
+          'Failed to fetch event image.',
+      },
+      {
+        status: 500,
+
+        headers: {
+          'Cache-Control':
+            'no-store',
+        },
+      },
     );
   }
 }

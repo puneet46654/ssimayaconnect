@@ -24,7 +24,7 @@ export default function AdminDashboard() {
           <p className="text-sm text-gray-500">+18% increase this week</p>
         </div>
         <div className="card">
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Today's Attendance</p>
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Today&apos;s Attendance</p>
           <h2 className="text-4xl font-bold text-secondary mb-1">156</h2>
           <p className="text-sm text-gray-500">Marked present via QR scan</p>
         </div>
@@ -60,7 +60,7 @@ export default function AdminDashboard() {
                   <td className="font-medium text-gray-900">MC-04782</td>
                   <td>Dr. Alok Sen</td>
                   <td className="text-gray-900 font-medium text-sm">Annual Cardiology Summit 2026</td>
-                  <td className="text-sm">19 Jul '26</td>
+                  <td className="text-sm">19 Jul &apos;26</td>
                   <td className="text-sm">10:00-10:30</td>
                   <td><span className="badge badge--success">Present</span></td>
                 </tr>
@@ -68,7 +68,7 @@ export default function AdminDashboard() {
                   <td className="font-medium text-gray-900">MC-04783</td>
                   <td>Dr. Neha Sharma</td>
                   <td className="text-gray-900 font-medium text-sm">Pediatric Innovations Forum</td>
-                  <td className="text-sm">18 Jul '26</td>
+                  <td className="text-sm">18 Jul &apos;26</td>
                   <td className="text-sm">14:15-14:45</td>
                   <td><span className="badge badge--success">Present</span></td>
                 </tr>
@@ -76,7 +76,7 @@ export default function AdminDashboard() {
                   <td className="font-medium text-gray-900">MC-04784</td>
                   <td>Dr. Rohan Roy</td>
                   <td className="text-gray-900 font-medium text-sm">Neurological Disorders Masterclass</td>
-                  <td className="text-sm">24 Jul '26</td>
+                  <td className="text-sm">24 Jul &apos;26</td>
                   <td className="text-sm">11:30-12:00</td>
                   <td><span className="badge badge--danger">Not Attended</span></td>
                 </tr>
@@ -84,7 +84,7 @@ export default function AdminDashboard() {
                   <td className="font-medium text-gray-900">MC-04785</td>
                   <td>Dr. Priya Patel</td>
                   <td className="text-gray-900 font-medium text-sm">Oncology Digital Diagnostics</td>
-                  <td className="text-sm">12 Aug '26</td>
+                  <td className="text-sm">12 Aug &apos;26</td>
                   <td className="text-sm">09:00-09:30</td>
                   <td><span className="badge badge--success">Present</span></td>
                 </tr>
@@ -92,7 +92,7 @@ export default function AdminDashboard() {
                   <td className="font-medium text-gray-900">MC-04786</td>
                   <td>Dr. Amit Verma</td>
                   <td className="text-gray-900 font-medium text-sm">Orthopedic Prosthetics Expo</td>
-                  <td className="text-sm">02 Aug '26</td>
+                  <td className="text-sm">02 Aug &apos;26</td>
                   <td className="text-sm">16:00-16:30</td>
                   <td><span className="badge badge--danger">Not Attended</span></td>
                 </tr>

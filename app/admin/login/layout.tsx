@@ -105,7 +105,9 @@ export default function AuthLayout({
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
+    void Promise.resolve().then(() =>
+      setMounted(true),
+    );
   }, []);
 
   return (

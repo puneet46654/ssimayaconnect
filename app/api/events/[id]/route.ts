@@ -1,12 +1,36 @@
-import { NextRequest, NextResponse } from 'next/server';
+import {
+  NextRequest,
+  NextResponse,
+} from 'next/server';
+
 import mongoose from 'mongoose';
 
 import { connectDB } from '@/lib/db';
-import { uploadImageToS3 } from '@/lib/s3';
+
+import {
+  uploadImageToS3,
+} from '@/lib/s3';
+
+import {
+  getEventStatus,
+} from '@/lib/events/status';
+
+import {
+  generateSlotTimes,
+  timeToMinutes,
+} from '@/lib/events/slots';
 
 import { Event } from '@/models/Event';
-import { DaySchedule } from '@/models/DaySchedule';
+
+import {
+  DaySchedule,
+} from '@/models/DaySchedule';
+
 import { Slot } from '@/models/Slot';
+
+import {
+  emitRealtimeChange,
+} from '@/lib/realtime';
 
 type RouteContext = {
   params: Promise<{
@@ -14,157 +38,71 @@ type RouteContext = {
   }>;
 };
 
+type BookingFormTemplate =
+  | 'practitioner-institutional'
+  | 'template-2'
+  | 'template-3';
+
 type DayScheduleInput = {
   date: string;
+
   startTime: string;
+
   endTime: string;
+
   lunchEnabled: boolean;
+
   lunchStart: string;
+
   lunchEnd: string;
+
   slotDuration: string;
+
   slotGap: string;
+
   capacity: string;
+
   sameAsDay1: boolean;
 };
 
-function getErrorMessage(error: unknown) {
+const BOOKING_FORM_TEMPLATES:
+  BookingFormTemplate[] = [
+    'practitioner-institutional',
+    'template-2',
+    'template-3',
+  ];
+
+function getErrorMessage(
+  error: unknown,
+) {
   return error instanceof Error
     ? error.message
     : 'Internal Server Error';
 }
 
-function getEventStatus(
-  startDate: Date,
-  endDate: Date,
-  now = new Date(),
+function isBookingFormTemplate(
+  value: string,
+): value is BookingFormTemplate {
+  return BOOKING_FORM_TEMPLATES.includes(
+    value as BookingFormTemplate,
+  );
+}
+
+function getPublicImageUrl(
+  eventId: string,
+  updatedAt:
+    | Date
+    | string
+    | undefined,
 ) {
-  const today = new Date(
-    Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      now.getUTCDate(),
-    ),
-  );
+  const version =
+    updatedAt
+      ? new Date(
+          updatedAt,
+        ).getTime()
+      : Date.now();
 
-  const start = new Date(
-    Date.UTC(
-      startDate.getUTCFullYear(),
-      startDate.getUTCMonth(),
-      startDate.getUTCDate(),
-    ),
-  );
-
-  const end = new Date(
-    Date.UTC(
-      endDate.getUTCFullYear(),
-      endDate.getUTCMonth(),
-      endDate.getUTCDate(),
-    ),
-  );
-
-  if (today > end) {
-    return 'COMPLETED' as const;
-  }
-
-  if (today >= start) {
-    return 'LIVE' as const;
-  }
-
-  return 'UPCOMING' as const;
-}
-
-function timeToMinutes(value: string) {
-  const [hours, minutes] = value
-    .split(':')
-    .map(Number);
-
-  return hours * 60 + minutes;
-}
-
-function formatTime(totalMinutes: number) {
-  const hours = Math.floor(
-    totalMinutes / 60,
-  );
-
-  const minutes =
-    totalMinutes % 60;
-
-  return `${String(hours).padStart(
-    2,
-    '0',
-  )}:${String(minutes).padStart(
-    2,
-    '0',
-  )}`;
-}
-
-function generateSlotTimes(
-  startTime: string,
-  endTime: string,
-  durationStr: string,
-  gapStr: string,
-  lunchEnabled: boolean,
-  lunchStartStr: string,
-  lunchEndStr: string,
-) {
-  const start =
-    timeToMinutes(startTime);
-
-  const end =
-    timeToMinutes(endTime);
-
-  const duration =
-    Number(durationStr);
-
-  const gap =
-    Number(gapStr);
-
-  const lunchStart =
-    lunchEnabled
-      ? timeToMinutes(lunchStartStr)
-      : 0;
-
-  const lunchEnd =
-    lunchEnabled
-      ? timeToMinutes(lunchEndStr)
-      : 0;
-
-  const slots: {
-    startTime: string;
-    endTime: string;
-  }[] = [];
-
-  let cursor = start;
-
-  while (
-    cursor + duration <= end
-  ) {
-    const slotEnd =
-      cursor + duration;
-
-    const overlapsLunch =
-      lunchEnabled &&
-      cursor < lunchEnd &&
-      slotEnd > lunchStart;
-
-    if (overlapsLunch) {
-      cursor = lunchEnd;
-      continue;
-    }
-
-    slots.push({
-      startTime:
-        formatTime(cursor),
-
-      endTime:
-        formatTime(slotEnd),
-    });
-
-    cursor =
-      slotEnd + gap;
-  }
-
-  return slots;
+  return `/api/events/${eventId}/image?v=${version}`;
 }
 
 function validateSchedule(
@@ -182,7 +120,9 @@ function validateSchedule(
     );
 
   const capacity =
-    Number(schedule.capacity);
+    Number(
+      schedule.capacity,
+    );
 
   const duration =
     Number(
@@ -190,7 +130,9 @@ function validateSchedule(
     );
 
   const gap =
-    Number(schedule.slotGap);
+    Number(
+      schedule.slotGap,
+    );
 
   if (
     !schedule.date ||
@@ -281,11 +223,9 @@ function validateSchedule(
   return '';
 }
 
-/*
-|--------------------------------------------------------------------------
-| GET ONE EVENT FOR EDIT PAGE
-|--------------------------------------------------------------------------
-*/
+/* ============================================================
+   GET EVENT
+============================================================ */
 
 export async function GET(
   _req: NextRequest,
@@ -308,13 +248,16 @@ export async function GET(
           error:
             'Invalid event ID.',
         },
-        { status: 400 },
+        {
+          status: 400,
+        },
       );
     }
 
     const event =
-      await Event.findById(id)
-        .lean();
+      await Event.findById(
+        id,
+      ).lean();
 
     if (!event) {
       return NextResponse.json(
@@ -323,13 +266,16 @@ export async function GET(
           error:
             'Event not found.',
         },
-        { status: 404 },
+        {
+          status: 404,
+        },
       );
     }
 
     const daySchedules =
       await DaySchedule.find({
-        eventId: event._id,
+        eventId:
+          event._id,
       })
         .sort({
           dayNumber: 1,
@@ -344,12 +290,14 @@ export async function GET(
               event._id,
           },
         },
+
         {
           $group: {
             _id: null,
 
             totalSlots: {
-              $sum: '$capacity',
+              $sum:
+                '$capacity',
             },
 
             bookedSlots: {
@@ -373,11 +321,13 @@ export async function GET(
       );
 
     if (
-      event.status !== status
+      event.status !==
+      status
     ) {
       await Event.updateOne(
         {
-          _id: event._id,
+          _id:
+            event._id,
         },
         {
           $set: {
@@ -387,98 +337,121 @@ export async function GET(
       );
     }
 
-    return NextResponse.json({
-      success: true,
+    return NextResponse.json(
+      {
+        success: true,
 
-      event: {
-        _id:
-          event._id.toString(),
+        event: {
+          _id:
+            event._id.toString(),
 
-        eventName:
-          event.eventName,
+          eventName:
+            event.eventName,
 
-        eventType:
-          event.eventType,
+          eventType:
+            event.eventType,
 
-        venue:
-          event.venue,
+          bookingFormTemplate:
+            event.bookingFormTemplate ||
+            'practitioner-institutional',
 
-        description:
-          event.description,
+          venue:
+            event.venue,
 
-        imageUrl:
-          event.imageUrl
-            ? `/api/events/${event._id.toString()}/image`
-            : '',
+          description:
+            event.description,
 
-        numberOfDays:
-          event.numberOfDays,
+          imageUrl:
+            event.imageUrl
+              ? getPublicImageUrl(
+                  event._id.toString(),
+                  event.updatedAt,
+                )
+              : '',
 
-        startDate:
-          event.startDate,
+          numberOfDays:
+            event.numberOfDays,
 
-        endDate:
-          event.endDate,
+          startDate:
+            event.startDate,
 
-        status,
+          endDate:
+            event.endDate,
 
-        totalSlots:
-          totals.totalSlots,
+          status,
 
-        bookedSlots:
-          totals.bookedSlots,
+          totalSlots:
+            totals.totalSlots,
 
-        daySchedules:
-          daySchedules.map(
-            (schedule) => ({
-              _id:
-                schedule._id.toString(),
+          bookedSlots:
+            totals.bookedSlots,
 
-              dayNumber:
-                schedule.dayNumber,
+          createdAt:
+            event.createdAt,
 
-              date:
-                schedule.date,
+          updatedAt:
+            event.updatedAt,
 
-              startTime:
-                schedule.startTime,
+          daySchedules:
+            daySchedules.map(
+              (schedule) => ({
+                _id:
+                  schedule._id.toString(),
 
-              endTime:
-                schedule.endTime,
+                dayNumber:
+                  schedule.dayNumber,
 
-              lunchEnabled:
-                schedule.lunchEnabled,
+                date:
+                  schedule.date,
 
-              lunchStart:
-                schedule.lunchStart ||
-                '',
+                startTime:
+                  schedule.startTime,
 
-              lunchEnd:
-                schedule.lunchEnd ||
-                '',
+                endTime:
+                  schedule.endTime,
 
-              slotDuration:
-                String(
-                  schedule.slotDuration,
-                ),
+                lunchEnabled:
+                  schedule.lunchEnabled,
 
-              slotGap:
-                String(
-                  schedule.slotGap,
-                ),
+                lunchStart:
+                  schedule.lunchStart ||
+                  '',
 
-              capacity:
-                String(
-                  schedule.capacity,
-                ),
+                lunchEnd:
+                  schedule.lunchEnd ||
+                  '',
 
-              sameAsDay1:
-                schedule.sameAsDay1,
-            }),
-          ),
+                slotDuration:
+                  String(
+                    schedule.slotDuration,
+                  ),
+
+                slotGap:
+                  String(
+                    schedule.slotGap,
+                  ),
+
+                capacity:
+                  String(
+                    schedule.capacity,
+                  ),
+
+                sameAsDay1:
+                  schedule.sameAsDay1,
+              }),
+            ),
+        },
       },
-    });
-  } catch (error: unknown) {
+      {
+        headers: {
+          'Cache-Control':
+            'no-store, no-cache, must-revalidate',
+        },
+      },
+    );
+  } catch (
+    error: unknown
+  ) {
     console.error(
       'Failed to fetch event:',
       error,
@@ -487,19 +460,22 @@ export async function GET(
     return NextResponse.json(
       {
         success: false,
+
         error:
-          getErrorMessage(error),
+          getErrorMessage(
+            error,
+          ),
       },
-      { status: 500 },
+      {
+        status: 500,
+      },
     );
   }
 }
 
-/*
-|--------------------------------------------------------------------------
-| UPDATE EVENT
-|--------------------------------------------------------------------------
-*/
+/* ============================================================
+   UPDATE EVENT
+============================================================ */
 
 export async function PUT(
   req: NextRequest,
@@ -522,12 +498,16 @@ export async function PUT(
           error:
             'Invalid event ID.',
         },
-        { status: 400 },
+        {
+          status: 400,
+        },
       );
     }
 
     const existingEvent =
-      await Event.findById(id);
+      await Event.findById(
+        id,
+      );
 
     if (!existingEvent) {
       return NextResponse.json(
@@ -536,7 +516,9 @@ export async function PUT(
           error:
             'Event not found.',
         },
-        { status: 404 },
+        {
+          status: 404,
+        },
       );
     }
 
@@ -559,6 +541,22 @@ export async function PUT(
         | 'conference'
         | 'mantram'
         | 'event';
+
+    const rawBookingFormTemplate =
+      String(
+        formData.get(
+          'bookingFormTemplate',
+        ) || '',
+      ).trim();
+
+    const bookingFormTemplate:
+      BookingFormTemplate =
+        isBookingFormTemplate(
+          rawBookingFormTemplate,
+        )
+          ? rawBookingFormTemplate
+          : existingEvent.bookingFormTemplate ||
+            'practitioner-institutional';
 
     const venue =
       String(
@@ -608,7 +606,9 @@ export async function PUT(
           error:
             'Required event information is missing.',
         },
-        { status: 400 },
+        {
+          status: 400,
+        },
       );
     }
 
@@ -617,7 +617,9 @@ export async function PUT(
         'conference',
         'mantram',
         'event',
-      ].includes(eventType)
+      ].includes(
+        eventType,
+      )
     ) {
       return NextResponse.json(
         {
@@ -625,7 +627,26 @@ export async function PUT(
           error:
             'Invalid event type.',
         },
-        { status: 400 },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    if (
+      !isBookingFormTemplate(
+        bookingFormTemplate,
+      )
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            'Invalid registration form template.',
+        },
+        {
+          status: 400,
+        },
       );
     }
 
@@ -642,7 +663,9 @@ export async function PUT(
           error:
             'Number of days must be between 1 and 10.',
         },
-        { status: 400 },
+        {
+          status: 400,
+        },
       );
     }
 
@@ -670,7 +693,9 @@ export async function PUT(
           error:
             'Invalid event dates.',
         },
-        { status: 400 },
+        {
+          status: 400,
+        },
       );
     }
 
@@ -686,7 +711,9 @@ export async function PUT(
 
     try {
       daySchedulesInput =
-        JSON.parse(daysJson);
+        JSON.parse(
+          daysJson,
+        );
     } catch {
       return NextResponse.json(
         {
@@ -694,7 +721,9 @@ export async function PUT(
           error:
             'Invalid day schedule data.',
         },
-        { status: 400 },
+        {
+          status: 400,
+        },
       );
     }
 
@@ -711,7 +740,9 @@ export async function PUT(
           error:
             'Day schedule count does not match the number of event days.',
         },
-        { status: 400 },
+        {
+          status: 400,
+        },
       );
     }
 
@@ -735,14 +766,13 @@ export async function PUT(
             success: false,
             error,
           },
-          { status: 400 },
+          {
+            status: 400,
+          },
         );
       }
     }
 
-    /*
-     * Load current schedule + slots before modifying anything.
-     */
     const existingSchedules =
       await DaySchedule.find({
         eventId:
@@ -768,10 +798,14 @@ export async function PUT(
       );
 
     const slotsBySchedule =
-      new Map<string, typeof existingSlots>();
+      new Map<
+        string,
+        typeof existingSlots
+      >();
 
     for (
-      const slot of existingSlots
+      const slot of
+      existingSlots
     ) {
       const scheduleId =
         slot.dayScheduleId.toString();
@@ -781,7 +815,9 @@ export async function PUT(
           scheduleId,
         ) || [];
 
-      collection.push(slot);
+      collection.push(
+        slot,
+      );
 
       slotsBySchedule.set(
         scheduleId,
@@ -789,30 +825,32 @@ export async function PUT(
       );
     }
 
-    /*
-     * Validate booking safety before changing DB.
-     *
-     * - capacity cannot become lower than bookedCount
-     * - a booked slot cannot disappear
-     * - a booked day cannot be removed
-     */
+    /* ========================================================
+       BOOKING PROTECTION
+    ======================================================== */
+
     for (
       let index = 0;
-      index < numberOfDays;
+      index <
+      numberOfDays;
       index += 1
     ) {
       const dayNumber =
         index + 1;
 
       const input =
-        daySchedulesInput[index];
+        daySchedulesInput[
+          index
+        ];
 
       const existingSchedule =
         schedulesByDay.get(
           dayNumber,
         );
 
-      if (!existingSchedule) {
+      if (
+        !existingSchedule
+      ) {
         continue;
       }
 
@@ -841,7 +879,8 @@ export async function PUT(
         );
 
       for (
-        const oldSlot of oldSlots
+        const oldSlot of
+        oldSlots
       ) {
         const key =
           `${oldSlot.startTime}|${oldSlot.endTime}`;
@@ -849,42 +888,47 @@ export async function PUT(
         if (
           oldSlot.bookedCount >
             0 &&
-          !newSlotKeys.has(key)
+          !newSlotKeys.has(
+            key,
+          )
         ) {
           return NextResponse.json(
             {
               success: false,
+
               error:
                 `Day ${dayNumber}: ${oldSlot.startTime} – ${oldSlot.endTime} already has ${oldSlot.bookedCount} booking(s). You cannot remove or change this booked slot.`,
             },
-            { status: 409 },
+            {
+              status: 409,
+            },
           );
         }
 
         if (
           oldSlot.bookedCount >
-            Number(
-              input.capacity,
-            )
+          Number(
+            input.capacity,
+          )
         ) {
           return NextResponse.json(
             {
               success: false,
+
               error:
                 `Day ${dayNumber}: capacity cannot be lower than the existing ${oldSlot.bookedCount} booking(s).`,
             },
-            { status: 409 },
+            {
+              status: 409,
+            },
           );
         }
       }
     }
 
-    /*
-     * Check removed days.
-     */
     for (
       const schedule of
-        existingSchedules
+      existingSchedules
     ) {
       if (
         schedule.dayNumber <=
@@ -900,28 +944,36 @@ export async function PUT(
 
       const bookedCount =
         oldSlots.reduce(
-          (total, slot) =>
+          (
+            total,
+            slot,
+          ) =>
             total +
             slot.bookedCount,
           0,
         );
 
-      if (bookedCount > 0) {
+      if (
+        bookedCount > 0
+      ) {
         return NextResponse.json(
           {
             success: false,
+
             error:
               `Day ${schedule.dayNumber} has ${bookedCount} existing booking(s). Reduce the number of days only after those bookings are handled.`,
           },
-          { status: 409 },
+          {
+            status: 409,
+          },
         );
       }
     }
 
-    /*
-     * Upload replacement image only when user selected one.
-     * Otherwise keep the current S3 URL.
-     */
+    /* ========================================================
+       IMAGE
+    ======================================================== */
+
     const thumbnailEntry =
       formData.get(
         'thumbnail',
@@ -943,54 +995,109 @@ export async function PUT(
         );
     }
 
-    /*
-     * Update event document.
-     */
-    existingEvent.eventName =
-      eventName;
+    /* ========================================================
+       EXPLICIT EVENT UPDATE
+    ======================================================== */
 
-    existingEvent.eventType =
-      eventType;
+    const updatedEvent =
+      await Event.findByIdAndUpdate(
+        existingEvent._id,
+        {
+          $set: {
+            eventName,
 
-    existingEvent.venue =
-      venue;
+            eventType,
 
-    existingEvent.description =
-      description;
+            bookingFormTemplate,
 
-    existingEvent.imageUrl =
-      imageUrl;
+            venue,
 
-    existingEvent.numberOfDays =
-      numberOfDays;
+            description,
 
-    existingEvent.startDate =
-      startDate;
+            imageUrl,
 
-    existingEvent.endDate =
-      endDate;
+            numberOfDays,
 
-    existingEvent.status =
-      getEventStatus(
-        startDate,
-        endDate,
+            startDate,
+
+            endDate,
+
+            status:
+              getEventStatus(
+                startDate,
+                endDate,
+              ),
+          },
+        },
+        {
+          new: true,
+
+          runValidators: true,
+        },
       );
 
-    await existingEvent.save();
+    if (!updatedEvent) {
+      return NextResponse.json(
+        {
+          success: false,
 
-    /*
-     * Update/create each day.
-     */
+          error:
+            'Event update failed.',
+        },
+        {
+          status: 500,
+        },
+      );
+    }
+
+    if (
+      updatedEvent.bookingFormTemplate !==
+      bookingFormTemplate
+    ) {
+      console.error(
+        'Template persistence mismatch:',
+        {
+          requested:
+            bookingFormTemplate,
+
+          saved:
+            updatedEvent.bookingFormTemplate,
+
+          eventId:
+            updatedEvent._id.toString(),
+        },
+      );
+
+      return NextResponse.json(
+        {
+          success: false,
+
+          error:
+            'Registration form template could not be saved.',
+        },
+        {
+          status: 500,
+        },
+      );
+    }
+
+    /* ========================================================
+       UPDATE SCHEDULES
+    ======================================================== */
+
     for (
       let index = 0;
-      index < numberOfDays;
+      index <
+      numberOfDays;
       index += 1
     ) {
       const dayNumber =
         index + 1;
 
       const scheduleData =
-        daySchedulesInput[index];
+        daySchedulesInput[
+          index
+        ];
 
       let schedule =
         schedulesByDay.get(
@@ -1001,7 +1108,7 @@ export async function PUT(
         schedule =
           new DaySchedule({
             eventId:
-              existingEvent._id,
+              updatedEvent._id,
 
             dayNumber,
 
@@ -1093,14 +1200,10 @@ export async function PUT(
         await schedule.save();
       }
 
-      /*
-       * Synchronize slots while retaining bookedCount
-       * for unchanged time ranges.
-       */
       const oldSlots =
         await Slot.find({
           eventId:
-            existingEvent._id,
+            updatedEvent._id,
 
           dayScheduleId:
             schedule._id,
@@ -1132,17 +1235,23 @@ export async function PUT(
 
       for (
         const generatedSlot of
-          generatedSlots
+        generatedSlots
       ) {
         const key =
           `${generatedSlot.startTime}|${generatedSlot.endTime}`;
 
-        desiredKeys.add(key);
+        desiredKeys.add(
+          key,
+        );
 
         const existingSlot =
-          oldSlotsByTime.get(key);
+          oldSlotsByTime.get(
+            key,
+          );
 
-        if (existingSlot) {
+        if (
+          existingSlot
+        ) {
           existingSlot.capacity =
             Number(
               scheduleData.capacity,
@@ -1152,7 +1261,7 @@ export async function PUT(
         } else {
           await Slot.create({
             eventId:
-              existingEvent._id,
+              updatedEvent._id,
 
             dayScheduleId:
               schedule._id,
@@ -1168,7 +1277,8 @@ export async function PUT(
                 scheduleData.capacity,
               ),
 
-            bookedCount: 0,
+            bookedCount:
+              0,
           });
         }
       }
@@ -1184,7 +1294,8 @@ export async function PUT(
                 0,
           )
           .map(
-            (slot) => slot._id,
+            (slot) =>
+              slot._id,
           );
 
       if (
@@ -1200,9 +1311,6 @@ export async function PUT(
       }
     }
 
-    /*
-     * Remove old unused days above the new numberOfDays.
-     */
     const removedSchedules =
       existingSchedules.filter(
         (schedule) =>
@@ -1222,31 +1330,66 @@ export async function PUT(
 
       await Slot.deleteMany({
         dayScheduleId: {
-          $in: ids,
+          $in:
+            ids,
         },
       });
 
       await DaySchedule.deleteMany(
         {
           _id: {
-            $in: ids,
+            $in:
+              ids,
           },
         },
       );
     }
 
-    return NextResponse.json({
-      success: true,
+    emitRealtimeChange({
+      resource:
+        'events',
 
-      message:
-        'Event updated successfully.',
+      action:
+        'updated',
 
-      eventId:
-        existingEvent._id.toString(),
-
-      imageUrl,
+      id:
+        updatedEvent._id.toString(),
     });
-  } catch (error: unknown) {
+
+    return NextResponse.json(
+      {
+        success: true,
+
+        message:
+          'Event updated successfully.',
+
+        eventId:
+          updatedEvent._id.toString(),
+
+        bookingFormTemplate:
+          updatedEvent.bookingFormTemplate,
+
+        imageUrl:
+          updatedEvent.imageUrl
+            ? getPublicImageUrl(
+                updatedEvent._id.toString(),
+                updatedEvent.updatedAt,
+              )
+            : '',
+
+        updatedAt:
+          updatedEvent.updatedAt,
+      },
+      {
+        headers: {
+          'Cache-Control':
+            'no-store, no-cache, must-revalidate',
+        },
+      },
+    );
+  } catch (
+    error: unknown
+  ) {
     console.error(
       'Failed to update event:',
       error,
@@ -1255,22 +1398,22 @@ export async function PUT(
     return NextResponse.json(
       {
         success: false,
+
         error:
-          getErrorMessage(error),
+          getErrorMessage(
+            error,
+          ),
       },
-      { status: 500 },
+      {
+        status: 500,
+      },
     );
   }
 }
 
-/*
-|--------------------------------------------------------------------------
-| DELETE SINGLE EVENT
-|--------------------------------------------------------------------------
-|
-| You can use this from the management page instead of ?id= if desired.
-|
-*/
+/* ============================================================
+   DELETE EVENT
+============================================================ */
 
 export async function DELETE(
   _req: NextRequest,
@@ -1290,45 +1433,77 @@ export async function DELETE(
       return NextResponse.json(
         {
           success: false,
+
           error:
             'Invalid event ID.',
         },
-        { status: 400 },
+        {
+          status: 400,
+        },
       );
     }
 
     const event =
-      await Event.findById(id);
+      await Event.findById(
+        id,
+      );
 
     if (!event) {
       return NextResponse.json(
         {
           success: false,
+
           error:
             'Event not found.',
         },
-        { status: 404 },
+        {
+          status: 404,
+        },
       );
     }
 
     await Promise.all([
       Slot.deleteMany({
-        eventId: event._id,
+        eventId:
+          event._id,
       }),
 
       DaySchedule.deleteMany({
-        eventId: event._id,
+        eventId:
+          event._id,
       }),
     ]);
 
     await Event.deleteOne({
-      _id: event._id,
+      _id:
+        event._id,
     });
 
-    return NextResponse.json({
-      success: true,
+    emitRealtimeChange({
+      resource:
+        'events',
+
+      action:
+        'deleted',
+
+      id:
+        event._id.toString(),
     });
-  } catch (error: unknown) {
+
+    return NextResponse.json(
+      {
+        success: true,
+      },
+      {
+        headers: {
+          'Cache-Control':
+            'no-store',
+        },
+      },
+    );
+  } catch (
+    error: unknown
+  ) {
     console.error(
       'Failed to delete event:',
       error,
@@ -1337,10 +1512,15 @@ export async function DELETE(
     return NextResponse.json(
       {
         success: false,
+
         error:
-          getErrorMessage(error),
+          getErrorMessage(
+            error,
+          ),
       },
-      { status: 500 },
+      {
+        status: 500,
+      },
     );
   }
 }

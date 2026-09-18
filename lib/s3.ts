@@ -1,4 +1,8 @@
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import {
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 
 const s3Client = new S3Client({
   region: process.env.AWS_REGION || 'ap-south-1',
@@ -25,4 +29,30 @@ export async function uploadImageToS3(file: File, folder = 'events'): Promise<st
   await s3Client.send(command);
 
   return `https://${process.env.AWS_S3_BUCKET_NAME || 'ssi-studio-events'}.s3.${process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com/${fileName}`;
+}
+
+export async function downloadImageFromS3(imageUrl: string) {
+  const parsedUrl = new URL(imageUrl);
+  const key = decodeURIComponent(
+    parsedUrl.pathname.replace(/^\/+/, ''),
+  );
+  const result = await s3Client.send(
+    new GetObjectCommand({
+      Bucket:
+        process.env.AWS_S3_BUCKET_NAME ||
+        'ssi-studio-events',
+      Key: key,
+    }),
+  );
+
+  if (!result.Body) {
+    throw new Error('S3 image is empty.');
+  }
+
+  return {
+    body: Buffer.from(
+      await result.Body.transformToByteArray(),
+    ),
+    contentType: result.ContentType,
+  };
 }
