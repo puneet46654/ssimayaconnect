@@ -14,6 +14,8 @@ import {
   useRouter,
 } from 'next/navigation';
 
+import { useRealtimeRefresh } from '@/components/realtime/RealtimeProvider';
+
 type SlotItem = {
   _id: string;
 
@@ -257,6 +259,15 @@ export default function TimeSlotsPage() {
   }, [
     loadSlots,
   ]);
+
+  useRealtimeRefresh(
+    'events',
+    (change) => {
+      if (!change.id || change.id === eventId) {
+        void loadSlots(true);
+      }
+    },
+  );
 
   /*
    * Lightweight refresh.

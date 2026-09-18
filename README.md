@@ -1163,6 +1163,8 @@ Event Status
 
 The project includes a realtime refresh layer.
 
+ When running with `npm run dev` or `npm start`, the custom Node server uses Socket.IO for immediate broadcasts. Vercel does not keep a persistent custom Node server for App Router functions, so the browser automatically falls back to a lightweight `/api/realtime` change feed every five seconds. This fallback compares event versions and refreshes only the affected screens, allowing deployed event changes to appear without a page refresh.
+
 Example component:
 
 ```text
