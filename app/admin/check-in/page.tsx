@@ -692,19 +692,30 @@ export default function CheckInPage() {
           true,
         );
 
+        /* ==========================================================
+           PHONE HAPTIC FEEDBACK
+           Vibrates only after database verification succeeds.
+        ========================================================== */
+
         if (
-          'vibrate' in
-          navigator
+          typeof navigator !== 'undefined' &&
+          'vibrate' in navigator
         ) {
-          navigator.vibrate(
-            data.alreadyPresent
-              ? 50
-              : [
-                  60,
-                  40,
-                  100,
-                ],
-          );
+          if (data.alreadyPresent) {
+            // Short vibration = valid ticket, already checked in
+            navigator.vibrate([
+              80,
+              60,
+              80,
+            ]);
+          } else {
+            // Strong success vibration = booking matched + marked present
+            navigator.vibrate([
+              120,
+              70,
+              180,
+            ]);
+          }
         }
 
         return data;

@@ -5,6 +5,8 @@ import {
 
 import crypto from 'node:crypto';
 
+import mongoose from 'mongoose';
+
 import { connectDB } from '@/lib/db';
 
 import {
@@ -158,27 +160,53 @@ export async function POST(
       occurredAt: now,
     };
 
-    const session =
-      await UserActivity.findOneAndUpdate(
-        {
-          sessionId,
-        },
-        {
-          $setOnInsert: {
+    let session;
+
+    try {
+      session =
+        await UserActivity.findOneAndUpdate(
+          {
             sessionId,
-            status:
-              'viewed' satisfies UserActivityStatus,
-            lastSeenAt: now,
-            events: [],
-            activities: [],
           },
-        },
-        {
-          upsert: true,
-          new: true,
-          setDefaultsOnInsert: true,
-        },
+          {
+            $setOnInsert: {
+              sessionId,
+              status:
+                'viewed' satisfies UserActivityStatus,
+              lastSeenAt: now,
+              events: [],
+              activities: [],
+            },
+          },
+          {
+            upsert: true,
+            new: true,
+            setDefaultsOnInsert: true,
+          },
+        );
+    } catch (error) {
+      if (
+        !(
+          error &&
+          typeof error === 'object' &&
+          'code' in error &&
+          error.code === 11000
+        )
+      ) {
+        throw error;
+      }
+
+      session =
+        await UserActivity.findOne({
+          sessionId,
+        });
+    }
+
+    if (!session) {
+      throw new Error(
+        'Unable to create activity session.',
       );
+    }
 
     session.lastSeenAt = now;
     session.currentEventId = eventId;
@@ -255,7 +283,31 @@ export async function POST(
       }
     }
 
-    await session.save();
+    try {
+      await session.save();
+    } catch (error) {
+      if (
+        !(
+          error instanceof mongoose.Error.VersionError
+        )
+      ) {
+        throw error;
+      }
+
+      const latest =
+        await UserActivity.findOne({
+          sessionId,
+        });
+
+      if (!latest) {
+        throw error;
+      }
+
+      latest.lastSeenAt = now;
+      latest.currentEventId = eventId;
+      latest.activities.push(activity);
+      await latest.save();
+    }
 
     return applyCookie(
       NextResponse.json({
