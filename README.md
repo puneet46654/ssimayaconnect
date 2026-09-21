@@ -1335,12 +1335,14 @@ Before deploying:
 
 ### Next Phase
 
-- [ ] Booking database model
-- [ ] Final booking API
-- [ ] Atomic capacity reservation
-- [ ] Booking confirmation page
+- [x] Booking database model
+- [x] Final booking API
+- [x] Atomic capacity reservation
+- [x] Booking confirmation page
+- [x] Anonymous session activity tracking
+- [x] Submitted attendee and slot data persistence
 - [ ] Ticket generation
-- [ ] QR code
+- [x] QR code
 - [ ] My Tickets
 - [ ] Admin bookings
 - [ ] Attendee management

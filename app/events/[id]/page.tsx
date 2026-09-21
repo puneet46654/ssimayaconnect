@@ -21,24 +21,35 @@ import {
   motion,
 } from 'framer-motion';
 
-import { useRealtimeRefresh } from '@/components/realtime/RealtimeProvider';
+import {
+  useRealtimeRefresh,
+} from '@/components/realtime/RealtimeProvider';
 
-/* ============================================================
-   TYPES
-============================================================ */
+import { trackActivity } from '@/lib/activity-client';
 
 interface DaySchedule {
   _id: string;
+
   dayNumber: number;
+
   date: string;
+
   startTime: string;
+
   endTime: string;
+
   lunchEnabled: boolean;
+
   lunchStart: string;
+
   lunchEnd: string;
+
   slotDuration: string;
+
   slotGap: string;
+
   capacity: string;
+
   sameAsDay1: boolean;
 }
 
@@ -53,12 +64,15 @@ interface EventDetails {
     | 'event';
 
   venue: string;
+
   description: string;
+
   imageUrl?: string;
 
   numberOfDays: number;
 
   startDate: string;
+
   endDate: string;
 
   status:
@@ -67,125 +81,194 @@ interface EventDetails {
     | 'COMPLETED';
 
   totalSlots: number;
+
   bookedSlots: number;
 
-  daySchedules: DaySchedule[];
+  daySchedules:
+    DaySchedule[];
 }
 
-const EASE = [0.16, 1, 0.3, 1] as const;
-
-/* ============================================================
-   PAGE
-============================================================ */
+const EASE = [
+  0.16,
+  1,
+  0.3,
+  1,
+] as const;
 
 export default function EventDetailsPage() {
-  const params = useParams<{
-    id: string;
-  }>();
+  const params =
+    useParams<{
+      id: string;
+    }>();
 
-  const router = useRouter();
+  const router =
+    useRouter();
 
-  const eventId = params.id;
+  const eventId =
+    params.id;
 
-  const [event, setEvent] =
-    useState<EventDetails | null>(null);
+  useEffect(() => {
+    if (eventId) {
+      void trackActivity(
+        'page_view',
+        {
+          eventId,
+        },
+      );
+    }
+  }, [
+    eventId,
+  ]);
 
-  const [loading, setLoading] =
+  const [
+    event,
+    setEvent,
+  ] =
+    useState<EventDetails | null>(
+      null,
+    );
+
+  const [
+    loading,
+    setLoading,
+  ] =
     useState(true);
 
-  const [error, setError] =
+  const [
+    error,
+    setError,
+  ] =
     useState('');
 
-  const [copied, setCopied] =
+  const [
+    copied,
+    setCopied,
+  ] =
     useState(false);
 
   const [
     showShareHint,
     setShowShareHint,
-  ] = useState(false);
+  ] =
+    useState(false);
 
   const shareHintTimer =
-    useRef<ReturnType<
-      typeof setTimeout
-    > | null>(null);
+    useRef<
+      ReturnType<
+        typeof setTimeout
+      > | null
+    >(null);
 
   /* ============================================================
-     FETCH EVENT
+     FETCH
   ============================================================ */
 
   const fetchEvent =
-    useCallback(async (showLoading = true) => {
-      if (!eventId) {
-        return;
-      }
-
-      if (showLoading) {
-        setLoading(true);
-      }
-      setError('');
-
-      try {
-        const response =
-          await fetch(
-            `/api/events/${encodeURIComponent(
-              eventId,
-            )}`,
-            {
-              method: 'GET',
-              cache: 'no-store',
-            },
-          );
-
-        const data =
-          await response.json();
-
-        if (
-          !response.ok ||
-          !data.success
-        ) {
-          throw new Error(
-            data.error ||
-              'Failed to load event.',
-          );
+    useCallback(
+      async (
+        showLoading = true,
+      ) => {
+        if (!eventId) {
+          return;
         }
 
-        setEvent(data.event);
-      } catch (
-        error: unknown
-      ) {
-        setError(
-          error instanceof Error
-            ? error.message
-            : 'Failed to load event.',
-        );
-      } finally {
         if (showLoading) {
-          setLoading(false);
+          setLoading(true);
         }
-      }
-    }, [eventId]);
+
+        setError('');
+
+        try {
+          const response =
+            await fetch(
+              `/api/events/${encodeURIComponent(
+                eventId,
+              )}?refresh=${Date.now()}`,
+              {
+                method:
+                  'GET',
+
+                cache:
+                  'no-store',
+
+                headers: {
+                  'Cache-Control':
+                    'no-cache',
+                },
+              },
+            );
+
+          const data =
+            await response.json();
+
+          if (
+            !response.ok ||
+            !data.success ||
+            !data.event
+          ) {
+            throw new Error(
+              data.error ||
+                'Failed to load event.',
+            );
+          }
+
+          setEvent(
+            data.event,
+          );
+        } catch (
+          error: unknown
+        ) {
+          console.error(
+            'Event loading error:',
+            error,
+          );
+
+          setError(
+            error instanceof Error
+              ? error.message
+              : 'Failed to load event.',
+          );
+
+          setEvent(null);
+        } finally {
+          if (showLoading) {
+            setLoading(
+              false,
+            );
+          }
+        }
+      },
+      [
+        eventId,
+      ],
+    );
 
   useEffect(() => {
-    void Promise.resolve().then(
-      () => fetchEvent(),
-    );
-  }, [fetchEvent]);
+    const timeoutId = window.setTimeout(() => {
+      void fetchEvent();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    fetchEvent,
+  ]);
 
   useRealtimeRefresh(
     'events',
     (change) => {
       if (
         !change.id ||
-        change.id === eventId
+        change.id ===
+          eventId
       ) {
-        void fetchEvent(false);
+        void fetchEvent(
+          false,
+        );
       }
     },
   );
-
-  /* ============================================================
-     CLEAN TOOLTIP TIMER
-  ============================================================ */
 
   useEffect(() => {
     return () => {
@@ -199,31 +282,32 @@ export default function EventDetailsPage() {
     };
   }, []);
 
-  /* ============================================================
-     EVENT TIME
-  ============================================================ */
-
   const eventTime =
     useMemo(() => {
-      if (
-        !event?.daySchedules
-          ?.length
-      ) {
+      const firstDay =
+        event
+          ?.daySchedules?.[0];
+
+      if (!firstDay) {
         return '';
       }
-
-      const firstDay =
-        event.daySchedules[0];
 
       return formatTimeRange(
         firstDay.startTime,
         firstDay.endTime,
       );
-    }, [event]);
+    }, [
+      event,
+    ]);
 
-  /* ============================================================
-     LOADING
-  ============================================================ */
+  const remainingCapacity =
+    Math.max(
+      0,
+      (event?.totalSlots ||
+        0) -
+        (event?.bookedSlots ||
+          0),
+    );
 
   if (loading) {
     return (
@@ -231,127 +315,48 @@ export default function EventDetailsPage() {
     );
   }
 
-  /* ============================================================
-     ERROR
-  ============================================================ */
-
-  if (error || !event) {
+  if (
+    error ||
+    !event
+  ) {
     return (
-      <main className="min-h-dvh bg-[#F8FAFC] px-4">
-        <div className="mx-auto flex min-h-dvh max-w-md items-center justify-center">
-          <motion.div
-            initial={{
-              opacity: 0,
-              y: 10,
-              scale: 0.98,
-            }}
-            animate={{
-              opacity: 1,
-              y: 0,
-              scale: 1,
-            }}
-            transition={{
-              duration: 0.45,
-              ease: EASE,
-            }}
-            className="
-              w-full
-
-              rounded-2xl
-
-              border
-              border-gray-200
-
-              bg-white
-
-              p-6
-
-              text-center
-
-              shadow-sm
-            "
-          >
-            <div
-              className="
-                mx-auto
-                grid
-                h-11
-                w-11
-                place-items-center
-
-                rounded-full
-
-                bg-red-50
-                text-red-500
-              "
-            >
-              <svg
-                className="h-5 w-5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={1.9}
-              >
-                <circle
-                  cx="12"
-                  cy="12"
-                  r="9"
-                />
-
-                <path
-                  strokeLinecap="round"
-                  d="M12 8v4"
-                />
-
-                <circle
-                  cx="12"
-                  cy="16"
-                  r=".5"
-                  fill="currentColor"
-                />
-              </svg>
-            </div>
-
-            <h1 className="mt-4 text-lg font-bold text-secondary">
-              Event could not
-              be loaded
-            </h1>
-
-            {error && (
-              <p className="mt-2 text-sm text-gray-500">
-                {error}
-              </p>
-            )}
-
-            <button
-              type="button"
-              onClick={() =>
-                router.back()
-              }
-              className="btn btn-secondary mt-5"
-            >
-              Go Back
-            </button>
-          </motion.div>
-        </div>
-      </main>
+      <EventError
+        message={
+          error ||
+          'Event could not be loaded.'
+        }
+        onBack={() =>
+          router.push(
+            '/events',
+          )
+        }
+        onRetry={() =>
+          void fetchEvent()
+        }
+      />
     );
   }
 
-  /* ============================================================
-     SHARE
-  ============================================================ */
+  const loadedEvent = event;
 
   async function handleShare() {
     try {
-      if (navigator.share) {
-        await navigator.share({
-          title:
-            event?.eventName,
+      if (
+        navigator.share
+      ) {
+        await navigator.share(
+          {
+            title:
+            loadedEvent.eventName,
 
-          url:
-            window.location.href,
-        });
+            text:
+            loadedEvent.eventName,
+
+            url:
+              window.location
+                .href,
+          },
+        );
 
         return;
       }
@@ -364,11 +369,13 @@ export default function EventDetailsPage() {
 
       window.setTimeout(
         () =>
-          setCopied(false),
-        1400,
+          setCopied(
+            false,
+          ),
+        1500,
       );
     } catch {
-      // User cancelled share.
+      // Share cancelled.
     }
   }
 
@@ -381,23 +388,36 @@ export default function EventDetailsPage() {
       );
     }
 
-    setShowShareHint(true);
+    setShowShareHint(
+      true,
+    );
 
     shareHintTimer.current =
-      setTimeout(() => {
-        setShowShareHint(false);
-      }, 1800);
+      setTimeout(
+        () => {
+          setShowShareHint(
+            false,
+          );
+        },
+        1600,
+      );
   }
 
-  /* ============================================================
-     RENDER
-  ============================================================ */
+  const canBook =
+    event.status !==
+    'COMPLETED';
 
   return (
-    <main className="min-h-dvh bg-[#F8FAFC] pb-[138px] md:pb-10">
-      {/* =====================================================
-          HEADER
-      ====================================================== */}
+    <main
+      className="
+        min-h-dvh
+        bg-[#F7F9FB]
+        pb-[130px]
+
+        md:pb-10
+      "
+    >
+      {/* HEADER */}
 
       <header
         className="
@@ -406,9 +426,9 @@ export default function EventDetailsPage() {
           z-50
 
           border-b
-          border-gray-200/70
+          border-gray-200/80
 
-          bg-white/95
+          bg-[#F7F9FB]/95
 
           backdrop-blur-xl
         "
@@ -420,42 +440,32 @@ export default function EventDetailsPage() {
             mx-auto
 
             flex
-
-            h-[104px]
-
+            h-[64px]
             w-full
             max-w-[1180px]
 
-            items-end
+            items-center
             justify-between
 
-            px-4
-            pb-4
+            px-3
 
-            sm:px-6
-
-            md:h-[74px]
-            md:items-center
-            md:pb-0
+            sm:h-[68px]
+            sm:px-5
 
             lg:px-8
           "
         >
-          {/* BACK */}
-
-          <motion.button
+          <button
             type="button"
             aria-label="Go back"
             onClick={() =>
               router.back()
             }
-            whileTap={{
-              scale: 0.92,
-            }}
-            whileHover={{
-              x: -2,
-            }}
             className="
+              group
+              relative
+              z-20
+
               grid
               h-10
               w-10
@@ -465,19 +475,33 @@ export default function EventDetailsPage() {
 
               rounded-full
 
-              bg-gray-50
+              border
+              border-gray-200
+
+              bg-white
 
               text-secondary
+
+              shadow-[0_2px_8px_rgba(27,75,107,0.05)]
 
               transition-all
               duration-200
 
-              hover:bg-gray-100
-              hover:shadow-sm
+              hover:border-primary/30
+              hover:text-primary
+
+              active:scale-95
             "
           >
             <svg
-              className="h-[18px] w-[18px]"
+              className="
+                h-[18px]
+                w-[18px]
+
+                transition-transform
+
+                group-hover:-translate-x-0.5
+              "
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -486,91 +510,86 @@ export default function EventDetailsPage() {
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                d="m15 18-6-6 6-6"
+                d="M15 18l-6-6 6-6"
               />
             </svg>
-          </motion.button>
+          </button>
 
-          {/* BRAND ISLAND */}
-
-          <motion.div
-            initial={{
-              opacity: 0,
-              y: -10,
-              scale: 0.96,
-            }}
-            animate={{
-              opacity: 1,
-              y: 0,
-              scale: 1,
-            }}
-            transition={{
-              duration: 0.55,
-              ease: EASE,
-            }}
+          <Link
+            href="/events"
             className="
               absolute
-
               left-1/2
-              top-[14px]
+              top-1/2
+
+              flex
+              h-10
+              max-w-[210px]
 
               -translate-x-1/2
+              -translate-y-1/2
 
-              md:top-1/2
-              md:-translate-y-1/2
+              items-center
+              gap-2
+
+              rounded-full
+
+              border
+              border-primary/20
+
+              bg-white
+
+              px-3.5
+
+              shadow-[0_4px_14px_rgba(27,75,107,0.06)]
+
+              transition-all
+
+              hover:border-primary/35
+              hover:shadow-[0_7px_20px_rgba(27,75,107,0.09)]
+
+              min-[390px]:max-w-[240px]
+
+              sm:h-11
+              sm:px-4
             "
           >
-            <Link
-              href="/"
+            <Image
+              src="/logos/ssilogo.png"
+              alt="SSI"
+              width={20}
+              height={20}
+              priority
               className="
-                inline-flex
+                h-5
+                w-5
+                shrink-0
+                object-contain
+              "
+            />
 
-                h-11
-
-                items-center
-
-                gap-2.5
-
+            <span
+              className="
+                truncate
                 whitespace-nowrap
 
-                rounded-full
+                text-[11px]
+                font-semibold
 
-                border
-                border-primary/25
+                text-secondary
 
-                bg-white
-
-                px-4
-
-                shadow-[0_8px_24px_rgba(27,75,107,0.09)]
-
-                transition-all
-                duration-300
-
-                hover:-translate-y-0.5
-                hover:border-primary/40
-                hover:shadow-[0_12px_30px_rgba(27,75,107,0.13)]
+                sm:text-xs
               "
             >
-              <Image
-                src="/logos/ssilogo.png"
-                alt="SSI"
-                width={22}
-                height={22}
-                priority
-                className="h-[22px] w-[22px] object-contain"
-              />
-
-              <span className="text-sm font-semibold tracking-[-0.01em] text-secondary">
-                SSI Maya Connect
-              </span>
-            </Link>
-          </motion.div>
-
-          {/* SHARE */}
+              SSI Maya Connect
+            </span>
+          </Link>
 
           <div
-            className="relative"
+            className="
+              relative
+              z-20
+            "
             onMouseEnter={
               showShareTooltip
             }
@@ -578,40 +597,37 @@ export default function EventDetailsPage() {
               showShareTooltip
             }
           >
-            <motion.button
+            <button
               type="button"
               aria-label="Share this event"
-              onClick={
-                handleShare
+              onClick={() =>
+                void handleShare()
               }
-              whileTap={{
-                scale: 0.92,
-              }}
-              whileHover={{
-                scale: 1.04,
-              }}
               className="
                 grid
-
                 h-10
                 w-10
 
                 cursor-pointer
-
                 place-items-center
 
                 rounded-full
 
-                bg-gray-50
+                border
+                border-gray-200
+
+                bg-white
 
                 text-secondary
 
-                transition-all
-                duration-200
+                shadow-[0_2px_8px_rgba(27,75,107,0.05)]
 
-                hover:bg-primary/[0.06]
+                transition-all
+
+                hover:border-primary/30
                 hover:text-primary
-                hover:shadow-sm
+
+                active:scale-95
               "
             >
               <svg
@@ -633,7 +649,7 @@ export default function EventDetailsPage() {
                   d="M6 11v8a1 1 0 001 1h10a1 1 0 001-1v-8"
                 />
               </svg>
-            </motion.button>
+            </button>
 
             <AnimatePresence>
               {showShareHint && (
@@ -641,30 +657,21 @@ export default function EventDetailsPage() {
                   initial={{
                     opacity: 0,
                     y: 4,
-                    scale: 0.96,
                   }}
                   animate={{
                     opacity: 1,
                     y: 0,
-                    scale: 1,
                   }}
                   exit={{
                     opacity: 0,
                     y: 4,
-                    scale: 0.96,
-                  }}
-                  transition={{
-                    duration: 0.16,
                   }}
                   className="
                     pointer-events-none
 
                     absolute
-
                     right-0
-                    top-[48px]
-
-                    z-[80]
+                    top-[47px]
 
                     whitespace-nowrap
 
@@ -683,21 +690,6 @@ export default function EventDetailsPage() {
                   "
                 >
                   Share this event
-
-                  <span
-                    className="
-                      absolute
-                      -top-1
-                      right-[14px]
-
-                      h-2
-                      w-2
-
-                      rotate-45
-
-                      bg-secondary
-                    "
-                  />
                 </motion.div>
               )}
             </AnimatePresence>
@@ -705,278 +697,322 @@ export default function EventDetailsPage() {
         </div>
       </header>
 
-      {/* =====================================================
-          PAGE CONTENT
-      ====================================================== */}
+      {/* CONTENT */}
 
       <div
         className="
           mx-auto
-
           w-full
           max-w-[1180px]
 
-          sm:px-6
+          sm:px-5
           sm:pt-5
 
           lg:px-8
+          lg:pt-6
         "
       >
         <motion.article
           initial={{
             opacity: 0,
-            y: 16,
+            y: 12,
           }}
           animate={{
             opacity: 1,
             y: 0,
           }}
           transition={{
-            duration: 0.55,
+            duration: 0.45,
             ease: EASE,
           }}
           className="
+            overflow-hidden
+
             bg-white
 
-            sm:rounded-[18px]
+            sm:rounded-[20px]
             sm:border
             sm:border-gray-200
-            sm:shadow-[0_8px_30px_rgba(27,75,107,0.06)]
+
+            sm:shadow-[0_8px_28px_rgba(27,75,107,0.05)]
           "
         >
-          {/* =================================================
-              IMAGE
-          ================================================== */}
+          {/* IMAGE */}
 
-          <motion.div
-            initial={{
-              opacity: 0,
-              scale: 1.015,
-            }}
-            animate={{
-              opacity: 1,
-              scale: 1,
-            }}
-            transition={{
-              duration: 0.7,
-              ease: EASE,
-            }}
+          <div
             className="
               relative
 
-              h-[220px]
+              aspect-[16/9]
+              w-full
 
               overflow-hidden
 
-              rounded-b-[18px]
-
               bg-gray-100
 
-              sm:h-[340px]
-              sm:rounded-[18px]
+              sm:aspect-[16/7]
 
-              lg:h-[420px]
+              lg:aspect-[16/6.2]
             "
           >
             {event.imageUrl ? (
-              <motion.img
+              <img
                 src={
                   event.imageUrl
                 }
                 alt={
                   event.eventName
                 }
-                initial={{
-                  scale: 1.025,
-                }}
-                animate={{
-                  scale: 1,
-                }}
-                transition={{
-                  duration: 1,
-                  ease: EASE,
-                }}
-                whileHover={{
-                  scale: 1.012,
-                }}
                 className="
                   h-full
                   w-full
-
                   object-cover
                 "
               />
             ) : (
-              <div className="h-full w-full bg-gray-100" />
+              <div
+                className="
+                  flex
+                  h-full
+                  w-full
+
+                  items-center
+                  justify-center
+
+                  bg-gray-100
+                  text-gray-300
+                "
+              >
+                <svg
+                  className="h-10 w-10"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={1.5}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M4 17l5-5 4 4 2-2 5 5M5 5h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z"
+                  />
+                </svg>
+              </div>
             )}
-          </motion.div>
 
-          {/* =================================================
-              EVENT CONTENT
-          ================================================== */}
+            <div
+              className="
+                absolute
+                left-3
+                top-3
 
-          <motion.div
-            initial={{
-              opacity: 0,
-              y: 12,
-            }}
-            animate={{
-              opacity: 1,
-              y: 0,
-            }}
-            transition={{
-              duration: 0.5,
-              delay: 0.08,
-              ease: EASE,
-            }}
+                sm:left-4
+                sm:top-4
+              "
+            >
+              <StatusBadge
+                status={
+                  event.status
+                }
+              />
+            </div>
+          </div>
+
+          {/* DETAILS */}
+
+          <div
             className="
-              bg-gradient-to-b
-              from-white
-              to-[#FCFDFE]
-
               px-4
-
-              pb-5
+              pb-6
               pt-5
-
-              sm:rounded-b-[18px]
 
               sm:px-7
               sm:pb-7
               sm:pt-6
 
               lg:px-9
+              lg:py-8
             "
           >
-            {/* TITLE */}
-
-            <h1
+            <div
               className="
-                max-w-[850px]
+                grid
+                gap-6
 
-                font-heading
-
-                text-[24px]
-                font-bold
-                leading-[1.14]
-
-                tracking-[-0.03em]
-
-                text-secondary
-
-                sm:text-[30px]
-
-                lg:text-[34px]
+                lg:grid-cols-[minmax(0,1fr)_250px]
+                lg:items-start
+                lg:gap-10
               "
             >
-              {event.eventName}
-            </h1>
+              <div className="min-w-0">
+                <p
+                  className="
+                    text-[10px]
+                    font-semibold
+                    uppercase
+                    tracking-[0.08em]
+                    text-gray-400
+                  "
+                >
+                  {formatEventType(
+                    event.eventType,
+                  )}
+                </p>
 
-            {/* ORGANIZER */}
+                <h1
+                  className="
+                    mt-1.5
 
-            <p
+                    max-w-[850px]
+
+                    font-heading
+
+                    text-[24px]
+                    font-bold
+
+                    leading-[1.14]
+
+                    tracking-[-0.03em]
+
+                    text-secondary
+
+                    sm:text-[30px]
+
+                    lg:text-[34px]
+                  "
+                >
+                  {event.eventName}
+                </h1>
+
+                <p
+                  className="
+                    mt-2
+
+                    text-[12px]
+
+                    text-gray-500
+
+                    sm:text-[13px]
+                  "
+                >
+                  Organized by{' '}
+                  <span
+                    className="
+                      font-semibold
+                      text-primary
+                    "
+                  >
+                    SSI INNOVATIONS
+                  </span>
+                </p>
+
+                <div
+                  className="
+                    mt-5
+
+                    flex
+                    flex-wrap
+
+                    gap-2
+                  "
+                >
+                  <InfoPill
+                    type="calendar"
+                    value={formatDateRange(
+                      event.startDate,
+                      event.endDate,
+                    )}
+                  />
+
+                  {eventTime && (
+                    <InfoPill
+                      type="clock"
+                      value={
+                        eventTime
+                      }
+                    />
+                  )}
+
+                  <InfoPill
+                    type="location"
+                    value={
+                      event.venue
+                    }
+                  />
+                </div>
+              </div>
+
+              <div
+                className="
+                  hidden
+
+                  rounded-xl
+
+                  border
+                  border-gray-200
+
+                  bg-[#FAFBFC]
+
+                  p-4
+
+                  lg:block
+                "
+              >
+                <p
+                  className="
+                    text-[10px]
+                    font-semibold
+                    uppercase
+                    tracking-[0.06em]
+                    text-gray-400
+                  "
+                >
+                  Availability
+                </p>
+
+                <p
+                  className="
+                    mt-1.5
+
+                    text-2xl
+                    font-bold
+
+                    tracking-[-0.03em]
+
+                    text-secondary
+                  "
+                >
+                  {remainingCapacity}
+                </p>
+
+                <p
+                  className="
+                    mt-0.5
+
+                    text-xs
+
+                    text-gray-500
+                  "
+                >
+                  booking places remaining
+                </p>
+              </div>
+            </div>
+
+            <div
               className="
-                mt-1.5
-
-                text-[12px]
-
-                text-gray-500
-
-                sm:text-[13px]
+                my-6
+                h-px
+                bg-gray-200
               "
-            >
-              Organized by{' '}
+            />
 
-              <span className="font-semibold text-primary">
-                SSI INNOVATIONS
-              </span>
-            </p>
-
-            {/* =================================================
-                INFO PILLS
-            ================================================== */}
-
-            <motion.div
-              initial={{
-                opacity: 0,
-                y: 8,
-              }}
-              animate={{
-                opacity: 1,
-                y: 0,
-              }}
-              transition={{
-                duration: 0.45,
-                delay: 0.16,
-                ease: EASE,
-              }}
-              className="
-                mt-5
-
-                flex
-                flex-wrap
-
-                gap-2
-
-                sm:gap-2.5
-              "
-            >
-              <InfoPill
-                type="calendar"
-                value={formatDateRange(
-                  event.startDate,
-                  event.endDate,
-                )}
-              />
-
-              {eventTime && (
-                <InfoPill
-                  type="clock"
-                  value={
-                    eventTime
-                  }
-                />
-              )}
-
-              <InfoPill
-                type="location"
-                value={
-                  event.venue
-                }
-              />
-            </motion.div>
-
-            {/* DIVIDER */}
-
-            <div className="my-5 h-px bg-gray-200 sm:my-6" />
-
-            {/* =================================================
-                ABOUT
-            ================================================== */}
-
-            <motion.section
-              initial={{
-                opacity: 0,
-                y: 10,
-              }}
-              animate={{
-                opacity: 1,
-                y: 0,
-              }}
-              transition={{
-                duration: 0.45,
-                delay: 0.2,
-                ease: EASE,
-              }}
-            >
+            <section>
               <h2
                 className="
                   font-heading
 
                   text-[17px]
                   font-bold
-
-                  tracking-[-0.015em]
 
                   text-secondary
 
@@ -995,7 +1031,7 @@ export default function EventDetailsPage() {
                   whitespace-pre-line
 
                   text-[13px]
-                  leading-[1.6]
+                  leading-[1.7]
 
                   text-gray-500
 
@@ -1005,243 +1041,218 @@ export default function EventDetailsPage() {
               >
                 {event.description}
               </p>
-            </motion.section>
-          </motion.div>
+            </section>
+          </div>
         </motion.article>
+
+        {/* DESKTOP BUTTONS */}
+
+        <div
+          className="
+            mt-4
+            hidden
+            grid-cols-2
+            gap-3
+
+            md:grid
+          "
+        >
+          <Link
+            href={
+              canBook
+                ? `/events/${event._id}/book`
+                : '#'
+            }
+            aria-disabled={
+              !canBook
+            }
+            onClick={(
+              e,
+            ) => {
+              if (
+                !canBook
+              ) {
+                e.preventDefault();
+              }
+            }}
+            className={`
+              flex
+              h-12
+              items-center
+              justify-center
+
+              rounded-xl
+
+              text-sm
+              font-semibold
+
+              transition-all
+
+              ${
+                canBook
+                  ? `
+                    bg-primary
+                    text-white
+
+                    shadow-[0_7px_18px_rgba(26,158,143,0.16)]
+
+                    hover:brightness-95
+                  `
+                  : `
+                    cursor-not-allowed
+                    bg-gray-200
+                    text-gray-400
+                  `
+              }
+            `}
+          >
+            {canBook
+              ? 'Book Tickets'
+              : 'Booking Closed'}
+          </Link>
+
+          <button
+            type="button"
+            onClick={() =>
+              router.back()
+            }
+            className="
+              h-12
+
+              cursor-pointer
+
+              rounded-xl
+
+              border
+              border-gray-300
+
+              bg-white
+
+              text-sm
+              font-semibold
+
+              text-secondary
+
+              transition-all
+
+              hover:bg-gray-50
+            "
+          >
+            Go Back
+          </button>
+        </div>
       </div>
 
-      {/* =====================================================
-          MOBILE ACTIONS
-      ====================================================== */}
+      {/* MOBILE ACTION */}
 
       <div
         className="
           fixed
-
           inset-x-0
           bottom-0
-
           z-50
 
           border-t
           border-gray-200/80
 
-          bg-white/92
+          bg-white/95
 
           px-4
-
           pb-[max(12px,env(safe-area-inset-bottom))]
           pt-3
 
-          shadow-[0_-10px_30px_rgba(27,75,107,0.07)]
+          shadow-[0_-8px_24px_rgba(27,75,107,0.06)]
 
-          backdrop-blur-2xl
+          backdrop-blur-xl
 
           md:hidden
         "
       >
-        <div className="mx-auto w-full max-w-[430px] space-y-2.5">
-          {/* BOOK */}
+        <div
+          className="
+            mx-auto
+            w-full
+            max-w-[430px]
 
-          <motion.button
-            type="button"
-            disabled={
-              event.status ===
-              'COMPLETED'
-            }
-            onClick={() =>
-              router.push(
-                `/events/${event._id}/book`,
-              )
-            }
-            whileTap={{
-              scale: 0.985,
-            }}
-            className="
-              flex
+            space-y-2
+          "
+        >
+          {canBook ? (
+            <Link
+              href={`/events/${event._id}/book`}
+              className="
+                flex
+                h-12
+                w-full
 
-              h-[46px]
+                items-center
+                justify-center
 
-              w-full
+                rounded-xl
 
-              cursor-pointer
+                bg-primary
 
-              items-center
-              justify-center
+                text-sm
+                font-semibold
+                text-white
 
-              rounded-[11px]
+                shadow-[0_7px_18px_rgba(26,158,143,0.16)]
 
-              bg-primary
+                transition
 
-              text-sm
-              font-semibold
-              text-white
+                active:scale-[0.995]
+              "
+            >
+              Book Tickets
+            </Link>
+          ) : (
+            <button
+              type="button"
+              disabled
+              className="
+                h-12
+                w-full
 
-              shadow-[0_8px_20px_rgba(26,158,143,0.18)]
+                rounded-xl
 
-              transition-all
-              duration-200
+                bg-gray-200
 
-              hover:-translate-y-0.5
-              hover:bg-primary-dark
-              hover:shadow-[0_10px_24px_rgba(26,158,143,0.22)]
+                text-sm
+                font-semibold
+                text-gray-400
+              "
+            >
+              Booking Closed
+            </button>
+          )}
 
-              active:translate-y-0
-
-              disabled:cursor-not-allowed
-              disabled:bg-gray-300
-              disabled:shadow-none
-            "
-          >
-            Book Tickets
-          </motion.button>
-
-          {/* BACK */}
-
-          <motion.button
+          <button
             type="button"
             onClick={() =>
               router.back()
             }
-            whileTap={{
-              scale: 0.985,
-            }}
             className="
-              flex
-
-              h-[46px]
-
+              h-11
               w-full
 
               cursor-pointer
 
-              items-center
-              justify-center
-
-              rounded-[11px]
+              rounded-xl
 
               border
-              border-secondary/65
+              border-gray-300
 
               bg-white
 
               text-sm
               font-semibold
               text-secondary
-
-              transition-all
-              duration-200
-
-              hover:-translate-y-0.5
-              hover:border-secondary
-              hover:bg-gray-50
-
-              active:translate-y-0
             "
           >
             Go Back
-          </motion.button>
+          </button>
         </div>
       </div>
-
-      {/* =====================================================
-          DESKTOP ACTIONS
-      ====================================================== */}
-
-      <motion.div
-        initial={{
-          opacity: 0,
-          y: 10,
-        }}
-        animate={{
-          opacity: 1,
-          y: 0,
-        }}
-        transition={{
-          duration: 0.45,
-          delay: 0.25,
-          ease: EASE,
-        }}
-        className="
-          mx-auto
-
-          mt-4
-
-          hidden
-
-          w-full
-          max-w-[1180px]
-
-          gap-3
-
-          px-6
-
-          md:flex
-
-          lg:px-8
-        "
-      >
-        <button
-          type="button"
-          disabled={
-            event.status ===
-            'COMPLETED'
-          }
-          onClick={() =>
-            router.push(
-              `/events/${event._id}/book`,
-            )
-          }
-          className="
-            btn
-            btn-primary
-
-            h-11
-
-            flex-1
-
-            rounded-[11px]
-
-            shadow-[0_8px_20px_rgba(26,158,143,0.15)]
-
-            transition-all
-            duration-200
-
-            hover:-translate-y-0.5
-            hover:shadow-[0_10px_24px_rgba(26,158,143,0.20)]
-          "
-        >
-          Book Tickets
-        </button>
-
-        <button
-          type="button"
-          onClick={() =>
-            router.back()
-          }
-          className="
-            btn
-            btn-secondary
-
-            h-11
-
-            flex-1
-
-            rounded-[11px]
-
-            transition-all
-            duration-200
-
-            hover:-translate-y-0.5
-          "
-        >
-          Go Back
-        </button>
-      </motion.div>
-
-      {/* =====================================================
-          COPY FEEDBACK
-      ====================================================== */}
 
       <AnimatePresence>
         {copied && (
@@ -1249,28 +1260,20 @@ export default function EventDetailsPage() {
             initial={{
               opacity: 0,
               y: -8,
-              scale: 0.96,
             }}
             animate={{
               opacity: 1,
               y: 0,
-              scale: 1,
             }}
             exit={{
               opacity: 0,
               y: -8,
-              scale: 0.96,
-            }}
-            transition={{
-              duration: 0.2,
             }}
             className="
               fixed
-
               left-1/2
-              top-[118px]
-
-              z-[80]
+              top-[76px]
+              z-[100]
 
               -translate-x-1/2
 
@@ -1279,7 +1282,7 @@ export default function EventDetailsPage() {
               border
               border-gray-200
 
-              bg-white/95
+              bg-white
 
               px-3
               py-1.5
@@ -1289,10 +1292,6 @@ export default function EventDetailsPage() {
               text-secondary
 
               shadow-lg
-
-              backdrop-blur-xl
-
-              md:top-[84px]
             "
           >
             Link copied
@@ -1304,7 +1303,191 @@ export default function EventDetailsPage() {
 }
 
 /* ============================================================
-   INFO PILL
+   STATUS
+============================================================ */
+
+function StatusBadge({
+  status,
+}: {
+  status:
+    EventDetails['status'];
+}) {
+  const classes =
+    status === 'LIVE'
+      ? 'bg-white text-[#15935A]'
+      : status ===
+          'COMPLETED'
+        ? 'bg-white text-gray-500'
+        : 'bg-white text-secondary';
+
+  return (
+    <span
+      className={`
+        inline-flex
+        items-center
+        gap-1.5
+
+        rounded-full
+
+        px-2.5
+        py-1.5
+
+        text-[9px]
+        font-bold
+        uppercase
+        tracking-[0.06em]
+
+        shadow-sm
+
+        ${classes}
+      `}
+    >
+      {status ===
+        'LIVE' && (
+        <span
+          className="
+            h-1.5
+            w-1.5
+            rounded-full
+            bg-[#19CC6A]
+          "
+        />
+      )}
+
+      {status}
+    </span>
+  );
+}
+
+/* ============================================================
+   ERROR
+============================================================ */
+
+function EventError({
+  message,
+  onBack,
+  onRetry,
+}: {
+  message: string;
+
+  onBack:
+    () => void;
+
+  onRetry:
+    () => void;
+}) {
+  return (
+    <main
+      className="
+        grid
+        min-h-dvh
+        place-items-center
+
+        bg-[#F7F9FB]
+
+        px-4
+      "
+    >
+      <div
+        className="
+          w-full
+          max-w-[400px]
+
+          rounded-2xl
+
+          border
+          border-gray-200
+
+          bg-white
+
+          p-6
+
+          text-center
+
+          shadow-[0_12px_35px_rgba(27,75,107,0.06)]
+        "
+      >
+        <h1
+          className="
+            text-lg
+            font-bold
+            text-secondary
+          "
+        >
+          Event could not be loaded
+        </h1>
+
+        <p
+          className="
+            mt-2
+
+            text-sm
+            leading-6
+
+            text-gray-500
+          "
+        >
+          {message}
+        </p>
+
+        <div
+          className="
+            mt-5
+            grid
+            grid-cols-2
+            gap-2.5
+          "
+        >
+          <button
+            type="button"
+            onClick={
+              onBack
+            }
+            className="
+              h-11
+
+              rounded-xl
+
+              border
+              border-gray-200
+
+              bg-white
+
+              text-sm
+              font-semibold
+              text-secondary
+            "
+          >
+            Go Back
+          </button>
+
+          <button
+            type="button"
+            onClick={
+              onRetry
+            }
+            className="
+              h-11
+
+              rounded-xl
+
+              bg-primary
+
+              text-sm
+              font-semibold
+              text-white
+            "
+          >
+            Try Again
+          </button>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+/* ============================================================
+   INFO
 ============================================================ */
 
 function InfoPill({
@@ -1319,22 +1502,15 @@ function InfoPill({
   value: string;
 }) {
   return (
-    <motion.div
-      whileHover={{
-        y: -1,
-      }}
-      transition={{
-        duration: 0.18,
-      }}
+    <div
       className="
         inline-flex
-
-        min-h-[30px]
+        min-h-[32px]
 
         items-center
         gap-1.5
 
-        rounded-[9px]
+        rounded-lg
 
         border
         border-gray-200
@@ -1346,16 +1522,7 @@ function InfoPill({
 
         text-[11px]
         font-medium
-
         text-secondary
-
-        shadow-[0_3px_10px_rgba(27,75,107,0.035)]
-
-        transition-all
-        duration-200
-
-        hover:border-primary/25
-        hover:shadow-[0_6px_16px_rgba(27,75,107,0.06)]
 
         sm:text-xs
       "
@@ -1369,13 +1536,9 @@ function InfoPill({
       <span>
         {value}
       </span>
-    </motion.div>
+    </div>
   );
 }
-
-/* ============================================================
-   INFO ICON
-============================================================ */
 
 function InfoIcon({
   type,
@@ -1386,7 +1549,8 @@ function InfoIcon({
     | 'location';
 }) {
   if (
-    type === 'calendar'
+    type ===
+    'calendar'
   ) {
     return (
       <svg
@@ -1406,7 +1570,8 @@ function InfoIcon({
   }
 
   if (
-    type === 'clock'
+    type ===
+    'clock'
   ) {
     return (
       <svg
@@ -1424,7 +1589,6 @@ function InfoIcon({
 
         <path
           strokeLinecap="round"
-          strokeLinejoin="round"
           d="M12 7v5l3 2"
         />
       </svg>
@@ -1460,86 +1624,81 @@ function InfoIcon({
 
 function EventDetailsSkeleton() {
   return (
-    <main className="min-h-dvh bg-[#F8FAFC] pb-[138px]">
-      {/* HEADER */}
+    <main className="min-h-dvh bg-[#F7F9FB]">
+      <div
+        className="
+          h-[64px]
+          border-b
+          border-gray-200
+          bg-white
 
-      <div className="h-[104px] border-b border-gray-200 bg-white md:h-[74px]" />
-
-      <div className="mx-auto w-full max-w-[1180px] sm:px-6 sm:pt-5 lg:px-8">
-        <div className="bg-white sm:rounded-[18px] sm:border sm:border-gray-200">
-          {/* IMAGE */}
-
-          <div
-            className="
-              h-[220px]
-
-              animate-pulse
-
-              rounded-b-[18px]
-
-              bg-gray-100
-
-              sm:h-[340px]
-              sm:rounded-[18px]
-
-              lg:h-[420px]
-            "
-          />
-
-          {/* BODY */}
-
-          <div className="px-4 py-5 sm:px-7 sm:py-6">
-            <div className="h-7 w-[82%] animate-pulse rounded bg-gray-100" />
-
-            <div className="mt-2 h-4 w-44 animate-pulse rounded bg-gray-100" />
-
-            <div className="mt-5 flex flex-wrap gap-2">
-              <div className="h-8 w-32 animate-pulse rounded-lg bg-gray-100" />
-
-              <div className="h-8 w-40 animate-pulse rounded-lg bg-gray-100" />
-
-              <div className="h-8 w-36 animate-pulse rounded-lg bg-gray-100" />
-            </div>
-
-            <div className="my-5 h-px bg-gray-200" />
-
-            <div className="h-5 w-36 animate-pulse rounded bg-gray-100" />
-
-            <div className="mt-3 space-y-2.5">
-              <div className="h-3.5 w-full animate-pulse rounded bg-gray-100" />
-
-              <div className="h-3.5 w-full animate-pulse rounded bg-gray-100" />
-
-              <div className="h-3.5 w-[86%] animate-pulse rounded bg-gray-100" />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* MOBILE BUTTONS */}
+          sm:h-[68px]
+        "
+      />
 
       <div
         className="
-          fixed
-          inset-x-0
-          bottom-0
+          mx-auto
+          w-full
+          max-w-[1180px]
 
-          border-t
-          border-gray-200
+          sm:px-5
+          sm:pt-5
 
-          bg-white
-
-          px-4
-          pb-4
-          pt-3
-
-          md:hidden
+          lg:px-8
         "
       >
-        <div className="mx-auto max-w-[430px] space-y-2.5">
-          <div className="h-[46px] animate-pulse rounded-[11px] bg-gray-100" />
+        <div
+          className="
+            overflow-hidden
 
-          <div className="h-[46px] animate-pulse rounded-[11px] bg-gray-100" />
+            bg-white
+
+            sm:rounded-[20px]
+            sm:border
+            sm:border-gray-200
+          "
+        >
+          <div
+            className="
+              aspect-[16/9]
+              animate-pulse
+              bg-gray-100
+
+              sm:aspect-[16/7]
+            "
+          />
+
+          <div
+            className="
+              px-4
+              py-5
+
+              sm:px-7
+              sm:py-7
+            "
+          >
+            <div className="h-3 w-20 animate-pulse rounded bg-gray-100" />
+
+            <div className="mt-3 h-7 w-[80%] animate-pulse rounded bg-gray-100" />
+
+            <div className="mt-3 h-4 w-40 animate-pulse rounded bg-gray-100" />
+
+            <div className="mt-6 flex gap-2">
+              <div className="h-8 w-28 animate-pulse rounded-lg bg-gray-100" />
+              <div className="h-8 w-32 animate-pulse rounded-lg bg-gray-100" />
+            </div>
+
+            <div className="my-6 h-px bg-gray-200" />
+
+            <div className="h-5 w-32 animate-pulse rounded bg-gray-100" />
+
+            <div className="mt-3 space-y-2">
+              <div className="h-3 w-full animate-pulse rounded bg-gray-100" />
+              <div className="h-3 w-full animate-pulse rounded bg-gray-100" />
+              <div className="h-3 w-[70%] animate-pulse rounded bg-gray-100" />
+            </div>
+          </div>
         </div>
       </div>
     </main>
@@ -1547,18 +1706,43 @@ function EventDetailsSkeleton() {
 }
 
 /* ============================================================
-   FORMATTERS
+   FORMAT
 ============================================================ */
+
+function formatEventType(
+  value:
+    EventDetails['eventType'],
+) {
+  if (
+    value ===
+    'conference'
+  ) {
+    return 'Conference';
+  }
+
+  if (
+    value ===
+    'mantram'
+  ) {
+    return 'MantraM';
+  }
+
+  return 'Event';
+}
 
 function formatDateRange(
   startValue: string,
   endValue: string,
 ) {
   const start =
-    new Date(startValue);
+    new Date(
+      startValue,
+    );
 
   const end =
-    new Date(endValue);
+    new Date(
+      endValue,
+    );
 
   if (
     start.toDateString() ===
@@ -1571,35 +1755,9 @@ function formatDateRange(
         month: 'short',
         year: 'numeric',
       },
-    ).format(start);
-  }
-
-  const sameMonth =
-    start.getMonth() ===
-      end.getMonth() &&
-    start.getFullYear() ===
-      end.getFullYear();
-
-  if (sameMonth) {
-    const startDay =
-      new Intl.DateTimeFormat(
-        'en-GB',
-        {
-          day: '2-digit',
-        },
-      ).format(start);
-
-    const endLabel =
-      new Intl.DateTimeFormat(
-        'en-GB',
-        {
-          day: '2-digit',
-          month: 'short',
-          year: 'numeric',
-        },
-      ).format(end);
-
-    return `${startDay}–${endLabel}`;
+    ).format(
+      start,
+    );
   }
 
   const startLabel =
@@ -1609,7 +1767,9 @@ function formatDateRange(
         day: '2-digit',
         month: 'short',
       },
-    ).format(start);
+    ).format(
+      start,
+    );
 
   const endLabel =
     new Intl.DateTimeFormat(
@@ -1619,7 +1779,9 @@ function formatDateRange(
         month: 'short',
         year: 'numeric',
       },
-    ).format(end);
+    ).format(
+      end,
+    );
 
   return `${startLabel} – ${endLabel}`;
 }
@@ -1630,7 +1792,7 @@ function formatTimeRange(
 ) {
   return `${formatTime(
     start,
-  )} - ${formatTime(
+  )} – ${formatTime(
     end,
   )}`;
 }
@@ -1643,16 +1805,17 @@ function formatTime(
   }
 
   const [
-    hourString,
-    minuteString,
-  ] = value.split(':');
+    hour,
+    minute,
+  ] =
+    value.split(':');
 
   const date =
     new Date();
 
   date.setHours(
-    Number(hourString),
-    Number(minuteString),
+    Number(hour),
+    Number(minute),
     0,
     0,
   );
@@ -1660,9 +1823,12 @@ function formatTime(
   return new Intl.DateTimeFormat(
     'en-US',
     {
-      hour: '2-digit',
-      minute: '2-digit',
+      hour: 'numeric',
+      minute:
+        '2-digit',
       hour12: true,
     },
-  ).format(date);
+  ).format(
+    date,
+  );
 }

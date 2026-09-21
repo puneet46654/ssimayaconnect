@@ -17,6 +17,8 @@ import {
 
 import { useRealtimeRefresh } from '@/components/realtime/RealtimeProvider';
 
+import { trackActivity } from '@/lib/activity-client';
+
 interface IEvent {
   _id: string;
   eventName: string;
@@ -46,6 +48,10 @@ type EventTypeFilter =
 const EASE = [0.16, 1, 0.3, 1] as const;
 
 export default function HomePage() {
+  useEffect(() => {
+    void trackActivity('page_view');
+  }, []);
+
   const [events, setEvents] =
     useState<IEvent[]>([]);
 
@@ -1545,13 +1551,16 @@ function LiveEventCard({
       >
         <div className="relative aspect-[16/7.3] overflow-hidden bg-gray-100 md:aspect-[16/7]">
           {event.imageUrl ? (
-            <img
+            <Image
               src={
                 event.imageUrl
               }
               alt={
                 event.eventName
               }
+              width={640}
+              height={292}
+              unoptimized
               className="h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.035]"
             />
           ) : (
@@ -1688,13 +1697,16 @@ function UpcomingEventCard({
       >
         <div className="h-[78px] w-[78px] shrink-0 overflow-hidden rounded-lg bg-gray-100 md:h-[86px] md:w-[86px]">
           {event.imageUrl ? (
-            <img
+            <Image
               src={
                 event.imageUrl
               }
               alt={
                 event.eventName
               }
+              width={86}
+              height={86}
+              unoptimized
               className="h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.06]"
             />
           ) : (

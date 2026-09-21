@@ -14,6 +14,8 @@ import {
 
 import { useRouter } from 'next/navigation';
 
+import { trackActivity } from '@/lib/activity-client';
+
 interface ConferenceTemplateProps {
   eventId: string;
   eventName: string;
@@ -578,6 +580,14 @@ export default function ConferenceTemplate({
         JSON.stringify(
           bookingDetails,
         ),
+      );
+
+      void trackActivity(
+        'form_submitted',
+        {
+          eventId,
+          metadata: bookingDetails,
+        },
       );
 
       router.push(

@@ -16,6 +16,8 @@ import {
 
 import { useRealtimeRefresh } from '@/components/realtime/RealtimeProvider';
 
+import { trackActivity } from '@/lib/activity-client';
+
 type SlotItem = {
   _id: string;
 
@@ -86,6 +88,19 @@ export default function TimeSlotsPage() {
 
   const eventId =
     params.id;
+
+  useEffect(() => {
+    if (eventId) {
+      void trackActivity(
+        'page_view',
+        {
+          eventId,
+        },
+      );
+    }
+  }, [
+    eventId,
+  ]);
 
   const [
     event,
@@ -428,6 +443,25 @@ export default function TimeSlotsPage() {
         endTime:
           selectedSlot.endTime,
       }),
+    );
+
+    void trackActivity(
+      'slot_selected',
+      {
+        eventId,
+        metadata: {
+          dayScheduleId:
+            selectedDay._id,
+          date:
+            selectedDay.date,
+          slotId:
+            selectedSlot._id,
+          startTime:
+            selectedSlot.startTime,
+          endTime:
+            selectedSlot.endTime,
+        },
+      },
     );
 
     /*

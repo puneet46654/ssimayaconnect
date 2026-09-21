@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 
 import {
   ChangeEvent,
@@ -1122,11 +1123,14 @@ export default function CreateNewEventPage() {
                 {thumbnailPreview ? (
                   <div className="flex items-center gap-3 p-3">
                     <div className="h-16 w-20 overflow-hidden rounded-lg border border-gray-200">
-                      <img
+                      <Image
                         src={
                           thumbnailPreview.url
                         }
                         alt="Preview"
+                        width={80}
+                        height={64}
+                        unoptimized
                         className="h-full w-full object-cover"
                       />
                     </div>

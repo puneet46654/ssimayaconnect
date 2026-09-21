@@ -1,0 +1,734 @@
+import {
+  randomInt,
+} from 'node:crypto';
+
+import mongoose from 'mongoose';
+
+import {
+  NextRequest,
+  NextResponse,
+} from 'next/server';
+
+import {
+  connectDB,
+} from '@/lib/db';
+
+import {
+  Booking,
+} from '@/models/Booking';
+
+import {
+  Event,
+} from '@/models/Event';
+
+import {
+  Slot,
+} from '@/models/Slot';
+
+import {
+  DaySchedule,
+} from '@/models/DaySchedule';
+
+/* ============================================================
+   TYPES
+============================================================ */
+
+type BookingDetailsInput =
+  Record<
+    string,
+    unknown
+  >;
+
+/* ============================================================
+   GET
+   Used by the user's ticket to check attendance status.
+============================================================ */
+
+export async function GET(
+  request:
+    NextRequest,
+) {
+  try {
+    const bookingId =
+      request.nextUrl
+        .searchParams
+        .get(
+          'bookingId',
+        )
+        ?.trim();
+
+    if (!bookingId) {
+      return NextResponse.json(
+        {
+          success:
+            false,
+
+          message:
+            'Booking ID is required.',
+        },
+        {
+          status:
+            400,
+        },
+      );
+    }
+
+    await connectDB();
+
+    const booking =
+      await Booking.findOne({
+        bookingId,
+      })
+        .select({
+          _id: 1,
+          bookingId: 1,
+          eventId: 1,
+          attendanceStatus:
+            1,
+          checkedInAt: 1,
+        })
+        .lean();
+
+    if (!booking) {
+      return NextResponse.json(
+        {
+          success:
+            false,
+
+          message:
+            'Booking not found.',
+        },
+        {
+          status:
+            404,
+        },
+      );
+    }
+
+    return NextResponse.json(
+      {
+        success:
+          true,
+
+        booking: {
+          id:
+            String(
+              booking._id,
+            ),
+
+          bookingId:
+            booking.bookingId,
+
+          eventId:
+            String(
+              booking.eventId,
+            ),
+
+          attendanceStatus:
+            booking.attendanceStatus ||
+            'NOT_PRESENT',
+
+          checkedInAt:
+            booking.checkedInAt
+              ? new Date(
+                  booking.checkedInAt,
+                ).toISOString()
+              : null,
+        },
+      },
+    );
+  } catch (error) {
+    console.error(
+      'Booking status GET failed:',
+      error,
+    );
+
+    return NextResponse.json(
+      {
+        success:
+          false,
+
+        message:
+          'Unable to retrieve booking status.',
+      },
+      {
+        status:
+          500,
+      },
+    );
+  }
+}
+
+/* ============================================================
+   POST
+============================================================ */
+
+export async function POST(
+  request:
+    NextRequest,
+) {
+  let reservedSlotId:
+    mongoose.Types.ObjectId | null =
+    null;
+
+  try {
+    const body =
+      (await request.json()) as {
+        eventId?: string;
+        slotId?: string;
+        dayScheduleId?: string;
+        details?: BookingDetailsInput;
+      };
+
+    const eventId =
+      body.eventId
+        ?.trim();
+
+    const slotId =
+      body.slotId
+        ?.trim();
+
+    const dayScheduleId =
+      body.dayScheduleId
+        ?.trim();
+
+    if (
+      !eventId ||
+      !slotId ||
+      !dayScheduleId
+    ) {
+      return NextResponse.json(
+        {
+          success:
+            false,
+
+          error:
+            'Event, schedule and slot are required.',
+        },
+        {
+          status:
+            400,
+        },
+      );
+    }
+
+    if (
+      !mongoose.Types
+        .ObjectId
+        .isValid(
+          eventId,
+        ) ||
+      !mongoose.Types
+        .ObjectId
+        .isValid(
+          slotId,
+        ) ||
+      !mongoose.Types
+        .ObjectId
+        .isValid(
+          dayScheduleId,
+        )
+    ) {
+      return NextResponse.json(
+        {
+          success:
+            false,
+
+          error:
+            'Invalid booking reference.',
+        },
+        {
+          status:
+            400,
+        },
+      );
+    }
+
+    const details =
+      normalizeDetails(
+        body.details ??
+          {},
+      );
+
+    if (
+      !details.fullName
+        ?.trim()
+    ) {
+      return NextResponse.json(
+        {
+          success:
+            false,
+
+          error:
+            'Full name is required.',
+        },
+        {
+          status:
+            400,
+        },
+      );
+    }
+
+    if (
+      !details.email
+        ?.trim()
+    ) {
+      return NextResponse.json(
+        {
+          success:
+            false,
+
+          error:
+            'Email address is required.',
+        },
+        {
+          status:
+            400,
+        },
+      );
+    }
+
+    if (
+      !details.mobile
+        ?.trim()
+    ) {
+      return NextResponse.json(
+        {
+          success:
+            false,
+
+          error:
+            'Mobile number is required.',
+        },
+        {
+          status:
+            400,
+        },
+      );
+    }
+
+    details.email =
+      details.email
+        .trim()
+        .toLowerCase();
+
+    details.mobile =
+      details.mobile
+        .trim();
+
+    await connectDB();
+
+    /* ========================================================
+       VERIFY EVENT
+    ======================================================== */
+
+    const event =
+      await Event.findById(
+        eventId,
+      )
+        .select(
+          '_id eventName status',
+        )
+        .lean();
+
+    if (!event) {
+      return NextResponse.json(
+        {
+          success:
+            false,
+
+          error:
+            'Event not found.',
+        },
+        {
+          status:
+            404,
+        },
+      );
+    }
+
+    /* ========================================================
+       VERIFY DAY
+    ======================================================== */
+
+    const schedule =
+      await DaySchedule.findOne({
+        _id:
+          dayScheduleId,
+
+        eventId,
+      })
+        .select(
+          '_id',
+        )
+        .lean();
+
+    if (!schedule) {
+      return NextResponse.json(
+        {
+          success:
+            false,
+
+          error:
+            'Selected schedule is invalid.',
+        },
+        {
+          status:
+            400,
+        },
+      );
+    }
+
+    /* ========================================================
+       DUPLICATE CHECK
+    ======================================================== */
+
+    const existing =
+      await Booking.findOne({
+        eventId,
+
+        $or: [
+          {
+            'details.email':
+              details.email,
+          },
+          {
+            'details.mobile':
+              details.mobile,
+          },
+        ],
+      })
+        .select({
+          _id: 1,
+          bookingId: 1,
+          eventId: 1,
+          attendanceStatus:
+            1,
+          checkedInAt: 1,
+        })
+        .lean();
+
+    /*
+     * If the same user already has a booking
+     * for this event, safely return it instead
+     * of creating another registration.
+     */
+    if (existing) {
+      return NextResponse.json(
+        {
+          success:
+            true,
+
+          existing:
+            true,
+
+          booking: {
+            id:
+              String(
+                existing._id,
+              ),
+
+            bookingId:
+              existing.bookingId,
+
+            eventId:
+              String(
+                existing.eventId,
+              ),
+
+            attendanceStatus:
+              existing.attendanceStatus ||
+              'NOT_PRESENT',
+
+            checkedInAt:
+              existing.checkedInAt
+                ? new Date(
+                    existing.checkedInAt,
+                  ).toISOString()
+                : null,
+          },
+        },
+        {
+          status:
+            200,
+        },
+      );
+    }
+
+    /* ========================================================
+       ATOMIC SLOT RESERVATION
+    ======================================================== */
+
+    const reservedSlot =
+      await Slot.findOneAndUpdate(
+        {
+          _id:
+            slotId,
+
+          eventId,
+
+          dayScheduleId,
+
+          $expr: {
+            $lt: [
+              '$bookedCount',
+              '$capacity',
+            ],
+          },
+        },
+
+        {
+          $inc: {
+            bookedCount:
+              1,
+          },
+        },
+
+        {
+          new:
+            true,
+        },
+      );
+
+    if (!reservedSlot) {
+      return NextResponse.json(
+        {
+          success:
+            false,
+
+          error:
+            'This slot is no longer available.',
+        },
+        {
+          status:
+            409,
+        },
+      );
+    }
+
+    reservedSlotId =
+      reservedSlot._id;
+
+    /* ========================================================
+       BOOKING ID
+    ======================================================== */
+
+    const bookingId =
+      await generateBookingId();
+
+    /* ========================================================
+       CREATE
+    ======================================================== */
+
+    const booking =
+      await Booking.create({
+        bookingId,
+
+        eventId,
+
+        slotId,
+
+        dayScheduleId,
+
+        details,
+
+        attendanceStatus:
+          'NOT_PRESENT',
+      });
+
+    return NextResponse.json(
+      {
+        success:
+          true,
+
+        booking: {
+          id:
+            booking._id.toString(),
+
+          bookingId:
+            booking.bookingId,
+
+          eventId:
+            booking.eventId.toString(),
+
+          attendanceStatus:
+            booking.attendanceStatus,
+
+          checkedInAt:
+            null,
+        },
+      },
+      {
+        status:
+          201,
+      },
+    );
+  } catch (error) {
+    console.error(
+      'Booking POST failed:',
+      error,
+    );
+
+    /*
+     * If booking creation failed after
+     * reserving a slot, return capacity.
+     */
+    if (
+      reservedSlotId
+    ) {
+      try {
+        await Slot.updateOne(
+          {
+            _id:
+              reservedSlotId,
+
+            bookedCount: {
+              $gt:
+                0,
+            },
+          },
+          {
+            $inc: {
+              bookedCount:
+                -1,
+            },
+          },
+        );
+      } catch (
+        rollbackError
+      ) {
+        console.error(
+          'Slot rollback failed:',
+          rollbackError,
+        );
+      }
+    }
+
+    return NextResponse.json(
+      {
+        success:
+          false,
+
+        error:
+          'Unable to complete the booking.',
+      },
+      {
+        status:
+          500,
+      },
+    );
+  }
+}
+
+/* ============================================================
+   DETAILS
+============================================================ */
+
+function normalizeDetails(
+  input:
+    BookingDetailsInput,
+) {
+  const output:
+    Record<
+      string,
+      string
+    > = {};
+
+  for (
+    const [
+      rawKey,
+      value,
+    ] of Object.entries(
+      input,
+    )
+  ) {
+    const key =
+      rawKey.trim();
+
+    if (
+      !key ||
+      key.startsWith(
+        '$',
+      ) ||
+      key.includes(
+        '.',
+      ) ||
+      key ===
+        '__proto__' ||
+      key ===
+        'constructor' ||
+      key ===
+        'prototype'
+    ) {
+      continue;
+    }
+
+    if (
+      value ===
+        undefined ||
+      value ===
+        null
+    ) {
+      output[key] =
+        '';
+
+      continue;
+    }
+
+    if (
+      typeof value ===
+      'string'
+    ) {
+      output[key] =
+        value.trim();
+
+      continue;
+    }
+
+    output[key] =
+      String(
+        value,
+      );
+  }
+
+  return output;
+}
+
+/* ============================================================
+   BOOKING ID
+============================================================ */
+
+async function generateBookingId() {
+  const year =
+    new Date()
+      .getFullYear();
+
+  for (
+    let attempt =
+      0;
+    attempt < 20;
+    attempt++
+  ) {
+    const number =
+      randomInt(
+        10000,
+        100000,
+      );
+
+    const bookingId =
+      `SSI-MC-${year}-${number}`;
+
+    const exists =
+      await Booking.exists({
+        bookingId,
+      });
+
+    if (!exists) {
+      return bookingId;
+    }
+  }
+
+  throw new Error(
+    'Unable to generate unique booking ID.',
+  );
+}

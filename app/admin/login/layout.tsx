@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import React, { useEffect, useState } from 'react';
 import { motion, Variants } from 'framer-motion';
 import localFont from 'next/font/local';
@@ -355,9 +356,11 @@ export default function AuthLayout({
                 "
               />
 
-              <img
+              <Image
                 src={LOGO_SRC}
                 alt="SSI Logo"
+                width={32}
+                height={32}
                 className="
                   relative
                   h-8

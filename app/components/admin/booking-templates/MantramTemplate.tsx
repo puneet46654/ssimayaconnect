@@ -14,6 +14,8 @@ import {
 
 import { useRouter } from 'next/navigation';
 
+import { trackActivity } from '@/lib/activity-client';
+
 interface MantramTemplateProps {
   eventId: string;
   eventName: string;
@@ -576,6 +578,14 @@ export default function MantramTemplate({
         JSON.stringify(
           bookingDetails,
         ),
+      );
+
+      void trackActivity(
+        'form_submitted',
+        {
+          eventId,
+          metadata: bookingDetails,
+        },
       );
 
       router.push(

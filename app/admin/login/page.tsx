@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import {
   AnimatePresence,
   motion,
@@ -255,9 +256,11 @@ export default function AdminLoginPage() {
             "
           />
 
-          <img
+          <Image
             src={LOGO_SRC}
             alt="SSI Logo"
+            width={40}
+            height={40}
             className="
               relative
               h-10
