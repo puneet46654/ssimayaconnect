@@ -511,9 +511,24 @@ export async function POST(
 
       if (qr) {
         if (
-          qr.eventId &&
-          qr.eventId !==
-            eventId
+          qr.type !==
+          'SSI_MAYA_CONNECT_ATTENDANCE'
+        ) {
+          return NextResponse.json(
+            {
+              success: false,
+              message:
+                'Invalid attendance QR ticket.',
+            },
+            {
+              status: 400,
+            },
+          );
+        }
+
+        if (
+          !qr.eventId ||
+          qr.eventId !== eventId
         ) {
           return NextResponse.json(
             {
@@ -696,19 +711,62 @@ export async function POST(
     const now =
       new Date();
 
-    booking.attendanceStatus =
-      'PRESENT';
+    const updatedBooking =
+      await Booking.findOneAndUpdate(
+        {
+          _id:
+            booking._id,
+          eventId:
+            new mongoose.Types.ObjectId(
+              eventId,
+            ),
+          attendanceStatus: {
+            $ne: 'PRESENT',
+          },
+        },
+        {
+          $set: {
+            attendanceStatus:
+              'PRESENT',
+            checkedInAt:
+              now,
+            checkedInBy:
+              admin,
+            checkInMethod:
+              method,
+          },
+        },
+        {
+          new: true,
+        },
+      ).lean();
 
-    booking.checkedInAt =
-      now;
-
-    booking.checkedInBy =
-      admin;
-
-    booking.checkInMethod =
-      method;
-
-    await booking.save();
+    if (!updatedBooking) {
+      return NextResponse.json(
+        {
+          success: true,
+          alreadyPresent: true,
+          message:
+            'Attendance was already recorded.',
+          booking: {
+            id:
+              booking._id.toString(),
+            bookingId:
+              booking.bookingId,
+            fullName:
+              booking.details
+                ?.fullName ||
+              'Attendee',
+            attendanceStatus:
+              'PRESENT',
+            checkedInAt:
+              booking.checkedInAt
+                ? booking.checkedInAt.toISOString()
+                : null,
+          },
+        },
+      );
+    }
 
     return NextResponse.json(
       {
@@ -742,7 +800,11 @@ export async function POST(
             'PRESENT',
 
           checkedInAt:
-            now.toISOString(),
+            updatedBooking.checkedInAt
+              ? new Date(
+                  updatedBooking.checkedInAt,
+                ).toISOString()
+              : now.toISOString(),
         },
       },
     );

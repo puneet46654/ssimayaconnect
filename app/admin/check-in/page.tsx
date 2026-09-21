@@ -2,7 +2,6 @@
 
 import type {
   FormEvent,
-  ReactNode,
 } from 'react';
 
 import {
@@ -506,7 +505,16 @@ export default function CheckInPage() {
   ========================================================== */
 
   useEffect(() => {
-    void loadLiveEvents();
+    const timer =
+      window.setTimeout(() => {
+        void loadLiveEvents();
+      }, 0);
+
+    return () => {
+      window.clearTimeout(
+        timer,
+      );
+    };
   }, [
     loadLiveEvents,
   ]);
@@ -519,20 +527,30 @@ export default function CheckInPage() {
     if (
       !selectedEventId
     ) {
-      setStats(
-        EMPTY_STATS,
-      );
+      const timer =
+        window.setTimeout(() => {
+          setStats(
+            EMPTY_STATS,
+          );
 
-      setRecent(
-        [],
-      );
+          setRecent(
+            [],
+          );
+        }, 0);
 
-      return;
+      return () => {
+        window.clearTimeout(
+          timer,
+        );
+      };
     }
 
-    void loadAttendance(
-      selectedEventId,
-    );
+    const initialLoadId =
+      window.setTimeout(() => {
+        void loadAttendance(
+          selectedEventId,
+        );
+      }, 0);
 
     const interval =
       window.setInterval(
@@ -546,6 +564,9 @@ export default function CheckInPage() {
       );
 
     return () => {
+      window.clearTimeout(
+        initialLoadId,
+      );
       window.clearInterval(
         interval,
       );
@@ -808,15 +829,24 @@ export default function CheckInPage() {
         if (
           !selectedEventId
         ) {
-          setScannerState(
-            'idle',
-          );
+          const timer =
+            window.setTimeout(() => {
+              setScannerState(
+                'idle',
+              );
 
-          setScannerText(
-            'Select a live event to begin scanning.',
-          );
+              setScannerText(
+                'Select a live event to begin scanning.',
+              );
+            }, 0);
 
-          return;
+          return () => {
+            window.clearTimeout(
+              timer,
+            );
+
+            stopCamera();
+          };
         }
 
         if (
@@ -898,15 +928,23 @@ export default function CheckInPage() {
     if (
       !selectedEventId
     ) {
-      setScannerState(
-        'idle',
-      );
+      const timer =
+        window.setTimeout(() => {
+          setScannerState(
+            'idle',
+          );
 
-      setScannerText(
-        'Select a live event to begin scanning.',
-      );
+          setScannerText(
+            'Select a live event to begin scanning.',
+          );
+        }, 0);
 
-      return;
+      return () => {
+        window.clearTimeout(
+          timer,
+        );
+        stopCamera();
+      };
     }
 
     const timer =
