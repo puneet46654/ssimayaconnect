@@ -31,6 +31,9 @@ import {
  */
 import '@/models/Slot';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 /* ============================================================
    HELPERS
 ============================================================ */

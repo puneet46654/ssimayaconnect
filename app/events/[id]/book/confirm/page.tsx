@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -35,35 +36,64 @@ import {
 
 type BookingDetails = {
   eventId?: string;
+
   eventName?: string;
+
   template?: string;
+
   designation?: string;
+
   title?: string;
+
   fullName?: string;
+
   specialty?: string;
+
   mobile?: string;
+
   countryCode?: string;
+
   phoneCountry?: string;
+
   email?: string;
+
   hospitalName?: string;
+
   country?: string;
+
   countryIso2?: string;
+
   state?: string;
+
   city?: string;
+
+  [key: string]:
+    string | undefined;
 };
 
 type SlotSelection = {
   eventId?: string;
+
   dayScheduleId?: string;
+
   date?: string;
+
   slotId?: string;
+
   startTime?: string;
+
   endTime?: string;
 };
 
 type AttendanceStatus =
   | 'NOT_PRESENT'
   | 'PRESENT';
+
+type BookingState =
+  | 'loading'
+  | 'creating'
+  | 'ready'
+  | 'error';
 
 type ServerBooking = {
   id: string;
@@ -82,6 +112,8 @@ type ServerBooking = {
 type BookingApiResponse = {
   success?: boolean;
 
+  existing?: boolean;
+
   error?: string;
 
   message?: string;
@@ -91,7 +123,7 @@ type BookingApiResponse = {
 };
 
 /* ============================================================
-   ANIMATION
+   CONSTANTS
 ============================================================ */
 
 const EASE = [
@@ -100,58 +132,6 @@ const EASE = [
   0.36,
   1,
 ] as const;
-
-/* ============================================================
-   FALLBACK
-============================================================ */
-
-const DEMO_BOOKING:
-  BookingDetails = {
-  eventName:
-    'Annual Cardiology Summit 2026',
-
-  designation:
-    'Delegate',
-
-  title:
-    'Dr.',
-
-  fullName:
-    'Ramesh Kumar',
-
-  specialty:
-    'Cardiology',
-
-  hospitalName:
-    'All India Institute of Medical Sciences',
-
-  email:
-    'dr.ramesh@hospital.com',
-
-  mobile:
-    '9876543210',
-
-  countryCode:
-    '+91',
-
-  city:
-    'New Delhi',
-
-  country:
-    'India',
-};
-
-const DEMO_SLOT:
-  SlotSelection = {
-  date:
-    '2026-07-19T00:00:00.000Z',
-
-  startTime:
-    '10:00',
-
-  endTime:
-    '10:30',
-};
 
 /* ============================================================
    PAGE
@@ -177,24 +157,44 @@ export default function BookingConfirmationPage() {
       null,
     );
 
+  const bookingStartedRef =
+    useRef(false);
+
   /* ==========================================================
-     STATE
+     BOOKING DATA
   ========================================================== */
 
   const [
     bookingDetails,
     setBookingDetails,
   ] =
-    useState<BookingDetails>(
-      DEMO_BOOKING,
+    useState<BookingDetails | null>(
+      null,
     );
 
   const [
     slotSelection,
     setSlotSelection,
   ] =
-    useState<SlotSelection>(
-      DEMO_SLOT,
+    useState<SlotSelection | null>(
+      null,
+    );
+
+  const [
+    dataLoaded,
+    setDataLoaded,
+  ] = useState(false);
+
+  /* ==========================================================
+     SERVER BOOKING
+  ========================================================== */
+
+  const [
+    bookingState,
+    setBookingState,
+  ] =
+    useState<BookingState>(
+      'loading',
     );
 
   const [
@@ -208,14 +208,13 @@ export default function BookingConfirmationPage() {
   ] = useState('');
 
   const [
-    bookingDataLoaded,
-    setBookingDataLoaded,
-  ] = useState(false);
-
-  const [
     bookingError,
     setBookingError,
   ] = useState('');
+
+  /* ==========================================================
+     ATTENDANCE
+  ========================================================== */
 
   const [
     attendanceStatus,
@@ -237,6 +236,10 @@ export default function BookingConfirmationPage() {
     attendanceLoaded,
     setAttendanceLoaded,
   ] = useState(false);
+
+  /* ==========================================================
+     DOWNLOAD
+  ========================================================== */
 
   const [
     downloading,
@@ -268,7 +271,10 @@ export default function BookingConfirmationPage() {
   ]);
 
   /* ==========================================================
-     LOAD TEMP BOOKING DATA
+     LOAD BOOKING FORM DATA
+
+     IMPORTANT:
+     No fake / demo booking is used.
   ========================================================== */
 
   useEffect(() => {
@@ -276,192 +282,185 @@ export default function BookingConfirmationPage() {
       return;
     }
 
-    const timeoutId =
-      window.setTimeout(() => {
-        try {
-          const detailsRaw =
-            sessionStorage.getItem(
-              `ssi-booking-details:${eventId}`,
-            );
+    try {
+      const detailsRaw =
+        sessionStorage.getItem(
+          `ssi-booking-details:${eventId}`,
+        );
 
-          const slotRaw =
-            sessionStorage.getItem(
-              `ssi-booking-slot:${eventId}`,
-            );
+      const slotRaw =
+        sessionStorage.getItem(
+          `ssi-booking-slot:${eventId}`,
+        );
 
-          if (detailsRaw) {
-            setBookingDetails(
-              JSON.parse(
-                detailsRaw,
-              ),
-            );
-          }
+      if (
+        !detailsRaw ||
+        !slotRaw
+      ) {
+        setBookingError(
+          'Booking information could not be found. Please complete the booking form again.',
+        );
 
-          if (slotRaw) {
-            setSlotSelection(
-              JSON.parse(
-                slotRaw,
-              ),
-            );
-          }
+        setBookingState(
+          'error',
+        );
 
-          setBookingDataLoaded(
-            true,
-          );
-        } catch (error) {
-          console.error(
-            'Unable to restore booking data:',
-            error,
-          );
+        setDataLoaded(
+          true,
+        );
 
-          setBookingDataLoaded(
-            true,
-          );
-        }
-      }, 0);
+        return;
+      }
 
-    return () => {
-      window.clearTimeout(
-        timeoutId,
+      const parsedDetails =
+        JSON.parse(
+          detailsRaw,
+        ) as BookingDetails;
+
+      const parsedSlot =
+        JSON.parse(
+          slotRaw,
+        ) as SlotSelection;
+
+      setBookingDetails(
+        parsedDetails,
       );
-    };
+
+      setSlotSelection(
+        parsedSlot,
+      );
+
+      setDataLoaded(
+        true,
+      );
+    } catch (error) {
+      console.error(
+        'Unable to restore booking data:',
+        error,
+      );
+
+      setBookingError(
+        'Booking information is invalid. Please complete the booking form again.',
+      );
+
+      setBookingState(
+        'error',
+      );
+
+      setDataLoaded(
+        true,
+      );
+    }
   }, [
     eventId,
   ]);
 
   /* ==========================================================
-     CREATE / RESTORE SERVER BOOKING
+     APPLY SERVER BOOKING
   ========================================================== */
 
-  useEffect(() => {
-    if (
-      !eventId ||
-      !bookingDataLoaded ||
-      !bookingDetails.fullName ||
-      !bookingDetails.email ||
-      !bookingDetails.mobile ||
-      !slotSelection.slotId
-    ) {
-      return;
-    }
-
-    const bookingStorageKey =
-      `ssi-server-booking-id:${eventId}`;
-
-    const mongoStorageKey =
-      `ssi-server-booking-mongo-id:${eventId}`;
-
-    const storedBookingId =
-      sessionStorage.getItem(
-        bookingStorageKey,
-      );
-
-    const storedMongoId =
-      sessionStorage.getItem(
-        mongoStorageKey,
-      );
-
-    let cancelled =
-      false;
-
-    /* ========================================================
-       RESTORE EXISTING
-    ======================================================== */
-
-    if (storedBookingId) {
-      const bookingIdForRequest =
-        storedBookingId;
-
-      window.setTimeout(() => {
+  const applyServerBooking =
+    useCallback(
+      (
+        booking:
+          ServerBooking,
+      ) => {
         setBookingId(
-          bookingIdForRequest,
+          booking.bookingId,
         );
 
+        setBookingMongoId(
+          booking.id,
+        );
+
+        setAttendanceStatus(
+          booking.attendanceStatus ||
+            'NOT_PRESENT',
+        );
+
+        setCheckedInAt(
+          booking.checkedInAt ??
+            null,
+        );
+
+        setAttendanceLoaded(
+          true,
+        );
+
+        setBookingState(
+          'ready',
+        );
+
+        setBookingError(
+          '',
+        );
+
+        sessionStorage.setItem(
+          `ssi-server-booking-id:${eventId}`,
+          booking.bookingId,
+        );
+
+        sessionStorage.setItem(
+          `ssi-server-booking-mongo-id:${eventId}`,
+          booking.id,
+        );
+
+        /*
+         * Remove old booking ID generated by
+         * older frontend-only versions.
+         */
+        sessionStorage.removeItem(
+          `ssi-booking-id:${eventId}`,
+        );
+      },
+      [
+        eventId,
+      ],
+    );
+
+  /* ==========================================================
+     CREATE BOOKING
+  ========================================================== */
+
+  const createServerBooking =
+    useCallback(
+      async () => {
         if (
-          storedMongoId
+          !bookingDetails ||
+          !slotSelection
         ) {
-          setBookingMongoId(
-            storedMongoId,
+          throw new Error(
+            'Booking details are not available.',
           );
         }
-      }, 0);
 
-      async function hydrateExisting() {
-        try {
-          const response =
-            await fetch(
-              `/api/bookings?bookingId=${encodeURIComponent(
-                bookingIdForRequest,
-              )}`,
-              {
-                cache:
-                  'no-store',
-              },
-            );
-
-          const data =
-            (await response.json()) as BookingApiResponse;
-
-          if (
-            !response.ok ||
-            !data.success ||
-            !data.booking
-          ) {
-            return;
-          }
-
-          if (cancelled) {
-            return;
-          }
-
-          setBookingMongoId(
-            data.booking.id,
-          );
-
-          setAttendanceStatus(
-            data.booking
-              .attendanceStatus ||
-              'NOT_PRESENT',
-          );
-
-          setCheckedInAt(
-            data.booking
-              .checkedInAt ||
-              null,
-          );
-
-          setAttendanceLoaded(
-            true,
-          );
-
-          sessionStorage.setItem(
-            mongoStorageKey,
-            data.booking.id,
-          );
-        } catch (error) {
-          console.error(
-            'Unable to restore server booking:',
-            error,
+        if (
+          !bookingDetails.fullName ||
+          !bookingDetails.email ||
+          !bookingDetails.mobile
+        ) {
+          throw new Error(
+            'Attendee information is incomplete.',
           );
         }
-      }
 
-      void hydrateExisting();
+        if (
+          !slotSelection.slotId ||
+          !slotSelection.dayScheduleId
+        ) {
+          throw new Error(
+            'Selected booking slot is incomplete.',
+          );
+        }
 
-      return () => {
-        cancelled =
-          true;
-      };
-    }
+        setBookingState(
+          'creating',
+        );
 
-    /* ========================================================
-       CREATE NEW
-    ======================================================== */
+        setBookingError(
+          '',
+        );
 
-    async function createBooking() {
-      setBookingError('');
-
-      try {
         const response =
           await fetch(
             '/api/bookings',
@@ -469,13 +468,16 @@ export default function BookingConfirmationPage() {
               method:
                 'POST',
 
+              credentials:
+                'include',
+
+              cache:
+                'no-store',
+
               headers: {
                 'Content-Type':
                   'application/json',
               },
-
-              credentials:
-                'include',
 
               body:
                 JSON.stringify({
@@ -504,89 +506,272 @@ export default function BookingConfirmationPage() {
           throw new Error(
             data.error ||
               data.message ||
-              'Unable to complete the booking.',
+              'Unable to create booking.',
           );
         }
 
-        if (cancelled) {
+        applyServerBooking(
+          data.booking,
+        );
+
+        return data.booking;
+      },
+      [
+        applyServerBooking,
+        bookingDetails,
+        eventId,
+        slotSelection,
+      ],
+    );
+
+  /* ==========================================================
+     VERIFY EXISTING BOOKING
+
+     This fixes the main bug.
+
+     Browser storage is NEVER considered proof of a booking.
+     MongoDB must confirm it first.
+  ========================================================== */
+
+  const restoreOrCreateBooking =
+    useCallback(
+      async () => {
+        if (
+          !dataLoaded ||
+          !bookingDetails ||
+          !slotSelection
+        ) {
           return;
         }
 
-        setBookingId(
-          data.booking
-            .bookingId,
+        setBookingError(
+          '',
         );
 
-        setBookingMongoId(
-          data.booking.id,
+        setBookingState(
+          'loading',
         );
 
-        setAttendanceStatus(
-          data.booking
-            .attendanceStatus ||
-            'NOT_PRESENT',
+        const serverBookingKey =
+          `ssi-server-booking-id:${eventId}`;
+
+        const serverMongoKey =
+          `ssi-server-booking-mongo-id:${eventId}`;
+
+        /*
+         * Legacy frontend-only ID.
+         *
+         * Never use this as a real booking.
+         */
+        sessionStorage.removeItem(
+          `ssi-booking-id:${eventId}`,
         );
 
-        setCheckedInAt(
-          data.booking
-            .checkedInAt ||
-            null,
-        );
+        const storedBookingId =
+          sessionStorage.getItem(
+            serverBookingKey,
+          );
 
-        setAttendanceLoaded(
-          true,
-        );
+        /* ====================================================
+           NO STORED SERVER BOOKING
+        ==================================================== */
 
-        sessionStorage.setItem(
-          bookingStorageKey,
-          data.booking
-            .bookingId,
-        );
+        if (
+          !storedBookingId
+        ) {
+          await createServerBooking();
 
-        sessionStorage.setItem(
-          mongoStorageKey,
-          data.booking.id,
-        );
+          return;
+        }
+
+        /* ====================================================
+           VERIFY STORED BOOKING AGAINST MONGODB
+        ==================================================== */
+
+        try {
+          const response =
+            await fetch(
+              `/api/bookings?bookingId=${encodeURIComponent(
+                storedBookingId,
+              )}`,
+              {
+                method:
+                  'GET',
+
+                cache:
+                  'no-store',
+              },
+            );
+
+          /*
+           * Stale browser booking.
+           *
+           * Mongo says it does not exist.
+           */
+          if (
+            response.status ===
+            404
+          ) {
+            sessionStorage.removeItem(
+              serverBookingKey,
+            );
+
+            sessionStorage.removeItem(
+              serverMongoKey,
+            );
+
+            setBookingId(
+              '',
+            );
+
+            setBookingMongoId(
+              '',
+            );
+
+            await createServerBooking();
+
+            return;
+          }
+
+          const data =
+            (await response.json()) as BookingApiResponse;
+
+          if (
+            !response.ok ||
+            !data.success ||
+            !data.booking
+          ) {
+            throw new Error(
+              data.message ||
+                data.error ||
+                'Unable to verify booking.',
+            );
+          }
+
+          /*
+           * MongoDB confirmed booking.
+           */
+          applyServerBooking(
+            data.booking,
+          );
+        } catch (error) {
+          /*
+           * Do NOT silently display stored ID when
+           * database verification fails.
+           */
+          throw error;
+        }
+      },
+      [
+        applyServerBooking,
+        bookingDetails,
+        createServerBooking,
+        dataLoaded,
+        eventId,
+        slotSelection,
+      ],
+    );
+
+  /* ==========================================================
+     INITIAL BOOKING SYNC
+  ========================================================== */
+
+  useEffect(() => {
+    if (
+      !dataLoaded ||
+      !bookingDetails ||
+      !slotSelection ||
+      bookingStartedRef.current
+    ) {
+      return;
+    }
+
+    bookingStartedRef.current =
+      true;
+
+    let cancelled =
+      false;
+
+    async function start() {
+      try {
+        await restoreOrCreateBooking();
       } catch (error) {
         if (cancelled) {
           return;
         }
 
         console.error(
-          'Unable to create booking:',
+          'Booking confirmation failed:',
           error,
+        );
+
+        setBookingState(
+          'error',
         );
 
         setBookingError(
           error instanceof
             Error
             ? error.message
-            : 'Unable to complete the booking.',
+            : 'Unable to confirm booking.',
         );
       }
     }
 
-    void createBooking();
+    void start();
 
     return () => {
       cancelled =
         true;
     };
   }, [
-    bookingDataLoaded,
     bookingDetails,
-    eventId,
+    dataLoaded,
+    restoreOrCreateBooking,
     slotSelection,
   ]);
 
   /* ==========================================================
-     TRACK COMPLETE
+     RETRY
+  ========================================================== */
+
+  async function retryBooking() {
+    bookingStartedRef.current =
+      true;
+
+    try {
+      await restoreOrCreateBooking();
+    } catch (error) {
+      console.error(
+        'Booking retry failed:',
+        error,
+      );
+
+      setBookingState(
+        'error',
+      );
+
+      setBookingError(
+        error instanceof
+          Error
+          ? error.message
+          : 'Unable to confirm booking.',
+      );
+    }
+  }
+
+  /* ==========================================================
+     BOOKING COMPLETE ACTIVITY
+
+     Track only after MongoDB has confirmed it.
   ========================================================== */
 
   useEffect(() => {
     if (
-      !eventId ||
-      !bookingId
+      bookingState !==
+        'ready' ||
+      !bookingId ||
+      !bookingMongoId
     ) {
       return;
     }
@@ -598,7 +783,11 @@ export default function BookingConfirmationPage() {
 
         metadata: {
           bookingId,
+
+          bookingMongoId,
+
           bookingDetails,
+
           slotSelection,
         },
       },
@@ -606,19 +795,22 @@ export default function BookingConfirmationPage() {
   }, [
     bookingDetails,
     bookingId,
+    bookingMongoId,
+    bookingState,
     eventId,
     slotSelection,
   ]);
 
   /* ==========================================================
-     LIVE ATTENDANCE POLLING
-
-     Every 2 seconds the user ticket checks MongoDB.
-     Once admin scans the QR the interface turns green.
+     ATTENDANCE POLLING
   ========================================================== */
 
   useEffect(() => {
-    if (!bookingId) {
+    if (
+      bookingState !==
+        'ready' ||
+      !bookingId
+    ) {
       return;
     }
 
@@ -633,6 +825,9 @@ export default function BookingConfirmationPage() {
               bookingId,
             )}`,
             {
+              method:
+                'GET',
+
               cache:
                 'no-store',
             },
@@ -662,17 +857,22 @@ export default function BookingConfirmationPage() {
 
         setCheckedInAt(
           data.booking
-            .checkedInAt ||
+            .checkedInAt ??
             null,
         );
 
         setAttendanceLoaded(
           true,
         );
+
+        sessionStorage.setItem(
+          `ssi-server-booking-mongo-id:${eventId}`,
+          data.booking.id,
+        );
       } catch {
         /*
-         * Do not interrupt user ticket because
-         * of a temporary polling/network error.
+         * Temporary network errors should not
+         * destroy a confirmed ticket.
          */
       }
     }
@@ -684,7 +884,7 @@ export default function BookingConfirmationPage() {
         () => {
           void checkAttendance();
         },
-        2000,
+        2500,
       );
 
     return () => {
@@ -697,14 +897,21 @@ export default function BookingConfirmationPage() {
     };
   }, [
     bookingId,
+    bookingState,
+    eventId,
   ]);
 
   /* ==========================================================
-     FEEDBACK
+     FEEDBACK REDIRECT
+
+     Only after MongoDB confirms booking.
   ========================================================== */
 
   useEffect(() => {
-    if (!eventId) {
+    if (
+      bookingState !==
+      'ready'
+    ) {
       return;
     }
 
@@ -718,13 +925,13 @@ export default function BookingConfirmationPage() {
       return;
     }
 
-    const feedbackState =
+    const state =
       sessionStorage.getItem(
         `ssi-feedback-state:${eventId}`,
       );
 
     if (
-      feedbackState ===
+      state ===
       'submitted'
     ) {
       return;
@@ -746,28 +953,46 @@ export default function BookingConfirmationPage() {
       );
     };
   }, [
+    bookingState,
     eventId,
     searchParams,
   ]);
 
   /* ==========================================================
-     DISPLAY NAME
+     COMPUTED
   ========================================================== */
+
+  const bookingReady =
+    bookingState ===
+      'ready' &&
+    Boolean(
+      bookingId,
+    ) &&
+    Boolean(
+      bookingMongoId,
+    );
+
+  const active =
+    attendanceStatus ===
+    'PRESENT';
 
   const displayName =
     useMemo(() => {
       const title =
-        bookingDetails.title
+        bookingDetails
+          ?.title
           ?.trim() ||
         '';
 
       const name =
-        bookingDetails.fullName
+        bookingDetails
+          ?.fullName
           ?.trim() ||
-        'Guest';
+        '';
 
       if (
         title &&
+        name &&
         !name
           .toLowerCase()
           .startsWith(
@@ -777,21 +1002,21 @@ export default function BookingConfirmationPage() {
         return `${title} ${name}`;
       }
 
-      return name;
+      return (
+        name ||
+        'Attendee'
+      );
     }, [
       bookingDetails,
     ]);
 
-  /* ==========================================================
-     DATE
-  ========================================================== */
-
   const formattedDate =
     useMemo(() => {
       if (
-        !slotSelection.date
+        !slotSelection
+          ?.date
       ) {
-        return 'Date not available';
+        return '—';
       }
 
       const date =
@@ -826,74 +1051,88 @@ export default function BookingConfirmationPage() {
         date,
       );
     }, [
-      slotSelection.date,
+      slotSelection,
     ]);
-
-  /* ==========================================================
-     TIME
-  ========================================================== */
 
   const formattedTime =
     useMemo(() => {
+      const start =
+        slotSelection
+          ?.startTime;
+
+      const end =
+        slotSelection
+          ?.endTime;
+
       if (
-        !slotSelection.startTime ||
-        !slotSelection.endTime
+        !start ||
+        !end
       ) {
-        return 'Time not available';
+        return '—';
       }
 
-      return `${slotSelection.startTime} – ${slotSelection.endTime}`;
+      return `${start} – ${end}`;
     }, [
-      slotSelection.startTime,
-      slotSelection.endTime,
+      slotSelection,
     ]);
 
   /* ==========================================================
      QR
 
-     doctorId = the unique Mongo Booking document ID.
+     QR can only exist after MongoDB booking exists.
   ========================================================== */
 
   const qrValue =
-    useMemo(
-      () =>
-        JSON.stringify({
-          type:
-            'SSI_MAYA_CONNECT_ATTENDANCE',
+    useMemo(() => {
+      if (
+        !bookingReady
+      ) {
+        return '';
+      }
 
-          doctorId:
-            bookingMongoId,
+      return JSON.stringify({
+        type:
+          'SSI_MAYA_CONNECT_ATTENDANCE',
 
-          bookingId,
+        doctorId:
+          bookingMongoId,
 
-          eventId,
-
-          eventName:
-            bookingDetails.eventName,
-
-          name:
-            displayName,
-
-          date:
-            slotSelection.date,
-
-          startTime:
-            slotSelection.startTime,
-
-          endTime:
-            slotSelection.endTime,
-        }),
-      [
-        bookingMongoId,
         bookingId,
+
         eventId,
-        bookingDetails.eventName,
-        displayName,
-        slotSelection.date,
-        slotSelection.startTime,
-        slotSelection.endTime,
-      ],
-    );
+
+        eventName:
+          bookingDetails
+            ?.eventName ||
+          '',
+
+        name:
+          displayName,
+
+        date:
+          slotSelection
+            ?.date ||
+          '',
+
+        startTime:
+          slotSelection
+            ?.startTime ||
+          '',
+
+        endTime:
+          slotSelection
+            ?.endTime ||
+          '',
+      });
+    }, [
+      bookingDetails,
+      bookingId,
+      bookingMongoId,
+      bookingReady,
+      displayName,
+      eventId,
+      slotSelection,
+    ]);
 
   /* ==========================================================
      DOWNLOAD
@@ -901,6 +1140,7 @@ export default function BookingConfirmationPage() {
 
   async function handleDownload() {
     if (
+      !bookingReady ||
       !ticketRef.current ||
       downloading
     ) {
@@ -950,10 +1190,7 @@ export default function BookingConfirmationPage() {
         );
 
       link.download =
-        `${
-          bookingId ||
-          'ssi-booking-confirmation'
-        }.png`;
+        `${bookingId}.png`;
 
       link.href =
         dataUrl;
@@ -984,10 +1221,6 @@ export default function BookingConfirmationPage() {
     }
   }
 
-  const active =
-    attendanceStatus ===
-    'PRESENT';
-
   /* ==========================================================
      RENDER
   ========================================================== */
@@ -1003,7 +1236,7 @@ export default function BookingConfirmationPage() {
 
         px-3
 
-        pb-[142px]
+        pb-[150px]
         pt-3
 
         sm:px-5
@@ -1026,37 +1259,7 @@ export default function BookingConfirmationPage() {
         "
       >
         {/* ==================================================
-            ERROR
-        ================================================== */}
-
-        {bookingError && (
-          <div
-            role="alert"
-            className="
-              mb-3
-
-              rounded-xl
-
-              border
-              border-red-200
-
-              bg-red-50
-
-              px-4
-              py-3
-
-              text-[12px]
-              leading-5
-
-              text-red-700
-            "
-          >
-            {bookingError}
-          </div>
-        )}
-
-        {/* ==================================================
-            CONFIRMED HEADER
+            BOOKING HEADER
         ================================================== */}
 
         <motion.div
@@ -1065,7 +1268,7 @@ export default function BookingConfirmationPage() {
               0,
 
             y:
-              10,
+              8,
           }}
           animate={{
             opacity:
@@ -1074,17 +1277,9 @@ export default function BookingConfirmationPage() {
             y:
               0,
           }}
-          transition={{
-            duration:
-              0.5,
-
-            ease:
-              EASE,
-          }}
           className="
-            mb-3
-
             flex
+
             items-center
             gap-3
 
@@ -1095,41 +1290,14 @@ export default function BookingConfirmationPage() {
 
             bg-white
 
-            px-3.5
-            py-3
+            px-4
+            py-3.5
 
             shadow-sm
-
-            sm:px-4
-            sm:py-3.5
           "
         >
-          <motion.div
-            initial={{
-              scale:
-                0.5,
-
-              opacity:
-                0,
-            }}
-            animate={{
-              scale:
-                1,
-
-              opacity:
-                1,
-            }}
-            transition={{
-              delay:
-                0.12,
-
-              duration:
-                0.45,
-
-              ease:
-                EASE,
-            }}
-            className="
+          <div
+            className={`
               grid
 
               h-10
@@ -1141,13 +1309,34 @@ export default function BookingConfirmationPage() {
 
               rounded-full
 
-              bg-primary
-
-              text-white
-            "
+              ${
+                bookingReady
+                  ? `
+                      bg-primary
+                      text-white
+                    `
+                  : bookingState ===
+                      'error'
+                    ? `
+                        bg-red-100
+                        text-red-600
+                      `
+                    : `
+                        bg-primary/10
+                        text-primary
+                      `
+              }
+            `}
           >
-            <CheckIcon />
-          </motion.div>
+            {bookingReady ? (
+              <CheckIcon />
+            ) : bookingState ===
+              'error' ? (
+              <AlertIcon />
+            ) : (
+              <Spinner />
+            )}
+          </div>
 
           <div
             className="
@@ -1169,884 +1358,798 @@ export default function BookingConfirmationPage() {
                 sm:text-[21px]
               "
             >
-              Booking Confirmed!
+              {bookingReady
+                ? 'Booking Confirmed!'
+                : bookingState ===
+                    'error'
+                  ? 'Booking Not Confirmed'
+                  : 'Confirming Booking...'}
             </h1>
 
             <p
               className="
                 mt-0.5
 
-                !text-[10px]
-                !leading-4
-                !text-gray-500
+                text-[10px]
+                leading-4
 
-                sm:!text-[11px]
+                text-gray-500
+
+                sm:text-[11px]
               "
             >
-              Your slot has been
-              reserved successfully.
+              {bookingReady
+                ? 'Your booking has been saved successfully.'
+                : bookingState ===
+                    'error'
+                  ? 'We could not save this booking in the database.'
+                  : 'Saving your registration securely...'}
             </p>
           </div>
         </motion.div>
 
         {/* ==================================================
-            LIVE TICKET STATUS
+            ERROR
         ================================================== */}
 
-        <AttendanceStatusCard
-          active={
-            active
-          }
-          loaded={
-            attendanceLoaded
-          }
-          checkedInAt={
-            checkedInAt
-          }
-        />
+        {bookingState ===
+          'error' && (
+          <div
+            className="
+              mt-3
 
-        {/* ==================================================
-            TICKET
-        ================================================== */}
+              rounded-xl
 
-        <motion.div
-          ref={
-            ticketRef
-          }
-          initial={{
-            opacity:
-              0,
+              border
+              border-red-200
 
-            y:
-              12,
-          }}
-          animate={{
-            opacity:
-              1,
-
-            y:
-              0,
-          }}
-          transition={{
-            delay:
-              0.08,
-
-            duration:
-              0.55,
-
-            ease:
-              EASE,
-          }}
-          className={`
-            mt-3
-
-            overflow-hidden
-
-            rounded-[18px]
-
-            border
-
-            bg-white
-
-            shadow-[0_10px_28px_rgba(27,75,107,0.05)]
-
-            transition-colors
-            duration-500
-
-            md:grid
-            md:grid-cols-[310px_minmax(0,1fr)]
-
-            ${
-              active
-                ? 'border-emerald-300'
-                : 'border-amber-200'
-            }
-          `}
-        >
-          {/* ================================================
-              QR SIDE
-          ================================================ */}
-
-          <section
-            className={`
-              relative
-
-              flex
-              items-center
-              gap-4
-
-              border-b
-              border-gray-100
+              bg-red-50
 
               p-4
-
-              transition-colors
-              duration-500
-
-              md:flex-col
-              md:justify-center
-
-              md:border-b-0
-              md:border-r
-
-              md:p-5
-              md:text-center
-
-              ${
-                active
-                  ? 'bg-emerald-50/55'
-                  : 'bg-amber-50/50'
-              }
-            `}
+            "
           >
-            {active && (
+            <p
+              className="
+                text-[12px]
+                font-semibold
+                text-red-700
+              "
+            >
+              {
+                bookingError
+              }
+            </p>
+
+            <div
+              className="
+                mt-3
+
+                flex
+                flex-col
+                gap-2
+
+                sm:flex-row
+              "
+            >
+              {bookingDetails &&
+                slotSelection && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    void retryBooking()
+                  }
+                  className="
+                    btn
+                    btn-primary
+                  "
+                >
+                  Retry Booking
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() =>
+                  router.push(
+                    `/events/${eventId}/book`,
+                  )
+                }
+                className="
+                  btn
+                  btn-secondary
+                "
+              >
+                Back to Booking
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ==================================================
+            LOADING
+        ================================================== */}
+
+        {!bookingReady &&
+          bookingState !==
+            'error' && (
+            <BookingSkeleton />
+          )}
+
+        {/* ==================================================
+            REAL CONFIRMED BOOKING ONLY
+        ================================================== */}
+
+        {bookingReady &&
+          bookingDetails &&
+          slotSelection && (
+            <>
+              <AttendanceCard
+                active={
+                  active
+                }
+                loaded={
+                  attendanceLoaded
+                }
+                checkedInAt={
+                  checkedInAt
+                }
+              />
+
               <motion.div
+                ref={
+                  ticketRef
+                }
                 initial={{
                   opacity:
                     0,
 
-                  scale:
-                    0.6,
+                  y:
+                    10,
                 }}
                 animate={{
-                  opacity: [
-                    0.15,
-                    0.4,
-                    0.15,
-                  ],
+                  opacity:
+                    1,
 
-                  scale: [
-                    0.8,
-                    1.3,
-                    0.8,
-                  ],
+                  y:
+                    0,
                 }}
                 transition={{
                   duration:
-                    2.3,
-
-                  repeat:
-                    Infinity,
+                    0.45,
 
                   ease:
-                    'easeInOut',
+                    EASE,
                 }}
-                className="
-                  pointer-events-none
-
-                  absolute
-                  left-1/2
-                  top-1/2
-
-                  h-[230px]
-                  w-[230px]
-
-                  -translate-x-1/2
-                  -translate-y-1/2
-
-                  rounded-full
-
-                  bg-emerald-200
-
-                  blur-3xl
-                "
-              />
-            )}
-
-            {/* QR */}
-
-            <motion.div
-              animate={
-                active
-                  ? {
-                      scale: [
-                        1,
-                        1.025,
-                        1,
-                      ],
-                    }
-                  : {
-                      scale:
-                        1,
-                    }
-              }
-              transition={
-                active
-                  ? {
-                      duration:
-                        2,
-
-                      repeat:
-                        Infinity,
-                    }
-                  : undefined
-              }
-              className={`
-                relative
-                z-10
-
-                shrink-0
-
-                rounded-[16px]
-
-                border
-
-                bg-white
-
-                p-3
-
-                shadow-sm
-
-                ${
-                  active
-                    ? 'border-emerald-300'
-                    : 'border-amber-200'
-                }
-              `}
-            >
-              {bookingId &&
-              bookingMongoId ? (
-                <QRCodeSVG
-                  value={
-                    qrValue
-                  }
-                  size={
-                    170
-                  }
-                  level="H"
-                  includeMargin={
-                    false
-                  }
-                  bgColor="#FFFFFF"
-                  fgColor="#000000"
-                  className="
-                    h-[132px]
-                    w-[132px]
-
-                    sm:h-[148px]
-                    sm:w-[148px]
-
-                    md:h-[170px]
-                    md:w-[170px]
-                  "
-                />
-              ) : (
-                <div
-                  className="
-                    grid
-
-                    h-[132px]
-                    w-[132px]
-
-                    place-items-center
-
-                    rounded-lg
-
-                    bg-gray-100
-
-                    sm:h-[148px]
-                    sm:w-[148px]
-
-                    md:h-[170px]
-                    md:w-[170px]
-                  "
-                >
-                  <span
-                    className="
-                      h-5
-                      w-5
-
-                      animate-spin
-
-                      rounded-full
-
-                      border-2
-                      border-gray-300
-                      border-t-primary
-                    "
-                  />
-                </div>
-              )}
-            </motion.div>
-
-            {/* QR INFO */}
-
-            <div
-              className="
-                relative
-                z-10
-
-                min-w-0
-
-                flex-1
-
-                md:flex-none
-              "
-            >
-              <p
                 className={`
-                  text-[9px]
-                  font-bold
-
-                  uppercase
-
-                  tracking-[0.06em]
-
-                  ${
-                    active
-                      ? 'text-emerald-600'
-                      : 'text-amber-600'
-                  }
-                `}
-              >
-                Your Entry Pass
-              </p>
-
-              <p
-                className="
-                  mt-1
-
-                  truncate
-
-                  text-[13px]
-                  font-semibold
-
-                  text-secondary
-                "
-              >
-                {bookingId ||
-                  'Generating...'}
-              </p>
-
-              <div
-                className="
-                  mt-2
-                "
-              >
-                <span
-                  className={`
-                    inline-flex
-                    items-center
-                    gap-1.5
-
-                    rounded-full
-
-                    px-2.5
-                    py-1
-
-                    text-[9px]
-                    font-semibold
-
-                    ${
-                      active
-                        ? `
-                            bg-emerald-100
-                            text-emerald-700
-                          `
-                        : `
-                            bg-amber-100
-                            text-amber-700
-                          `
-                    }
-                  `}
-                >
-                  <span
-                    className={`
-                      h-1.5
-                      w-1.5
-
-                      rounded-full
-
-                      ${
-                        active
-                          ? 'bg-emerald-500'
-                          : 'animate-pulse bg-amber-500'
-                      }
-                    `}
-                  />
-
-                  {active
-                    ? 'Ticket Active'
-                    : 'Awaiting Venue Scan'}
-                </span>
-              </div>
-
-              <p
-                className="
-                  mt-2
-
-                  max-w-[230px]
-
-                  !text-[10px]
-                  !leading-4
-                  !text-gray-500
-
-                  md:mx-auto
-                "
-              >
-                {active
-                  ? 'Attendance verified. Your ticket is active.'
-                  : 'Present this QR code at the venue for attendance verification.'}
-              </p>
-
-              {/* FEEDBACK */}
-
-              <button
-                type="button"
-                data-export-ignore="true"
-                onClick={() =>
-                  router.push(
-                    `/events/${eventId}/book/feedback`,
-                  )
-                }
-                className="
                   mt-3
 
-                  inline-flex
-                  h-8
+                  overflow-hidden
 
-                  cursor-pointer
-
-                  items-center
-                  justify-center
-                  gap-1.5
-
-                  rounded-lg
+                  rounded-[18px]
 
                   border
-                  border-primary/20
 
                   bg-white
 
-                  px-3
+                  shadow-[0_10px_30px_rgba(27,75,107,0.06)]
 
-                  text-[10px]
-                  font-semibold
-
-                  text-primary
-
-                  transition-colors
-
-                  hover:bg-primary/[0.05]
-                "
-              >
-                <FeedbackIcon />
-
-                Give Feedback
-              </button>
-            </div>
-          </section>
-
-          {/* ================================================
-              DETAILS
-          ================================================ */}
-
-          <section
-            className="
-              p-4
-
-              sm:p-5
-            "
-          >
-            <div
-              className="
-                flex
-                items-center
-                justify-between
-                gap-3
-
-                border-b
-                border-gray-100
-
-                pb-3
-              "
-            >
-              <div
-                className="
-                  min-w-0
-                "
-              >
-                <p
-                  className="
-                    !text-[8px]
-                    !font-bold
-                    !uppercase
-                    !tracking-[0.055em]
-                    !text-gray-400
-                  "
-                >
-                  Booking ID
-                </p>
-
-                <p
-                  className="
-                    mt-0.5
-
-                    truncate
-
-                    !text-[13px]
-                    !font-semibold
-                    !text-secondary
-                  "
-                >
-                  {bookingId ||
-                    'Generating...'}
-                </p>
-              </div>
-
-              <span
-                className={`
-                  inline-flex
-                  shrink-0
-                  items-center
-                  gap-1.5
-
-                  text-[10px]
-                  font-medium
+                  md:grid
+                  md:grid-cols-[310px_minmax(0,1fr)]
 
                   ${
                     active
-                      ? 'text-emerald-600'
-                      : 'text-amber-600'
+                      ? 'border-emerald-300'
+                      : 'border-amber-200'
                   }
                 `}
               >
-                <span
-                  className={`
-                    h-1.5
-                    w-1.5
+                {/* ============================================
+                    QR
+                ============================================ */}
 
-                    rounded-full
+                <section
+                  className={`
+                    relative
+
+                    flex
+                    flex-col
+
+                    items-center
+                    justify-center
+
+                    border-b
+                    border-gray-100
+
+                    p-5
+
+                    text-center
+
+                    md:border-b-0
+                    md:border-r
 
                     ${
                       active
-                        ? 'bg-emerald-500'
-                        : 'animate-pulse bg-amber-500'
+                        ? 'bg-emerald-50/50'
+                        : 'bg-amber-50/50'
                     }
                   `}
-                />
+                >
+                  {active && (
+                    <motion.div
+                      animate={{
+                        scale: [
+                          0.8,
+                          1.3,
+                          0.8,
+                        ],
 
-                {active
-                  ? 'Active'
-                  : 'Not Active Yet'}
-              </span>
-            </div>
+                        opacity: [
+                          0.1,
+                          0.3,
+                          0.1,
+                        ],
+                      }}
+                      transition={{
+                        duration:
+                          2.2,
 
-            {/* EVENT */}
+                        repeat:
+                          Infinity,
+                      }}
+                      className="
+                        pointer-events-none
 
-            <div
-              className="
-                mt-4
+                        absolute
 
-                grid
-                grid-cols-2
+                        h-[230px]
+                        w-[230px]
 
-                gap-x-4
-                gap-y-4
+                        rounded-full
 
-                sm:grid-cols-3
-              "
-            >
-              <InfoField
-                label="Conference"
-                value={
-                  bookingDetails.eventName ||
-                  'Event'
-                }
-                wide
-              />
+                        bg-emerald-200
 
-              <InfoField
-                label="Date"
-                value={
-                  formattedDate
-                }
-              />
+                        blur-3xl
+                      "
+                    />
+                  )}
 
-              <InfoField
-                label="Time Slot"
-                value={
-                  formattedTime
-                }
-              />
-            </div>
+                  <div
+                    className={`
+                      relative
+                      z-10
 
-            <div
-              className="
-                my-4
-                h-px
-                bg-gray-100
-              "
-            />
+                      rounded-[16px]
 
-            {/* USER */}
+                      border
 
-            <div
-              className="
-                grid
-                grid-cols-2
+                      bg-white
 
-                gap-x-4
-                gap-y-4
+                      p-3
 
-                sm:grid-cols-3
-              "
-            >
-              <InfoField
-                label="Name"
-                value={
-                  displayName
-                }
-              />
+                      shadow-sm
 
-              {bookingDetails.designation && (
-                <InfoField
-                  label="Designation"
-                  value={
-                    bookingDetails.designation
-                  }
-                />
-              )}
+                      ${
+                        active
+                          ? 'border-emerald-300'
+                          : 'border-amber-200'
+                      }
+                    `}
+                  >
+                    <QRCodeSVG
+                      value={
+                        qrValue
+                      }
+                      size={
+                        170
+                      }
+                      level="H"
+                      includeMargin={
+                        false
+                      }
+                      bgColor="#FFFFFF"
+                      fgColor="#000000"
+                    />
+                  </div>
 
-              {bookingDetails.specialty && (
-                <InfoField
-                  label="Specialty"
-                  value={
-                    bookingDetails.specialty
-                  }
-                />
-              )}
+                  <p
+                    className="
+                      relative
+                      z-10
 
-              {bookingDetails.hospitalName && (
-                <InfoField
-                  label="Hospital"
-                  value={
-                    bookingDetails.hospitalName
-                  }
-                  wide
-                />
-              )}
+                      mt-4
 
-              {bookingDetails.email && (
-                <InfoField
-                  label="Email"
-                  value={
-                    bookingDetails.email
-                  }
-                  wide
-                />
-              )}
+                      text-[9px]
+                      font-bold
 
-              {bookingDetails.mobile && (
-                <InfoField
-                  label="Mobile"
-                  value={`${bookingDetails.countryCode || ''} ${bookingDetails.mobile}`.trim()}
-                />
-              )}
+                      uppercase
 
-              {(
-                bookingDetails.city ||
-                bookingDetails.state ||
-                bookingDetails.country
-              ) && (
-                <InfoField
-                  label="Location"
-                  value={[
-                    bookingDetails.city,
-                    bookingDetails.state,
-                    bookingDetails.country,
-                  ]
-                    .filter(
-                      Boolean,
-                    )
-                    .join(
-                      ', ',
+                      tracking-[0.08em]
+
+                      text-amber-600
+                    "
+                  >
+                    Your Entry Pass
+                  </p>
+
+                  <p
+                    className="
+                      relative
+                      z-10
+
+                      mt-1
+
+                      break-all
+
+                      text-[13px]
+                      font-semibold
+
+                      text-secondary
+                    "
+                  >
+                    {
+                      bookingId
+                    }
+                  </p>
+
+                  <span
+                    className={`
+                      relative
+                      z-10
+
+                      mt-2
+
+                      inline-flex
+
+                      items-center
+                      gap-1.5
+
+                      rounded-full
+
+                      px-2.5
+                      py-1
+
+                      text-[9px]
+                      font-semibold
+
+                      ${
+                        active
+                          ? `
+                              bg-emerald-100
+                              text-emerald-700
+                            `
+                          : `
+                              bg-amber-100
+                              text-amber-700
+                            `
+                      }
+                    `}
+                  >
+                    <span
+                      className={`
+                        h-1.5
+                        w-1.5
+
+                        rounded-full
+
+                        ${
+                          active
+                            ? 'bg-emerald-500'
+                            : 'animate-pulse bg-amber-500'
+                        }
+                      `}
+                    />
+
+                    {active
+                      ? 'Ticket Active'
+                      : 'Awaiting Venue Scan'}
+                  </span>
+
+                  <p
+                    className="
+                      relative
+                      z-10
+
+                      mt-3
+
+                      max-w-[220px]
+
+                      text-[10px]
+                      leading-4
+
+                      text-gray-500
+                    "
+                  >
+                    {active
+                      ? 'Attendance verified successfully.'
+                      : 'Present this QR code at the venue for attendance verification.'}
+                  </p>
+
+                  <button
+                    type="button"
+                    data-export-ignore="true"
+                    onClick={() =>
+                      router.push(
+                        `/events/${eventId}/book/feedback`,
+                      )
+                    }
+                    className="
+                      relative
+                      z-10
+
+                      mt-3
+
+                      inline-flex
+
+                      h-8
+
+                      cursor-pointer
+
+                      items-center
+                      justify-center
+
+                      rounded-lg
+
+                      border
+                      border-primary/20
+
+                      bg-white
+
+                      px-3
+
+                      text-[10px]
+                      font-semibold
+
+                      text-primary
+
+                      hover:bg-primary/[0.04]
+                    "
+                  >
+                    Give Feedback
+                  </button>
+                </section>
+
+                {/* ============================================
+                    DETAILS
+                ============================================ */}
+
+                <section
+                  className="
+                    p-4
+                    sm:p-5
+                  "
+                >
+                  <div
+                    className="
+                      flex
+
+                      items-center
+                      justify-between
+                      gap-3
+
+                      border-b
+                      border-gray-100
+
+                      pb-3
+                    "
+                  >
+                    <div
+                      className="
+                        min-w-0
+                      "
+                    >
+                      <FieldLabel>
+                        Booking ID
+                      </FieldLabel>
+
+                      <p
+                        className="
+                          mt-0.5
+
+                          break-all
+
+                          text-[13px]
+                          font-semibold
+
+                          text-secondary
+                        "
+                      >
+                        {
+                          bookingId
+                        }
+                      </p>
+                    </div>
+
+                    <span
+                      className={`
+                        inline-flex
+                        shrink-0
+
+                        items-center
+                        gap-1.5
+
+                        text-[10px]
+                        font-medium
+
+                        ${
+                          active
+                            ? 'text-emerald-600'
+                            : 'text-amber-600'
+                        }
+                      `}
+                    >
+                      <span
+                        className={`
+                          h-1.5
+                          w-1.5
+
+                          rounded-full
+
+                          ${
+                            active
+                              ? 'bg-emerald-500'
+                              : 'animate-pulse bg-amber-500'
+                          }
+                        `}
+                      />
+
+                      {active
+                        ? 'Active'
+                        : 'Not Active Yet'}
+                    </span>
+                  </div>
+
+                  <div
+                    className="
+                      mt-4
+
+                      grid
+                      grid-cols-2
+
+                      gap-x-5
+                      gap-y-4
+
+                      sm:grid-cols-3
+                    "
+                  >
+                    <InfoField
+                      label="Conference"
+                      value={
+                        bookingDetails.eventName ||
+                        'Event'
+                      }
+                    />
+
+                    <InfoField
+                      label="Date"
+                      value={
+                        formattedDate
+                      }
+                    />
+
+                    <InfoField
+                      label="Time Slot"
+                      value={
+                        formattedTime
+                      }
+                    />
+                  </div>
+
+                  <div
+                    className="
+                      my-4
+                      h-px
+                      bg-gray-100
+                    "
+                  />
+
+                  <div
+                    className="
+                      grid
+                      grid-cols-2
+
+                      gap-x-5
+                      gap-y-4
+
+                      sm:grid-cols-3
+                    "
+                  >
+                    <InfoField
+                      label="Name"
+                      value={
+                        displayName
+                      }
+                    />
+
+                    {bookingDetails.designation && (
+                      <InfoField
+                        label="Designation"
+                        value={
+                          bookingDetails.designation
+                        }
+                      />
                     )}
+
+                    {bookingDetails.specialty && (
+                      <InfoField
+                        label="Specialty"
+                        value={
+                          bookingDetails.specialty
+                        }
+                      />
+                    )}
+
+                    {bookingDetails.hospitalName && (
+                      <InfoField
+                        label="Hospital"
+                        value={
+                          bookingDetails.hospitalName
+                        }
+                      />
+                    )}
+
+                    {bookingDetails.email && (
+                      <InfoField
+                        label="Email"
+                        value={
+                          bookingDetails.email
+                        }
+                      />
+                    )}
+
+                    {bookingDetails.mobile && (
+                      <InfoField
+                        label="Mobile"
+                        value={`${bookingDetails.countryCode || ''} ${bookingDetails.mobile}`.trim()}
+                      />
+                    )}
+
+                    {(
+                      bookingDetails.city ||
+                      bookingDetails.state ||
+                      bookingDetails.country
+                    ) && (
+                      <InfoField
+                        label="Location"
+                        value={[
+                          bookingDetails.city,
+                          bookingDetails.state,
+                          bookingDetails.country,
+                        ]
+                          .filter(
+                            Boolean,
+                          )
+                          .join(
+                            ', ',
+                          )}
+                      />
+                    )}
+                  </div>
+                </section>
+              </motion.div>
+
+              {/* ============================================
+                  DESKTOP ACTIONS
+              ============================================ */}
+
+              <div
+                className="
+                  mx-auto
+
+                  mt-3
+
+                  hidden
+
+                  w-full
+                  max-w-[460px]
+
+                  flex-col
+                  gap-2
+
+                  md:flex
+                "
+              >
+                <DownloadButton
+                  downloading={
+                    downloading
+                  }
+                  downloaded={
+                    downloaded
+                  }
+                  onClick={
+                    handleDownload
+                  }
                 />
-              )}
-            </div>
-          </section>
-        </motion.div>
 
-        {/* ==================================================
-            DESKTOP ACTIONS
-        ================================================== */}
+                <BackButton
+                  onClick={() =>
+                    router.push(
+                      '/events',
+                    )
+                  }
+                />
+              </div>
 
-        <div
-          className="
-            mx-auto
+              {/* ============================================
+                  MOBILE ACTIONS
+              ============================================ */}
 
-            mt-3
+              <div
+                className="
+                  fixed
 
-            hidden
+                  inset-x-0
+                  bottom-0
 
-            w-full
-            max-w-[460px]
+                  z-50
 
-            flex-col
-            gap-2
+                  border-t
+                  border-gray-200/80
 
-            md:flex
-          "
-        >
-          <DownloadButton
-            downloading={
-              downloading
-            }
-            downloaded={
-              downloaded
-            }
-            onClick={
-              handleDownload
-            }
-          />
+                  bg-white/95
 
-          <button
-            type="button"
-            onClick={() =>
-              router.push(
-                '/events',
-              )
-            }
-            className="
-              flex
+                  px-3
+                  py-2
 
-              h-11
-              w-full
+                  shadow-[0_-5px_20px_rgba(27,75,107,0.06)]
 
-              cursor-pointer
+                  backdrop-blur-xl
 
-              items-center
-              justify-center
+                  md:hidden
+                "
+              >
+                <div
+                  className="
+                    mx-auto
 
-              rounded-xl
+                    flex
 
-              border
-              border-primary/60
+                    max-w-[520px]
 
-              bg-white
+                    flex-col
+                    gap-2
+                  "
+                >
+                  <DownloadButton
+                    downloading={
+                      downloading
+                    }
+                    downloaded={
+                      downloaded
+                    }
+                    onClick={
+                      handleDownload
+                    }
+                  />
 
-              text-[12px]
-              font-semibold
-
-              text-primary
-
-              transition-colors
-
-              hover:bg-primary/[0.035]
-            "
-          >
-            Back to Events
-          </button>
-        </div>
-      </div>
-
-      {/* ====================================================
-          MOBILE ACTIONS
-      ==================================================== */}
-
-      <div
-        className="
-          fixed
-
-          inset-x-0
-          bottom-0
-
-          z-50
-
-          border-t
-          border-gray-200/80
-
-          bg-white/95
-
-          px-3
-
-          pb-[max(8px,env(safe-area-inset-bottom))]
-          pt-2
-
-          shadow-[0_-5px_20px_rgba(27,75,107,0.06)]
-
-          backdrop-blur-xl
-
-          md:hidden
-        "
-      >
-        <div
-          className="
-            mx-auto
-
-            flex
-
-            w-full
-            max-w-[520px]
-
-            flex-col
-
-            gap-2
-          "
-        >
-          <DownloadButton
-            downloading={
-              downloading
-            }
-            downloaded={
-              downloaded
-            }
-            onClick={
-              handleDownload
-            }
-          />
-
-          <button
-            type="button"
-            onClick={() =>
-              router.push(
-                '/events',
-              )
-            }
-            className="
-              flex
-
-              h-10
-              w-full
-
-              cursor-pointer
-
-              items-center
-              justify-center
-
-              rounded-xl
-
-              border
-              border-primary/60
-
-              bg-white
-
-              text-[11px]
-              font-semibold
-
-              text-primary
-            "
-          >
-            Back to Events
-          </button>
-        </div>
+                  <BackButton
+                    onClick={() =>
+                      router.push(
+                        '/events',
+                      )
+                    }
+                  />
+                </div>
+              </div>
+            </>
+          )}
       </div>
     </main>
   );
 }
 
 /* ============================================================
-   ATTENDANCE STATUS
+   ATTENDANCE CARD
 ============================================================ */
 
-function AttendanceStatusCard({
+function AttendanceCard({
   active,
   loaded,
   checkedInAt,
 }: {
   active: boolean;
+
   loaded: boolean;
+
   checkedInAt:
     string | null;
 }) {
@@ -2058,26 +2161,21 @@ function AttendanceStatusCard({
           : 'waiting'
       }
       initial={{
-        opacity: 0,
-        y: 5,
-        scale: 0.99,
+        opacity:
+          0,
+
+        y:
+          5,
       }}
       animate={{
-        opacity: 1,
-        y: 0,
-        scale: 1,
-      }}
-      transition={{
-        duration:
-          0.45,
+        opacity:
+          1,
 
-        ease:
-          EASE,
+        y:
+          0,
       }}
       className={`
-        relative
-
-        overflow-hidden
+        mt-3
 
         rounded-xl
 
@@ -2085,9 +2183,6 @@ function AttendanceStatusCard({
 
         px-4
         py-3.5
-
-        transition-colors
-        duration-500
 
         ${
           active
@@ -2102,60 +2197,8 @@ function AttendanceStatusCard({
         }
       `}
     >
-      {active && (
-        <motion.div
-          initial={{
-            opacity:
-              0,
-          }}
-          animate={{
-            opacity: [
-              0,
-              0.35,
-              0,
-            ],
-
-            scale: [
-              0.7,
-              1.5,
-              0.7,
-            ],
-          }}
-          transition={{
-            duration:
-              2.4,
-
-            repeat:
-              Infinity,
-
-            ease:
-              'easeInOut',
-          }}
-          className="
-            pointer-events-none
-
-            absolute
-            -left-6
-            top-1/2
-
-            h-24
-            w-24
-
-            -translate-y-1/2
-
-            rounded-full
-
-            bg-emerald-300
-
-            blur-2xl
-          "
-        />
-      )}
-
       <div
         className="
-          relative
-
           flex
           items-center
           gap-3
@@ -2171,10 +2214,7 @@ function AttendanceStatusCard({
                     1,
                   ],
                 }
-              : {
-                  scale:
-                    1,
-                }
+              : undefined
           }
           transition={
             active
@@ -2219,67 +2259,37 @@ function AttendanceStatusCard({
           )}
         </motion.div>
 
-        <div
-          className="
-            min-w-0
-            flex-1
-          "
-        >
-          <div
-            className="
-              flex
-              flex-wrap
-              items-center
-              gap-2
-            "
+        <div>
+          <p
+            className={`
+              text-[13px]
+              font-semibold
+
+              ${
+                active
+                  ? 'text-emerald-800'
+                  : 'text-amber-800'
+              }
+            `}
           >
-            <p
-              className={`
-                !text-[13px]
-                !font-semibold
-
-                ${
-                  active
-                    ? '!text-emerald-800'
-                    : '!text-amber-800'
-                }
-              `}
-            >
-              {!loaded
-                ? 'Checking Ticket Status'
-                : active
-                  ? 'Ticket Active'
-                  : 'Ticket Not Active Yet'}
-            </p>
-
-            {!active &&
-              loaded && (
-              <span
-                className="
-                  h-1.5
-                  w-1.5
-
-                  animate-pulse
-
-                  rounded-full
-
-                  bg-amber-500
-                "
-              />
-            )}
-          </div>
+            {!loaded
+              ? 'Checking Ticket Status'
+              : active
+                ? 'Ticket Active'
+                : 'Ticket Not Active Yet'}
+          </p>
 
           <p
             className={`
               mt-0.5
 
-              !text-[10px]
-              !leading-4
+              text-[10px]
+              leading-4
 
               ${
                 active
-                  ? '!text-emerald-700'
-                  : '!text-amber-700'
+                  ? 'text-emerald-700'
+                  : 'text-amber-700'
               }
             `}
           >
@@ -2293,11 +2303,143 @@ function AttendanceStatusCard({
                         )}`
                       : ''
                   }.`
-                : 'Your ticket will automatically activate after the venue team scans your QR code.'}
+                : 'Your ticket will activate automatically after the venue team scans your QR code.'}
           </p>
         </div>
       </div>
     </motion.div>
+  );
+}
+
+/* ============================================================
+   LOADING SKELETON
+============================================================ */
+
+function BookingSkeleton() {
+  return (
+    <div
+      className="
+        mt-3
+
+        animate-pulse
+      "
+    >
+      <div
+        className="
+          h-[70px]
+
+          rounded-xl
+
+          border
+          border-gray-200
+
+          bg-white
+        "
+      />
+
+      <div
+        className="
+          mt-3
+
+          overflow-hidden
+
+          rounded-[18px]
+
+          border
+          border-gray-200
+
+          bg-white
+
+          md:grid
+          md:grid-cols-[310px_minmax(0,1fr)]
+        "
+      >
+        <div
+          className="
+            flex
+
+            min-h-[330px]
+
+            items-center
+            justify-center
+
+            bg-gray-50
+          "
+        >
+          <div
+            className="
+              h-[190px]
+              w-[190px]
+
+              rounded-xl
+
+              bg-gray-100
+            "
+          />
+        </div>
+
+        <div
+          className="
+            space-y-5
+            p-5
+          "
+        >
+          <div
+            className="
+              h-6
+              w-1/2
+              rounded
+              bg-gray-100
+            "
+          />
+
+          <div
+            className="
+              grid
+              grid-cols-2
+              gap-4
+            "
+          >
+            {Array.from({
+              length:
+                8,
+            }).map(
+              (
+                _,
+                index,
+              ) => (
+                <div
+                  key={
+                    index
+                  }
+                  className="
+                    space-y-2
+                  "
+                >
+                  <div
+                    className="
+                      h-2
+                      w-14
+                      rounded
+                      bg-gray-100
+                    "
+                  />
+
+                  <div
+                    className="
+                      h-4
+                      w-28
+                      rounded
+                      bg-gray-100
+                    "
+                  />
+                </div>
+              ),
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -2308,34 +2450,20 @@ function AttendanceStatusCard({
 function InfoField({
   label,
   value,
-  wide = false,
 }: {
   label: string;
+
   value: string;
-  wide?: boolean;
 }) {
   return (
     <div
-      className={
-        wide
-          ? 'col-span-2 sm:col-span-2'
-          : ''
-      }
+      className="
+        min-w-0
+      "
     >
-      <p
-        className="
-          !text-[8px]
-          !font-bold
-
-          !uppercase
-
-          !tracking-[0.045em]
-
-          !text-gray-400
-        "
-      >
+      <FieldLabel>
         {label}
-      </p>
+      </FieldLabel>
 
       <p
         className="
@@ -2343,14 +2471,14 @@ function InfoField({
 
           break-words
 
-          !text-[11px]
-          !font-medium
+          text-[11px]
+          font-medium
 
-          !leading-4
+          leading-4
 
-          !text-secondary
+          text-secondary
 
-          sm:!text-[12px]
+          sm:text-[12px]
         "
       >
         {value}
@@ -2359,8 +2487,32 @@ function InfoField({
   );
 }
 
+function FieldLabel({
+  children,
+}: {
+  children:
+    React.ReactNode;
+}) {
+  return (
+    <p
+      className="
+        text-[8px]
+        font-bold
+
+        uppercase
+
+        tracking-[0.045em]
+
+        text-gray-400
+      "
+    >
+      {children}
+    </p>
+  );
+}
+
 /* ============================================================
-   DOWNLOAD BUTTON
+   DOWNLOAD
 ============================================================ */
 
 function DownloadButton({
@@ -2384,16 +2536,16 @@ function DownloadButton({
         scale:
           0.985,
       }}
-      onClick={
-        onClick
-      }
       disabled={
         downloading
+      }
+      onClick={
+        onClick
       }
       className="
         flex
 
-        h-10
+        h-11
         w-full
 
         cursor-pointer
@@ -2406,50 +2558,32 @@ function DownloadButton({
 
         bg-primary
 
-        px-3
+        px-4
 
         text-[11px]
         font-semibold
 
         text-white
 
-        shadow-[0_5px_14px_rgba(26,158,143,0.14)]
-
-        transition-colors
+        shadow-sm
 
         hover:brightness-95
 
         disabled:cursor-wait
-        disabled:opacity-70
-
-        md:h-11
-        md:text-[12px]
+        disabled:opacity-60
       "
     >
-      {downloaded ? (
+      {downloading ? (
+        <>
+          <Spinner />
+
+          Preparing...
+        </>
+      ) : downloaded ? (
         <>
           <CheckSmallIcon />
 
           Downloaded
-        </>
-      ) : downloading ? (
-        <>
-          <span
-            className="
-              h-4
-              w-4
-
-              animate-spin
-
-              rounded-full
-
-              border-2
-              border-white/35
-              border-t-white
-            "
-          />
-
-          Preparing...
         </>
       ) : (
         <>
@@ -2463,7 +2597,54 @@ function DownloadButton({
 }
 
 /* ============================================================
-   HELPERS
+   BACK
+============================================================ */
+
+function BackButton({
+  onClick,
+}: {
+  onClick:
+    () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={
+        onClick
+      }
+      className="
+        flex
+
+        h-11
+        w-full
+
+        cursor-pointer
+
+        items-center
+        justify-center
+
+        rounded-xl
+
+        border
+        border-primary/60
+
+        bg-white
+
+        text-[11px]
+        font-semibold
+
+        text-primary
+
+        hover:bg-primary/[0.03]
+      "
+    >
+      Back to Events
+    </button>
+  );
+}
+
+/* ============================================================
+   TIME
 ============================================================ */
 
 function formatAttendanceTime(
@@ -2504,6 +2685,25 @@ function formatAttendanceTime(
    ICONS
 ============================================================ */
 
+function Spinner() {
+  return (
+    <span
+      className="
+        h-4
+        w-4
+
+        animate-spin
+
+        rounded-full
+
+        border-2
+        border-current/20
+        border-t-current
+      "
+    />
+  );
+}
+
 function CheckIcon() {
   return (
     <svg
@@ -2540,6 +2740,29 @@ function CheckSmallIcon() {
   );
 }
 
+function AlertIcon() {
+  return (
+    <svg
+      className="h-5 w-5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <circle
+        cx="12"
+        cy="12"
+        r="9"
+      />
+
+      <path
+        strokeLinecap="round"
+        d="M12 8v5M12 16h.01"
+      />
+    </svg>
+  );
+}
+
 function ClockIcon() {
   return (
     <svg
@@ -2559,30 +2782,6 @@ function ClockIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
         d="M12 7.5V12l3 2"
-      />
-    </svg>
-  );
-}
-
-function FeedbackIcon() {
-  return (
-    <svg
-      className="h-3.5 w-3.5"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth={1.9}
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M21 12a8.5 8.5 0 0 1-12.7 7.4L3 21l1.6-5.1A8.5 8.5 0 1 1 21 12Z"
-      />
-
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M8 10h8M8 14h5"
       />
     </svg>
   );

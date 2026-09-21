@@ -1,6 +1,4 @@
-import {
-  randomInt,
-} from 'node:crypto';
+import { randomInt } from 'node:crypto';
 
 import mongoose from 'mongoose';
 
@@ -9,25 +7,18 @@ import {
   NextResponse,
 } from 'next/server';
 
-import {
-  connectDB,
-} from '@/lib/db';
+import { connectDB } from '@/lib/db';
 
-import {
-  Booking,
-} from '@/models/Booking';
+import { Booking } from '@/models/Booking';
+import { Event } from '@/models/Event';
+import { Slot } from '@/models/Slot';
+import { DaySchedule } from '@/models/DaySchedule';
 
-import {
-  Event,
-} from '@/models/Event';
+export const dynamic =
+  'force-dynamic';
 
-import {
-  Slot,
-} from '@/models/Slot';
-
-import {
-  DaySchedule,
-} from '@/models/DaySchedule';
+export const revalidate =
+  0;
 
 /* ============================================================
    TYPES
@@ -40,8 +31,51 @@ type BookingDetailsInput =
   >;
 
 /* ============================================================
-   GET
-   Used by the user's ticket to check attendance status.
+   RESPONSE HELPER
+============================================================ */
+
+function normalizeBookingResponse(
+  booking: {
+    _id: unknown;
+    bookingId: string;
+    eventId: unknown;
+    attendanceStatus?: string;
+    checkedInAt?: Date | string | null;
+  },
+) {
+  return {
+    id:
+      String(
+        booking._id,
+      ),
+
+    bookingId:
+      booking.bookingId,
+
+    eventId:
+      String(
+        booking.eventId,
+      ),
+
+    attendanceStatus:
+      booking.attendanceStatus ||
+      'NOT_PRESENT',
+
+    checkedInAt:
+      booking.checkedInAt
+        ? new Date(
+            booking.checkedInAt,
+          ).toISOString()
+        : null,
+  };
+}
+
+/* ============================================================
+   GET BOOKING
+
+   Used by:
+   - confirmation page restore
+   - attendance polling
 ============================================================ */
 
 export async function GET(
@@ -85,7 +119,8 @@ export async function GET(
           eventId: 1,
           attendanceStatus:
             1,
-          checkedInAt: 1,
+          checkedInAt:
+            1,
         })
         .lean();
 
@@ -110,36 +145,19 @@ export async function GET(
         success:
           true,
 
-        booking: {
-          id:
-            String(
-              booking._id,
-            ),
-
-          bookingId:
-            booking.bookingId,
-
-          eventId:
-            String(
-              booking.eventId,
-            ),
-
-          attendanceStatus:
-            booking.attendanceStatus ||
-            'NOT_PRESENT',
-
-          checkedInAt:
-            booking.checkedInAt
-              ? new Date(
-                  booking.checkedInAt,
-                ).toISOString()
-              : null,
-        },
+        booking:
+          normalizeBookingResponse(
+            booking,
+          ),
+      },
+      {
+        status:
+          200,
       },
     );
   } catch (error) {
     console.error(
-      'Booking status GET failed:',
+      'GET /api/bookings failed:',
       error,
     );
 
@@ -149,7 +167,7 @@ export async function GET(
           false,
 
         message:
-          'Unable to retrieve booking status.',
+          'Unable to retrieve booking.',
       },
       {
         status:
@@ -160,7 +178,7 @@ export async function GET(
 }
 
 /* ============================================================
-   POST
+   POST BOOKING
 ============================================================ */
 
 export async function POST(
@@ -175,9 +193,13 @@ export async function POST(
     const body =
       (await request.json()) as {
         eventId?: string;
+
         slotId?: string;
+
         dayScheduleId?: string;
-        details?: BookingDetailsInput;
+
+        details?:
+          BookingDetailsInput;
       };
 
     const eventId =
@@ -191,6 +213,10 @@ export async function POST(
     const dayScheduleId =
       body.dayScheduleId
         ?.trim();
+
+    /* ========================================================
+       BASIC VALIDATION
+    ======================================================== */
 
     if (
       !eventId ||
@@ -307,6 +333,10 @@ export async function POST(
       );
     }
 
+    details.fullName =
+      details.fullName
+        .trim();
+
     details.email =
       details.email
         .trim()
@@ -326,9 +356,11 @@ export async function POST(
       await Event.findById(
         eventId,
       )
-        .select(
-          '_id eventName status',
-        )
+        .select({
+          _id: 1,
+          eventName: 1,
+          status: 1,
+        })
         .lean();
 
     if (!event) {
@@ -348,7 +380,7 @@ export async function POST(
     }
 
     /* ========================================================
-       VERIFY DAY
+       VERIFY DAY SCHEDULE
     ======================================================== */
 
     const schedule =
@@ -356,11 +388,12 @@ export async function POST(
         _id:
           dayScheduleId,
 
-        eventId,
+        eventId:
+          eventId,
       })
-        .select(
-          '_id',
-        )
+        .select({
+          _id: 1,
+        })
         .lean();
 
     if (!schedule) {
@@ -380,18 +413,62 @@ export async function POST(
     }
 
     /* ========================================================
-       DUPLICATE CHECK
+       VERIFY SLOT
+    ======================================================== */
+
+    const slot =
+      await Slot.findOne({
+        _id:
+          slotId,
+
+        eventId:
+          eventId,
+
+        dayScheduleId:
+          dayScheduleId,
+      })
+        .select({
+          _id: 1,
+          capacity: 1,
+          bookedCount: 1,
+        })
+        .lean();
+
+    if (!slot) {
+      return NextResponse.json(
+        {
+          success:
+            false,
+
+          error:
+            'Selected slot is invalid.',
+        },
+        {
+          status:
+            400,
+        },
+      );
+    }
+
+    /* ========================================================
+       EXISTING BOOKING
+
+       Important:
+       prevents confirmation page retries from creating
+       duplicate MongoDB records.
     ======================================================== */
 
     const existing =
       await Booking.findOne({
-        eventId,
+        eventId:
+          eventId,
 
         $or: [
           {
             'details.email':
               details.email,
           },
+
           {
             'details.mobile':
               details.mobile,
@@ -404,15 +481,11 @@ export async function POST(
           eventId: 1,
           attendanceStatus:
             1,
-          checkedInAt: 1,
+          checkedInAt:
+            1,
         })
         .lean();
 
-    /*
-     * If the same user already has a booking
-     * for this event, safely return it instead
-     * of creating another registration.
-     */
     if (existing) {
       return NextResponse.json(
         {
@@ -422,31 +495,10 @@ export async function POST(
           existing:
             true,
 
-          booking: {
-            id:
-              String(
-                existing._id,
-              ),
-
-            bookingId:
-              existing.bookingId,
-
-            eventId:
-              String(
-                existing.eventId,
-              ),
-
-            attendanceStatus:
-              existing.attendanceStatus ||
-              'NOT_PRESENT',
-
-            checkedInAt:
-              existing.checkedInAt
-                ? new Date(
-                    existing.checkedInAt,
-                  ).toISOString()
-                : null,
-          },
+          booking:
+            normalizeBookingResponse(
+              existing,
+            ),
         },
         {
           status:
@@ -456,7 +508,7 @@ export async function POST(
     }
 
     /* ========================================================
-       ATOMIC SLOT RESERVATION
+       RESERVE SLOT ATOMICALLY
     ======================================================== */
 
     const reservedSlot =
@@ -465,9 +517,11 @@ export async function POST(
           _id:
             slotId,
 
-          eventId,
+          eventId:
+            eventId,
 
-          dayScheduleId,
+          dayScheduleId:
+            dayScheduleId,
 
           $expr: {
             $lt: [
@@ -476,14 +530,12 @@ export async function POST(
             ],
           },
         },
-
         {
           $inc: {
             bookedCount:
               1,
           },
         },
-
         {
           new:
             true,
@@ -510,14 +562,14 @@ export async function POST(
       reservedSlot._id;
 
     /* ========================================================
-       BOOKING ID
+       SERVER BOOKING ID
     ======================================================== */
 
     const bookingId =
       await generateBookingId();
 
     /* ========================================================
-       CREATE
+       CREATE REAL MONGODB BOOKING
     ======================================================== */
 
     const booking =
@@ -534,12 +586,25 @@ export async function POST(
 
         attendanceStatus:
           'NOT_PRESENT',
+
+        checkedInAt:
+          null,
       });
+
+    /*
+     * Slot reservation now belongs permanently
+     * to this booking. Prevent rollback.
+     */
+    reservedSlotId =
+      null;
 
     return NextResponse.json(
       {
         success:
           true,
+
+        existing:
+          false,
 
         booking: {
           id:
@@ -555,7 +620,9 @@ export async function POST(
             booking.attendanceStatus,
 
           checkedInAt:
-            null,
+            booking.checkedInAt
+              ? booking.checkedInAt.toISOString()
+              : null,
         },
       },
       {
@@ -565,14 +632,14 @@ export async function POST(
     );
   } catch (error) {
     console.error(
-      'Booking POST failed:',
+      'POST /api/bookings failed:',
       error,
     );
 
-    /*
-     * If booking creation failed after
-     * reserving a slot, return capacity.
-     */
+    /* ========================================================
+       ROLLBACK RESERVED SLOT IF BOOKING CREATION FAILED
+    ======================================================== */
+
     if (
       reservedSlotId
     ) {
@@ -598,7 +665,7 @@ export async function POST(
         rollbackError
       ) {
         console.error(
-          'Slot rollback failed:',
+          'Booking slot rollback failed:',
           rollbackError,
         );
       }
@@ -621,7 +688,7 @@ export async function POST(
 }
 
 /* ============================================================
-   DETAILS
+   NORMALIZE DETAILS
 ============================================================ */
 
 function normalizeDetails(
@@ -637,7 +704,7 @@ function normalizeDetails(
   for (
     const [
       rawKey,
-      value,
+      rawValue,
     ] of Object.entries(
       input,
     )
@@ -664,9 +731,9 @@ function normalizeDetails(
     }
 
     if (
-      value ===
+      rawValue ===
         undefined ||
-      value ===
+      rawValue ===
         null
     ) {
       output[key] =
@@ -676,18 +743,18 @@ function normalizeDetails(
     }
 
     if (
-      typeof value ===
+      typeof rawValue ===
       'string'
     ) {
       output[key] =
-        value.trim();
+        rawValue.trim();
 
       continue;
     }
 
     output[key] =
       String(
-        value,
+        rawValue,
       );
   }
 
@@ -695,7 +762,7 @@ function normalizeDetails(
 }
 
 /* ============================================================
-   BOOKING ID
+   GENERATE BOOKING ID
 ============================================================ */
 
 async function generateBookingId() {
@@ -706,7 +773,8 @@ async function generateBookingId() {
   for (
     let attempt =
       0;
-    attempt < 20;
+    attempt <
+    30;
     attempt++
   ) {
     const number =
@@ -729,6 +797,6 @@ async function generateBookingId() {
   }
 
   throw new Error(
-    'Unable to generate unique booking ID.',
+    'Unable to generate a unique booking ID.',
   );
 }
