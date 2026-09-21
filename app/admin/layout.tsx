@@ -1,6 +1,10 @@
 'use client';
 
-import Sidebar from '@/components/admin/Sidebar';
+import type {
+  ReactNode,
+} from 'react';
+
+import Image from 'next/image';
 
 import {
   usePathname,
@@ -12,21 +16,26 @@ import {
   useState,
 } from 'react';
 
-import Image from 'next/image';
-
 import {
   AnimatePresence,
   motion,
 } from 'framer-motion';
 
+import Sidebar from '@/components/admin/Sidebar';
+
 import {
   getAdminTokenPayload,
 } from '@/lib/admin-auth';
 
+/* ============================================================
+   LAYOUT
+============================================================ */
+
 export default function AdminLayout({
   children,
 }: {
-  children: React.ReactNode;
+  children:
+    ReactNode;
 }) {
   const pathname =
     usePathname();
@@ -44,26 +53,26 @@ export default function AdminLayout({
     setMobileSidebarOpen,
   ] = useState(false);
 
-  /*
-  |--------------------------------------------------------------------------
-  | AUTH CHECK
-  |--------------------------------------------------------------------------
-  */
+  /* ==========================================================
+     AUTH
+  ========================================================== */
 
   useEffect(() => {
     if (
-      pathname === '/admin' ||
-      pathname === '/admin/login'
+      pathname ===
+        '/admin' ||
+      pathname ===
+        '/admin/login'
     ) {
-      void Promise.resolve().then(() =>
-        setAuthChecked(true),
+      setAuthChecked(
+        true,
       );
 
       return;
     }
 
-    void Promise.resolve().then(() =>
-      setAuthChecked(false),
+    setAuthChecked(
+      false,
     );
 
     const payload =
@@ -77,35 +86,29 @@ export default function AdminLayout({
       return;
     }
 
-    void Promise.resolve().then(() =>
-      setAuthChecked(true),
+    setAuthChecked(
+      true,
     );
   }, [
     pathname,
     router,
   ]);
 
-  /*
-  |--------------------------------------------------------------------------
-  | CLOSE MOBILE SIDEBAR AFTER ROUTE CHANGE
-  |--------------------------------------------------------------------------
-  */
+  /* ==========================================================
+     CLOSE DRAWER ON ROUTE CHANGE
+  ========================================================== */
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setMobileSidebarOpen(false);
-    }, 0);
-
-    return () => window.clearTimeout(timer);
+    setMobileSidebarOpen(
+      false,
+    );
   }, [
     pathname,
   ]);
 
-  /*
-  |--------------------------------------------------------------------------
-  | LOCK BODY WHILE MOBILE DRAWER IS OPEN
-  |--------------------------------------------------------------------------
-  */
+  /* ==========================================================
+     LOCK BODY
+  ========================================================== */
 
   useEffect(() => {
     if (
@@ -128,20 +131,18 @@ export default function AdminLayout({
     mobileSidebarOpen,
   ]);
 
-  /*
-  |--------------------------------------------------------------------------
-  | ESCAPE KEY
-  |--------------------------------------------------------------------------
-  */
+  /* ==========================================================
+     ESCAPE
+  ========================================================== */
 
   useEffect(() => {
     function handleKeyDown(
-      event: KeyboardEvent,
+      event:
+        KeyboardEvent,
     ) {
       if (
         event.key ===
-          'Escape' &&
-        mobileSidebarOpen
+          'Escape'
       ) {
         setMobileSidebarOpen(
           false,
@@ -160,28 +161,60 @@ export default function AdminLayout({
         handleKeyDown,
       );
     };
-  }, [
-    mobileSidebarOpen,
-  ]);
+  }, []);
 
-  /*
-  |--------------------------------------------------------------------------
-  | LOGIN PAGE
-  |--------------------------------------------------------------------------
-  */
+  /* ==========================================================
+     CLOSE DRAWER WHEN DESKTOP IS REACHED
+  ========================================================== */
+
+  useEffect(() => {
+    const media =
+      window.matchMedia(
+        '(min-width: 1024px)',
+      );
+
+    function handleChange(
+      event:
+        MediaQueryListEvent,
+    ) {
+      if (
+        event.matches
+      ) {
+        setMobileSidebarOpen(
+          false,
+        );
+      }
+    }
+
+    media.addEventListener(
+      'change',
+      handleChange,
+    );
+
+    return () => {
+      media.removeEventListener(
+        'change',
+        handleChange,
+      );
+    };
+  }, []);
+
+  /* ==========================================================
+     LOGIN
+  ========================================================== */
 
   if (
-    pathname === '/admin' ||
-    pathname === '/admin/login'
+    pathname ===
+      '/admin' ||
+    pathname ===
+      '/admin/login'
   ) {
     return children;
   }
 
-  /*
-  |--------------------------------------------------------------------------
-  | AUTH LOADER
-  |--------------------------------------------------------------------------
-  */
+  /* ==========================================================
+     AUTH LOADER
+  ========================================================== */
 
   if (!authChecked) {
     return (
@@ -206,8 +239,11 @@ export default function AdminLayout({
             className="
               h-7
               w-7
+
               animate-spin
+
               rounded-full
+
               border-[3px]
               border-primary/15
               border-t-primary
@@ -228,6 +264,10 @@ export default function AdminLayout({
     );
   }
 
+  /* ==========================================================
+     APP
+  ========================================================== */
+
   return (
     <div
       className="
@@ -236,9 +276,11 @@ export default function AdminLayout({
         bg-gray-50
       "
     >
-      {/* =====================================================
+      {/* ======================================================
           DESKTOP SIDEBAR
-      ===================================================== */}
+
+          Only permanent from lg upward.
+      ====================================================== */}
 
       <aside
         className="
@@ -246,18 +288,17 @@ export default function AdminLayout({
           inset-y-0
           left-0
           z-40
+
           hidden
 
-          w-[232px]
+          w-[248px]
 
           border-r
           border-gray-200
 
           bg-white
 
-          md:block
-
-          lg:w-[248px]
+          lg:block
 
           xl:w-[256px]
         "
@@ -265,19 +306,20 @@ export default function AdminLayout({
         <Sidebar />
       </aside>
 
-      {/* =====================================================
+      {/* ======================================================
           MOBILE / TABLET HEADER
-      ===================================================== */}
+      ====================================================== */}
 
       <header
         className="
           fixed
           inset-x-0
           top-0
-          z-40
+          z-50
 
           flex
           h-[64px]
+
           items-center
           justify-between
 
@@ -286,15 +328,21 @@ export default function AdminLayout({
 
           bg-white/95
 
-          px-4
+          px-3
+
+          shadow-[0_1px_8px_rgba(27,75,107,0.035)]
 
           backdrop-blur-xl
 
+          min-[390px]:px-4
+
           sm:px-5
 
-          md:hidden
+          lg:hidden
         "
       >
+        {/* BRAND */}
+
         <button
           type="button"
           onClick={() =>
@@ -311,7 +359,6 @@ export default function AdminLayout({
 
             rounded-lg
 
-            transition
             active:scale-[0.98]
           "
         >
@@ -345,19 +392,49 @@ export default function AdminLayout({
             />
           </span>
 
-          <span
+          <div
             className="
-              truncate
-              font-heading
-              text-[14px]
-              font-bold
-              tracking-[-0.02em]
-              text-secondary
+              min-w-0
+              text-left
             "
           >
-            SSI Maya Connect
-          </span>
+            <p
+              className="
+                truncate
+
+                font-heading
+
+                text-[13px]
+                font-bold
+
+                tracking-[-0.02em]
+
+                text-secondary
+
+                min-[360px]:text-[14px]
+              "
+            >
+              SSI Maya Connect
+            </p>
+
+            <p
+              className="
+                hidden
+
+                text-[9px]
+                font-medium
+
+                text-gray-400
+
+                min-[430px]:block
+              "
+            >
+              Admin Portal
+            </p>
+          </div>
         </button>
+
+        {/* MENU */}
 
         <button
           type="button"
@@ -374,6 +451,8 @@ export default function AdminLayout({
             grid
             h-10
             w-10
+            shrink-0
+
             cursor-pointer
             place-items-center
 
@@ -386,34 +465,23 @@ export default function AdminLayout({
 
             text-secondary
 
-            transition-all
-            duration-200
+            shadow-sm
 
-            hover:border-gray-300
-            hover:bg-gray-50
+            transition-all
+
+            hover:border-primary/30
+            hover:bg-primary/[0.04]
 
             active:scale-95
           "
         >
-          <svg
-            className="h-5 w-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M4 7h16M4 12h16M4 17h16"
-            />
-          </svg>
+          <MenuIcon />
         </button>
       </header>
 
-      {/* =====================================================
-          MOBILE DRAWER
-      ===================================================== */}
+      {/* ======================================================
+          MOBILE / TABLET DRAWER
+      ====================================================== */}
 
       <AnimatePresence>
         {mobileSidebarOpen && (
@@ -424,16 +492,20 @@ export default function AdminLayout({
               type="button"
               aria-label="Close navigation"
               initial={{
-                opacity: 0,
+                opacity:
+                  0,
               }}
               animate={{
-                opacity: 1,
+                opacity:
+                  1,
               }}
               exit={{
-                opacity: 0,
+                opacity:
+                  0,
               }}
               transition={{
-                duration: 0.2,
+                duration:
+                  0.18,
               }}
               onClick={() =>
                 setMobileSidebarOpen(
@@ -443,15 +515,15 @@ export default function AdminLayout({
               className="
                 fixed
                 inset-0
-                z-[60]
+                z-[70]
 
                 cursor-default
 
-                bg-secondary/20
+                bg-secondary/25
 
                 backdrop-blur-[2px]
 
-                md:hidden
+                lg:hidden
               "
             />
 
@@ -459,28 +531,37 @@ export default function AdminLayout({
 
             <motion.aside
               initial={{
-                x: '-100%',
+                x:
+                  '-100%',
               }}
               animate={{
-                x: 0,
+                x:
+                  0,
               }}
               exit={{
-                x: '-100%',
+                x:
+                  '-100%',
               }}
               transition={{
-                type: 'spring',
-                stiffness: 360,
-                damping: 34,
-                mass: 0.9,
+                type:
+                  'spring',
+
+                stiffness:
+                  380,
+
+                damping:
+                  36,
+
+                mass:
+                  0.9,
               }}
               className="
                 fixed
-                bottom-0
+                inset-y-0
                 left-0
-                top-0
-                z-[70]
+                z-[80]
 
-                w-[min(86vw,300px)]
+                w-[min(86vw,310px)]
 
                 overflow-hidden
 
@@ -489,66 +570,55 @@ export default function AdminLayout({
 
                 bg-white
 
-                shadow-[18px_0_45px_rgba(27,75,107,0.12)]
+                shadow-[18px_0_45px_rgba(27,75,107,0.16)]
 
-                md:hidden
+                lg:hidden
               "
             >
-              <div
+              {/* CLOSE */}
+
+              <button
+                type="button"
+                aria-label="Close navigation"
+                onClick={() =>
+                  setMobileSidebarOpen(
+                    false,
+                  )
+                }
                 className="
                   absolute
                   right-3
                   top-3
-                  z-50
+                  z-[90]
+
+                  grid
+                  h-9
+                  w-9
+
+                  cursor-pointer
+                  place-items-center
+
+                  rounded-lg
+
+                  border
+                  border-gray-200
+
+                  bg-white
+
+                  text-gray-500
+
+                  shadow-sm
+
+                  transition-all
+
+                  hover:bg-gray-50
+                  hover:text-secondary
+
+                  active:scale-95
                 "
               >
-                <button
-                  type="button"
-                  aria-label="Close navigation"
-                  onClick={() =>
-                    setMobileSidebarOpen(
-                      false,
-                    )
-                  }
-                  className="
-                    grid
-                    h-9
-                    w-9
-                    cursor-pointer
-                    place-items-center
-
-                    rounded-lg
-
-                    border
-                    border-gray-200
-
-                    bg-white
-
-                    text-gray-500
-
-                    transition
-
-                    hover:bg-gray-50
-                    hover:text-secondary
-
-                    active:scale-95
-                  "
-                >
-                  <svg
-                    className="h-4.5 w-4.5"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                </button>
-              </div>
+                <CloseIcon />
+              </button>
 
               <Sidebar
                 mobile
@@ -563,9 +633,9 @@ export default function AdminLayout({
         )}
       </AnimatePresence>
 
-      {/* =====================================================
-          MAIN CONTENT
-      ===================================================== */}
+      {/* ======================================================
+          MAIN
+      ====================================================== */}
 
       <main
         className="
@@ -574,10 +644,8 @@ export default function AdminLayout({
 
           pt-[64px]
 
-          md:ml-[232px]
-          md:pt-0
-
           lg:ml-[248px]
+          lg:pt-0
 
           xl:ml-[256px]
         "
@@ -585,6 +653,7 @@ export default function AdminLayout({
         <div
           className="
             mx-auto
+
             w-full
             max-w-[1600px]
 
@@ -599,19 +668,56 @@ export default function AdminLayout({
             md:px-6
             md:py-6
 
-            lg:px-8
+            lg:px-7
             lg:py-7
 
-            xl:px-10
+            xl:px-9
             xl:py-8
 
-            2xl:px-12
-            2xl:py-9
+            2xl:px-10
           "
         >
           {children}
         </div>
       </main>
     </div>
+  );
+}
+
+/* ============================================================
+   ICONS
+============================================================ */
+
+function MenuIcon() {
+  return (
+    <svg
+      className="h-5 w-5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        d="M4 7h16M4 12h16M4 17h16"
+      />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg
+      className="h-4 w-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        d="m6 6 12 12M18 6 6 18"
+      />
+    </svg>
   );
 }
