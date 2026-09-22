@@ -16,6 +16,8 @@ import { useRouter } from 'next/navigation';
 
 import { trackActivity } from '@/lib/activity-client';
 
+import { useFormDraft } from '@/lib/use-form-draft';
+
 interface MantramTemplateProps {
   eventId: string;
   eventName: string;
@@ -93,11 +95,81 @@ const labelClass = `
   text-gray-500
 `;
 
+function getCachedBookingDraft(
+  eventId: string,
+): Record<string, unknown> | null {
+  if (
+    typeof window === 'undefined' ||
+    !eventId
+  ) {
+    return null;
+  }
+
+  try {
+    const raw =
+      window.sessionStorage.getItem(
+        `ssi-booking-details:${eventId}`,
+      );
+
+    if (raw) {
+      const parsed =
+        JSON.parse(raw);
+
+      return parsed &&
+        typeof parsed === 'object'
+        ? (parsed as Record<
+            string,
+            unknown
+          >)
+        : null;
+    }
+
+    const draftRaw =
+      window.sessionStorage.getItem(
+        `ssi-booking-draft:${eventId}`,
+      );
+
+    if (!draftRaw) {
+      return null;
+    }
+
+    const draft =
+      JSON.parse(draftRaw) as Record<
+        string,
+        unknown
+      >;
+
+    const stateField =
+      draft.state;
+
+    return {
+      state:
+        stateField &&
+        typeof stateField === 'object' &&
+        'value' in stateField
+          ? stateField.value
+          : '',
+    };
+  } catch {
+    return null;
+  }
+}
+
 export default function MantramTemplate({
   eventId,
   eventName,
 }: MantramTemplateProps) {
   const router = useRouter();
+
+  const formRef =
+    useRef<HTMLFormElement | null>(
+      null,
+    );
+
+  useFormDraft(
+    `ssi-booking-draft:${eventId}`,
+    formRef,
+  );
 
   const [submitting, setSubmitting] =
     useState(false);
@@ -140,7 +212,17 @@ export default function MantramTemplate({
   const [
     selectedState,
     setSelectedState,
-  ] = useState('');
+  ] = useState(() => {
+    const cached =
+      getCachedBookingDraft(
+        eventId,
+      );
+
+    return typeof cached?.state ===
+      'string'
+      ? cached.state
+      : '';
+  });
 
   const [
     phoneMenuOpen,
@@ -216,21 +298,47 @@ export default function MantramTemplate({
           return;
         }
 
-        setCountries(result);
-
-        const india =
-          result.find(
-            (country) =>
-              country.iso2 === 'IN',
+        const cached =
+          getCachedBookingDraft(
+            eventId,
           );
 
-        if (india) {
+        const preferredCountry =
+          cached &&
+          typeof cached === 'object'
+            ? result.find(
+                (country) =>
+                  country.iso2 ===
+                    String(
+                      cached.countryIso2 ||
+                        cached.phoneCountry ||
+                        '',
+                    ) ||
+                  country.name ===
+                    String(
+                      cached.country ||
+                        '',
+                    ),
+              ) ||
+              result.find(
+                (country) =>
+                  country.iso2 === 'IN',
+              ) ||
+              result[0]
+            : result.find(
+                (country) =>
+                  country.iso2 === 'IN',
+              ) || result[0];
+
+        setCountries(result);
+
+        if (preferredCountry) {
           setSelectedCountry(
-            india,
+            preferredCountry,
           );
 
           setSelectedPhoneCountry(
-            india,
+            preferredCountry,
           );
         }
       } catch (
@@ -254,7 +362,7 @@ export default function MantramTemplate({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [eventId]);
 
   /* ============================================================
      LOAD STATES
@@ -268,7 +376,37 @@ export default function MantramTemplate({
 
       setStates([]);
 
-      setSelectedState('');
+      const cached =
+        getCachedBookingDraft(
+          eventId,
+        );
+
+      const cachedCountry =
+        String(
+          cached?.countryIso2 ||
+            cached?.phoneCountry ||
+            '',
+        ).toUpperCase();
+
+      const shouldRestoreCachedState =
+        typeof cached?.state ===
+          'string' &&
+        cached.state.trim() &&
+        ((cachedCountry &&
+          cachedCountry ===
+            selectedCountry.iso2.toUpperCase()) ||
+          (!cachedCountry &&
+            String(
+              cached?.country ||
+                '',
+            ).toLowerCase() ===
+              selectedCountry.name.toLowerCase()));
+
+      setSelectedState(
+        shouldRestoreCachedState
+          ? cached.state as string
+          : '',
+      );
 
       try {
         const response =
@@ -335,7 +473,7 @@ export default function MantramTemplate({
     return () => {
       cancelled = true;
     };
-  }, [selectedCountry]);
+  }, [eventId, selectedCountry]);
 
   /* ============================================================
      OUTSIDE CLICK
@@ -379,6 +517,106 @@ export default function MantramTemplate({
       );
     };
   }, []);
+
+  /* ============================================================
+     RESTORE BOOKING DRAFT FROM CACHE
+  ============================================================ */
+
+  useEffect(() => {
+    if (
+      typeof window === 'undefined' ||
+      !eventId
+    ) {
+      return;
+    }
+
+    try {
+      const cached =
+        getCachedBookingDraft(
+          eventId,
+        );
+
+      if (!cached) {
+        return;
+      }
+
+      const form =
+        document.querySelector<
+          HTMLFormElement
+        >(
+          `form[data-booking-form="${eventId}"]`,
+        );
+
+      if (!form) {
+        return;
+      }
+
+      const setFormValue = (
+        name: string,
+        value: unknown,
+      ) => {
+        if (
+          value === undefined ||
+          value === null ||
+          value === ''
+        ) {
+          return;
+        }
+
+        const element =
+          form.querySelector<
+            HTMLInputElement |
+              HTMLSelectElement
+          >(
+            `[name="${name}"]`,
+          );
+
+        if (
+          element &&
+          'value' in element
+        ) {
+          element.value =
+            String(value);
+        }
+      };
+
+      setFormValue(
+        'title',
+        cached.title,
+      );
+      setFormValue(
+        'fullName',
+        cached.fullName,
+      );
+      setFormValue(
+        'specialty',
+        cached.specialty,
+      );
+      setFormValue(
+        'mobile',
+        cached.mobile,
+      );
+      setFormValue(
+        'email',
+        cached.email,
+      );
+      setFormValue(
+        'hospitalName',
+        cached.hospitalName,
+      );
+      setFormValue(
+        'city',
+        cached.city,
+      );
+    } catch (error) {
+      console.error(
+        'Unable to restore booking draft:',
+        error,
+      );
+    }
+  }, [
+    eventId,
+  ]);
 
   /* ============================================================
      FILTER PHONE COUNTRIES
@@ -649,6 +887,8 @@ export default function MantramTemplate({
         "
       >
         <form
+          ref={formRef}
+          data-booking-form={eventId}
           onSubmit={
             handleSubmit
           }

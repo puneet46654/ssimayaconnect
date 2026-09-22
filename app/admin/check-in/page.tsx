@@ -110,6 +110,21 @@ type ScannerState =
   | 'processing'
   | 'error';
 
+type NativeBarcodeDetector = {
+  detect: (
+    source: HTMLVideoElement,
+  ) => Promise<
+    Array<{
+      rawValue?: string;
+    }>
+  >;
+};
+
+type NativeBarcodeDetectorConstructor =
+  new (options?: {
+    formats?: string[];
+  }) => NativeBarcodeDetector;
+
 /* ============================================================
    CONSTANTS
 ============================================================ */
@@ -145,6 +160,12 @@ export default function CheckInPage() {
     } | null>(
       null,
     );
+
+  const nativeScanRef =
+    useRef<{
+      frame: number | null;
+      cancelled: boolean;
+    } | null>(null);
 
   const processingRef =
     useRef(false);
@@ -256,6 +277,25 @@ export default function CheckInPage() {
 
   const stopCamera =
     useCallback(() => {
+      if (
+        nativeScanRef.current
+      ) {
+        nativeScanRef.current.cancelled =
+          true;
+
+        if (
+          nativeScanRef.current.frame !==
+          null
+        ) {
+          window.cancelAnimationFrame(
+            nativeScanRef.current.frame,
+          );
+        }
+
+        nativeScanRef.current =
+          null;
+      }
+
       if (
         controlsRef.current
       ) {
@@ -877,12 +917,139 @@ export default function CheckInPage() {
         );
 
         try {
+          const NativeDetector =
+            (
+              window as Window & {
+                BarcodeDetector?: NativeBarcodeDetectorConstructor;
+              }
+            ).BarcodeDetector;
+
+          if (NativeDetector) {
+            const stream =
+              await navigator.mediaDevices.getUserMedia({
+                audio: false,
+                video: {
+                  facingMode: {
+                    ideal: 'environment',
+                  },
+                  width: {
+                    ideal: 1280,
+                  },
+                  height: {
+                    ideal: 720,
+                  },
+                  focusMode: 'continuous',
+                } as MediaTrackConstraints,
+              });
+
+            const video =
+              videoRef.current;
+
+            if (!video) {
+              stream
+                .getTracks()
+                .forEach((track) =>
+                  track.stop(),
+                );
+              return;
+            }
+
+            video.srcObject = stream;
+            await video.play();
+
+            const detector =
+              new NativeDetector({
+                formats: ['qr_code'],
+              });
+
+            const nativeScan = {
+              frame: null as number | null,
+              cancelled: false,
+            };
+
+            nativeScanRef.current =
+              nativeScan;
+
+            const scanFrame = async () => {
+              if (
+                nativeScan.cancelled ||
+                !videoRef.current
+              ) {
+                return;
+              }
+
+              try {
+                const results =
+                  await detector.detect(
+                    videoRef.current,
+                  );
+
+                const text =
+                  results[0]?.rawValue;
+
+                if (text) {
+                  void processQr(text);
+                }
+              } catch (error) {
+                console.error(
+                  'Native QR detection error:',
+                  error,
+                );
+              } finally {
+                if (
+                  !nativeScan.cancelled
+                ) {
+                  nativeScan.frame =
+                    window.requestAnimationFrame(
+                      scanFrame,
+                    );
+                }
+              }
+            };
+
+            setScannerState(
+              'scanning',
+            );
+
+            setScannerText(
+              'Camera ready — align the QR code inside the frame',
+            );
+
+            nativeScan.frame =
+              window.requestAnimationFrame(
+                scanFrame,
+              );
+
+            return;
+          }
+
           const reader =
-            new BrowserQRCodeReader();
+            new BrowserQRCodeReader(
+              undefined,
+              {
+                delayBetweenScanAttempts: 40,
+                delayBetweenScanSuccess: 100,
+                tryPlayVideoTimeout: 1500,
+              },
+            );
 
           const controls =
-            await reader.decodeFromVideoDevice(
-              undefined,
+            await reader.decodeFromConstraints(
+              {
+                audio: false,
+                video: {
+                  facingMode: {
+                    ideal: 'environment',
+                  },
+                  width: {
+                    ideal: 1280,
+                  },
+                  height: {
+                    ideal: 720,
+                  },
+                  focusMode: 'continuous',
+                } as MediaTrackConstraints,
+              },
               videoRef.current,
               (
                 result,
@@ -905,7 +1072,7 @@ export default function CheckInPage() {
           );
 
           setScannerText(
-            'Align QR code inside the frame',
+            'Camera ready — align the QR code inside the frame',
           );
         } catch (error) {
           console.error(

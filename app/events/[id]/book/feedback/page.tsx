@@ -5,6 +5,7 @@ import {
 } from 'next/navigation';
 
 import {
+  useEffect,
   useState,
 } from 'react';
 
@@ -115,6 +116,89 @@ export default function FeedbackPage() {
     setSubmitted,
   ] =
     useState(false);
+
+  const [
+    draftLoaded,
+    setDraftLoaded,
+  ] =
+    useState(false);
+
+  useEffect(() => {
+    if (!eventId) {
+      return;
+    }
+
+    try {
+      const raw =
+        sessionStorage.getItem(
+          `ssi-feedback:${eventId}`,
+        );
+
+      if (!raw) {
+        return;
+      }
+
+      const cached =
+        JSON.parse(raw) as Partial<FeedbackData>;
+
+      window.setTimeout(() => {
+        setRating(
+          typeof cached.rating === 'number'
+            ? cached.rating
+            : 0,
+        );
+        setMessage(
+          cached.message || '',
+        );
+        setSuggestedFeature(
+          cached.suggestedFeature || '',
+        );
+        setDraftLoaded(true);
+      }, 0);
+    } catch (error) {
+      console.error(
+        'Unable to restore feedback draft:',
+        error,
+      );
+      window.setTimeout(() => {
+        setDraftLoaded(true);
+      }, 0);
+    }
+  }, [eventId]);
+
+  useEffect(() => {
+    if (
+      !eventId ||
+      submitted ||
+      !draftLoaded
+    ) {
+      return;
+    }
+
+    try {
+      sessionStorage.setItem(
+        `ssi-feedback:${eventId}`,
+        JSON.stringify({
+          eventId,
+          rating,
+          message,
+          suggestedFeature,
+        }),
+      );
+    } catch (error) {
+      console.error(
+        'Unable to save feedback draft:',
+        error,
+      );
+    }
+  }, [
+    eventId,
+    draftLoaded,
+    message,
+    rating,
+    submitted,
+    suggestedFeature,
+  ]);
 
   /* ============================================================
      NAVIGATION

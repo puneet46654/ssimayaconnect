@@ -9,6 +9,7 @@ import type {
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 
@@ -32,6 +33,8 @@ import {
   DEFAULT_BOOKING_TEMPLATE,
   isBookingFormTemplate,
 } from '@/app/components/admin/booking-templates/types';
+
+import { useFormDraft } from '@/lib/use-form-draft';
 
 /* ============================================================
    TYPES
@@ -587,6 +590,11 @@ export default function EditEventPage() {
   const eventId =
     params.id;
 
+  const formRef =
+    useRef<HTMLFormElement | null>(
+      null,
+    );
+
   /* ==========================================================
      LOADING
   ========================================================== */
@@ -600,6 +608,13 @@ export default function EditEventPage() {
     loadError,
     setLoadError,
   ] = useState('');
+
+  useFormDraft(
+    initialLoading
+      ? ''
+      : `ssi-event-draft:edit:${eventId}`,
+    formRef,
+  );
 
   /* ==========================================================
      EVENT
@@ -1788,6 +1803,7 @@ export default function EditEventPage() {
 
   return (
     <motion.form
+      ref={formRef}
       initial={{
         opacity: 0,
         y: 4,

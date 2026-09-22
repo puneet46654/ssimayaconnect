@@ -9,6 +9,7 @@ import type {
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 
@@ -31,6 +32,8 @@ import {
   DEFAULT_BOOKING_TEMPLATE,
   isBookingFormTemplate,
 } from '@/app/components/admin/booking-templates/types';
+
+import { useFormDraft } from '@/lib/use-form-draft';
 
 /* ============================================================
    TYPES
@@ -504,6 +507,16 @@ function generateSlots(
 export default function CreateNewEventPage() {
   const router =
     useRouter();
+
+  const formRef =
+    useRef<HTMLFormElement | null>(
+      null,
+    );
+
+  useFormDraft(
+    'ssi-event-draft:new',
+    formRef,
+  );
 
   /* ==========================================================
      EVENT
@@ -1314,6 +1327,7 @@ export default function CreateNewEventPage() {
 
   return (
     <motion.form
+      ref={formRef}
       initial={{
         opacity: 0,
         y: 4,
