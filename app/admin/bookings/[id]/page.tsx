@@ -57,6 +57,14 @@ type BookingFeedback = {
     string | null;
 };
 
+type FeedbackCategories = {
+  event:
+    BookingFeedback;
+
+  application:
+    BookingFeedback;
+};
+
 type BookingData = {
   _id: string;
 
@@ -101,7 +109,7 @@ type BookingResponse = {
     BookingData;
 
   feedback?:
-    BookingFeedback;
+    FeedbackCategories;
 
   message?:
     string;
@@ -170,6 +178,14 @@ const EMPTY_FEEDBACK:
     null,
 };
 
+const EMPTY_FEEDBACK_CATEGORIES:
+  FeedbackCategories = {
+  event:
+    EMPTY_FEEDBACK,
+  application:
+    EMPTY_FEEDBACK,
+};
+
 /* ============================================================
    PAGE
 ============================================================ */
@@ -207,8 +223,8 @@ export default function BookingDetailsPage() {
     feedback,
     setFeedback,
   ] =
-    useState<BookingFeedback>(
-      EMPTY_FEEDBACK,
+    useState<FeedbackCategories>(
+      EMPTY_FEEDBACK_CATEGORIES,
     );
 
   const [
@@ -309,7 +325,7 @@ export default function BookingDetailsPage() {
 
         setFeedback(
           data.feedback ||
-            EMPTY_FEEDBACK,
+            EMPTY_FEEDBACK_CATEGORIES,
         );
 
         setDraft(
@@ -546,7 +562,7 @@ export default function BookingDetailsPage() {
 
       setFeedback(
         data.feedback ||
-          EMPTY_FEEDBACK,
+          EMPTY_FEEDBACK_CATEGORIES,
       );
 
       setDraft(
@@ -1526,9 +1542,7 @@ export default function BookingDetailsPage() {
               title="Feedback"
             >
               <FeedbackPanel
-                feedback={
-                  feedback
-                }
+                categories={feedback}
               />
             </CompactCard>
           </div>
@@ -2384,10 +2398,72 @@ function AttendancePanel({
 ============================================================ */
 
 function FeedbackPanel({
+  categories,
+}: {
+  categories:
+    FeedbackCategories;
+}) {
+  return (
+    <div
+      className="
+        grid
+        gap-4
+        lg:grid-cols-2
+      "
+    >
+      <FeedbackCategory
+        title="Event experience"
+        description="Feedback about this event and its programme."
+        feedback={categories.event}
+      />
+      <FeedbackCategory
+        title="SSI Maya Connect app"
+        description="Feedback about booking and using the application."
+        feedback={categories.application}
+      />
+    </div>
+  );
+}
+
+function FeedbackCategory({
+  title,
+  description,
   feedback,
 }: {
-  feedback:
-    BookingFeedback;
+  title: string;
+  description: string;
+  feedback: BookingFeedback;
+}) {
+  return (
+    <section
+      className="
+        rounded-xl
+        border
+        border-gray-200
+        bg-white
+        p-3.5
+      "
+    >
+      <div className="mb-3">
+        <p className="text-[12px] font-semibold text-secondary">
+          {title}
+        </p>
+        <p className="mt-0.5 text-[10px] leading-4 text-gray-400">
+          {description}
+        </p>
+      </div>
+
+      <FeedbackDetails
+        feedback={feedback}
+      />
+    </section>
+  );
+}
+
+function FeedbackDetails({
+  feedback,
+}: {
+  feedback: BookingFeedback;
 }) {
   if (
     feedback.status ===

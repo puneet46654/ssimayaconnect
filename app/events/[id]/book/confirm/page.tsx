@@ -928,9 +928,6 @@ export default function BookingConfirmationPage() {
     const state =
       sessionStorage.getItem(
         `ssi-feedback-state:application:${eventId}`,
-      ) ||
-      sessionStorage.getItem(
-        `ssi-feedback-state:${eventId}`,
       );
 
     if (

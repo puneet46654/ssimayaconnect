@@ -60,6 +60,19 @@ interface IEvent {
     | 'UPCOMING';
 }
 
+type CachedTicket = {
+  bookingId: string;
+  eventId: string;
+  eventName: string;
+  venue: string;
+  imageUrl: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  status: string;
+  qrData: string;
+};
+
 type EventStatusFilter =
   | 'ALL'
   | 'LIVE'
@@ -82,6 +95,9 @@ const EASE = [
   0.3,
   1,
 ] as const;
+
+const TICKET_CACHE =
+  'ssi-my-tickets-data';
 
 /* ============================================================
    PAGE
@@ -171,6 +187,11 @@ export default function EventsPage() {
     showFeedbackPicker,
     setShowFeedbackPicker,
   ] = useState(false);
+
+  const [
+    bookedTickets,
+    setBookedTickets,
+  ] = useState<CachedTicket[]>([]);
 
   /* ==========================================================
      LOAD EVENTS
@@ -498,6 +519,38 @@ export default function EventsPage() {
   ========================================================== */
 
   function openFeedback() {
+    try {
+      const cached =
+        localStorage.getItem(
+          TICKET_CACHE,
+        );
+      const tickets =
+        cached
+          ? JSON.parse(cached)
+          : [];
+
+      setBookedTickets(
+        Array.isArray(tickets)
+          ? tickets.filter(
+              (ticket): ticket is CachedTicket =>
+                Boolean(
+                  ticket &&
+                    typeof ticket.eventId ===
+                      'string' &&
+                    typeof ticket.bookingId ===
+                      'string',
+                ),
+            )
+          : [],
+      );
+    } catch (error) {
+      console.error(
+        'Unable to restore booked tickets for feedback:',
+        error,
+      );
+      setBookedTickets([]);
+    }
+
     setShowFeedbackPicker(
       true,
     );
@@ -512,9 +565,22 @@ export default function EventsPage() {
   function goToFeedback(
     eventId:
       string,
+    bookingId:
+      string,
+    bookingMongoId:
+      string,
   ) {
     setShowFeedbackPicker(
       false,
+    );
+
+    sessionStorage.setItem(
+      `ssi-feedback-booking-id:${eventId}`,
+      bookingId,
+    );
+    sessionStorage.setItem(
+      `ssi-feedback-booking-mongo-id:${eventId}`,
+      bookingMongoId,
     );
 
     router.push(
@@ -1426,8 +1492,15 @@ export default function EventsPage() {
         {showFeedbackPicker && (
           <FeedbackEventPicker
             events={
-              events
+              events.filter((event) =>
+                bookedTickets.some(
+                  (ticket) =>
+                    ticket.eventId ===
+                    event._id,
+                ),
+              )
             }
+            tickets={bookedTickets}
             onSelect={
               goToFeedback
             }
@@ -2960,15 +3033,23 @@ const UpcomingEventCard = memo(function UpcomingEventCard({
 
 function FeedbackEventPicker({
   events,
+  tickets,
   onSelect,
   onClose,
 }: {
   events:
     IEvent[];
 
+  tickets:
+    CachedTicket[];
+
   onSelect:
     (
       eventId:
+        string,
+      bookingId:
+        string,
+      bookingMongoId:
         string,
     ) => void;
 
@@ -2992,7 +3073,6 @@ function FeedbackEventPicker({
               feedbackEventRank(
                 first.status,
               );
-
             const secondRank =
               feedbackEventRank(
                 second.status,
@@ -3032,6 +3112,20 @@ function FeedbackEventPicker({
             search.trim().toLowerCase(),
           ),
     );
+  const bookedEvents =
+    visibleEvents
+      .map((event) => ({
+        event,
+        tickets: tickets.filter(
+          (ticket) =>
+            ticket.eventId ===
+            event._id,
+        ),
+      }))
+      .filter(
+        (item) =>
+          item.tickets.length > 0,
+      );
 
   return (
     <motion.div
@@ -3265,27 +3359,28 @@ function FeedbackEventPicker({
             "
           />
 
-          {visibleEvents.length >
+          {bookedEvents.length >
           0 ? (
             <div
               className="
                 space-y-2
               "
             >
-              {visibleEvents.map(
+              {bookedEvents
+                .filter((item) =>
+                  !search.trim() ||
+                  item.event.eventName
+                    .toLowerCase()
+                    .includes(
+                      search.trim().toLowerCase(),
+                    ),
+                )
+                .map(
                 (
-                  event,
+                  item,
                 ) => (
-                  <button
-                    key={
-                      event._id
-                    }
-                    type="button"
-                    onClick={() =>
-                      onSelect(
-                        event._id,
-                      )
-                    }
+                  <div
+                    key={item.event._id}
                     className="
                       group
 
@@ -3330,10 +3425,10 @@ function FeedbackEventPicker({
                         bg-gray-100
                       "
                     >
-                      {event.imageUrl ? (
+                      {item.event.imageUrl ? (
                         <Image
                           src={
-                            event.imageUrl
+                            item.event.imageUrl
                           }
                           alt=""
                           fill
@@ -3380,7 +3475,7 @@ function FeedbackEventPicker({
                           "
                         >
                           {formatType(
-                            event.eventType,
+                            item.event.eventType,
                           )}
                         </span>
 
@@ -3393,7 +3488,7 @@ function FeedbackEventPicker({
                           "
                         >
                           {feedbackStatusLabel(
-                            event.status,
+                            item.event.status,
                           )}
                         </span>
                       </div>
@@ -3410,7 +3505,7 @@ function FeedbackEventPicker({
                           text-secondary
                         "
                       >
-                        {event.eventName}
+                        {item.event.eventName}
                       </p>
 
                       <p
@@ -3425,11 +3520,11 @@ function FeedbackEventPicker({
                         "
                       >
                         {formatDate(
-                          event.startDate,
+                          item.event.startDate,
                         )}
 
-                        {event.venue
-                          ? ` · ${event.venue}`
+                        {item.event.venue
+                          ? ` · ${item.event.venue}`
                           : ''}
                       </p>
                     </div>
@@ -3455,7 +3550,57 @@ function FeedbackEventPicker({
                     >
                       <ArrowIcon />
                     </span>
-                  </button>
+                    {item.tickets.map((ticket) => {
+                      let bookingMongoId = '';
+                      try {
+                        const qr =
+                          JSON.parse(ticket.qrData);
+                        bookingMongoId =
+                          typeof qr.doctorId ===
+                            'string'
+                            ? qr.doctorId
+                            : '';
+                      } catch {
+                        bookingMongoId = '';
+                      }
+
+                      return (
+                        <button
+                          key={ticket.bookingId}
+                          type="button"
+                          onClick={() =>
+                            onSelect(
+                              ticket.eventId,
+                              ticket.bookingId,
+                              bookingMongoId,
+                            )
+                          }
+                          className="
+                            mt-2
+                            flex
+                            w-full
+                            items-center
+                            justify-between
+                            rounded-lg
+                            bg-gray-50
+                            px-2.5
+                            py-2
+                            text-left
+                            text-[10px]
+                            text-gray-600
+                            hover:bg-primary/[0.05]
+                          "
+                        >
+                          <span>
+                            {ticket.date} · {ticket.startTime}
+                          </span>
+                          <span className="font-semibold text-primary">
+                            Review
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 ),
               )}
             </div>

@@ -231,11 +231,15 @@ export default function FeedbackPage() {
     router.push('/events');
   }
 
-  function goBackAfterSubmission() {
+  function goToEvent() {
     router.push(
-      feedbackScope === 'application'
-        ? `/events/${eventId}/book/confirm`
-        : '/events',
+      `/events/${eventId}`,
+    );
+  }
+
+  function goToTickets() {
+    router.push(
+      '/events/mytickets',
     );
   }
 
@@ -263,9 +267,15 @@ export default function FeedbackPage() {
 
     const bookingId =
       sessionStorage.getItem(
+        `ssi-feedback-booking-id:${eventId}`,
+      ) ||
+      sessionStorage.getItem(
         `ssi-server-booking-id:${eventId}`,
       ) || '';
     const bookingMongoId =
+      sessionStorage.getItem(
+        `ssi-feedback-booking-mongo-id:${eventId}`,
+      ) ||
       sessionStorage.getItem(
         `ssi-server-booking-mongo-id:${eventId}`,
       ) || '';
@@ -348,9 +358,15 @@ export default function FeedbackPage() {
 
     const bookingId =
       sessionStorage.getItem(
+        `ssi-feedback-booking-id:${eventId}`,
+      ) ||
+      sessionStorage.getItem(
         `ssi-server-booking-id:${eventId}`,
       ) || '';
     const bookingMongoId =
+      sessionStorage.getItem(
+        `ssi-feedback-booking-mongo-id:${eventId}`,
+      ) ||
       sessionStorage.getItem(
         `ssi-server-booking-mongo-id:${eventId}`,
       ) || '';
@@ -451,17 +467,15 @@ export default function FeedbackPage() {
             relative
             z-10
             w-full
-            max-w-[460px]
-            rounded-[26px]
+            max-w-[360px]
+            rounded-[20px]
             border
             border-gray-200
             bg-white
-            px-6
-            py-9
+            px-5
+            py-6
             text-center
-            shadow-[0_18px_55px_rgba(27,75,107,0.08)]
-            sm:px-8
-            sm:py-10
+            shadow-[0_18px_55px_rgba(27,75,107,0.12)]
           "
         >
           <motion.div
@@ -483,8 +497,8 @@ export default function FeedbackPage() {
             className="
               mx-auto
               grid
-              h-16
-              w-16
+              h-12
+              w-12
               place-items-center
               rounded-full
               bg-primary
@@ -494,8 +508,8 @@ export default function FeedbackPage() {
           >
             <svg
               className="
-                h-8
-                w-8
+                h-6
+                w-6
               "
               fill="none"
               viewBox="0 0 24 24"
@@ -525,9 +539,9 @@ export default function FeedbackPage() {
               ease: EASE,
             }}
             className="
-              mt-6
+              mt-4
               font-heading
-              text-[26px]
+              text-[22px]
               font-bold
               tracking-[-0.03em]
               text-secondary
@@ -559,8 +573,7 @@ export default function FeedbackPage() {
               text-gray-500
             "
           >
-            Your feedback has been submitted successfully.
-            Thank you for helping us improve SSI Maya Connect.
+            Thank you for sharing your feedback.
           </motion.p>
 
           <motion.div
@@ -578,8 +591,8 @@ export default function FeedbackPage() {
               ease: EASE,
             }}
             className="
-              mt-7
-              space-y-2.5
+              mt-5
+              space-y-2
             "
           >
             <motion.button
@@ -590,22 +603,20 @@ export default function FeedbackPage() {
               whileTap={{
                 scale: 0.985,
               }}
-              onClick={
-                goBackAfterSubmission
-              }
+              onClick={goToEvent}
               className="
-                h-12
+                h-10
                 w-full
                 cursor-pointer
                 rounded-xl
                 bg-primary
-                text-[13px]
+                text-[12px]
                 font-semibold
                 text-white
                 shadow-[0_8px_22px_rgba(26,158,143,0.18)]
               "
             >
-              Back to Booking
+              Back to Event
             </motion.button>
 
             <motion.button
@@ -616,18 +627,16 @@ export default function FeedbackPage() {
               whileTap={{
                 scale: 0.985,
               }}
-              onClick={
-                goToEvents
-              }
+              onClick={goToTickets}
               className="
-                h-11
+                h-10
                 w-full
                 cursor-pointer
                 rounded-xl
                 border
                 border-gray-200
                 bg-white
-                text-[12px]
+                text-[11px]
                 font-semibold
                 text-gray-500
                 transition-colors
@@ -637,7 +646,7 @@ export default function FeedbackPage() {
                 hover:text-secondary
               "
             >
-              Back to Events
+              Back to Ticket
             </motion.button>
           </motion.div>
         </motion.section>
@@ -658,19 +667,23 @@ export default function FeedbackPage() {
       animate="visible"
       className="
         relative
+        flex
+        flex-col
+        items-center
+        justify-center
         min-h-dvh
         overflow-hidden
-        bg-[#F7F9FB]
-        px-4
-        pb-8
-        pt-8
+        bg-[#07151F]/35
+        backdrop-blur-[3px]
+        px-3
+        py-3
         sm:px-6
-        sm:pb-10
-        sm:pt-10
-        lg:flex
-        lg:flex-col
-        lg:justify-center
-        lg:py-12
+        sm:py-8
+        md:bg-[#F7F9FB]
+        md:px-4
+        md:pb-8
+        md:pt-8
+        md:backdrop-blur-0
       "
     >
       <header
@@ -678,7 +691,8 @@ export default function FeedbackPage() {
           relative
           z-20
           mx-auto
-          mb-5
+          mb-2
+          md:mb-5
           flex
           w-full
           max-w-[920px]
@@ -693,15 +707,15 @@ export default function FeedbackPage() {
           }
           className="
             inline-flex
-            h-9
+            h-8
             items-center
             gap-1.5
             rounded-lg
             border
             border-gray-200
             bg-white
-            px-3
-            text-[11px]
+            px-2.5
+            text-[10px]
             font-semibold
             text-secondary
             shadow-sm
@@ -718,7 +732,7 @@ export default function FeedbackPage() {
           type="button"
           onClick={goToEvents}
           className="
-            text-[12px]
+            text-[11px]
             font-semibold
             text-secondary
             hover:text-primary
@@ -765,13 +779,19 @@ export default function FeedbackPage() {
           z-10
           mx-auto
           w-full
-          max-w-[920px]
-          overflow-hidden
-          rounded-[26px]
+          max-w-[calc(100vw-24px)]
+          max-h-[calc(100dvh-24px)]
+          overflow-y-auto
+          rounded-[18px]
           border
           border-gray-200
           bg-white
-          shadow-[0_16px_48px_rgba(27,75,107,0.065)]
+          shadow-[0_20px_70px_rgba(6,19,29,0.22)]
+          md:max-w-[920px]
+          md:max-h-none
+          md:overflow-hidden
+          md:rounded-[26px]
+          md:shadow-[0_16px_48px_rgba(27,75,107,0.065)]
           md:grid
           md:grid-cols-[0.9fr_1.1fr]
         "
@@ -782,13 +802,11 @@ export default function FeedbackPage() {
           className="
             relative
             overflow-hidden
-            border-b
-            border-gray-100
             bg-[#FAFCFC]
-            px-6
-            py-7
-            sm:px-8
-            sm:py-8
+            px-4
+            py-4
+            sm:px-6
+            sm:py-6
             md:border-b-0
             md:border-r
             md:px-8
@@ -813,8 +831,8 @@ export default function FeedbackPage() {
             }}
             className="
               grid
-              h-12
-              w-12
+              h-9
+              w-9
               place-items-center
               rounded-[15px]
               bg-primary/10
@@ -823,8 +841,10 @@ export default function FeedbackPage() {
           >
             <svg
               className="
-                h-[22px]
-                w-[22px]
+                h-[18px]
+                w-[18px]
+                md:h-[22px]
+                md:w-[22px]
               "
               fill="none"
               viewBox="0 0 24 24"
@@ -860,13 +880,16 @@ export default function FeedbackPage() {
               ease: EASE,
             }}
             className="
-              mt-5
+              mt-3
               font-heading
-              text-[26px]
+              text-[19px]
               font-bold
               tracking-[-0.03em]
               text-secondary
-              sm:text-[28px]
+              sm:text-[22px]
+              md:mt-5
+              md:text-[26px]
+              lg:text-[28px]
             "
           >
             {feedbackScope === 'application'
@@ -889,11 +912,15 @@ export default function FeedbackPage() {
               ease: EASE,
             }}
             className="
-              mt-2
+              mt-1
               max-w-[360px]
-              text-[13px]
-              leading-6
+              text-[11px]
+              leading-4
               text-gray-500
+              md:mt-2
+              md:max-w-[360px]
+              md:text-[13px]
+              md:leading-6
             "
           >
             {feedbackScope === 'application'
@@ -918,7 +945,8 @@ export default function FeedbackPage() {
               ease: EASE,
             }}
             className="
-              mt-8
+              mt-3
+              md:mt-8
             "
           >
             <p
@@ -935,7 +963,7 @@ export default function FeedbackPage() {
 
             <div
               className="
-                mt-3
+                mt-2
                 flex
                 items-center
                 gap-1
@@ -993,7 +1021,8 @@ export default function FeedbackPage() {
                       className="
                         cursor-pointer
                         rounded-lg
-                        p-1
+                        p-0.5
+                        md:p-1
                       "
                     >
                       <StarIcon
@@ -1009,8 +1038,8 @@ export default function FeedbackPage() {
 
             <div
               className="
-                mt-2
-                min-h-[22px]
+                mt-1
+                min-h-[16px]
               "
             >
               <AnimatePresence
@@ -1039,7 +1068,7 @@ export default function FeedbackPage() {
                       ease: EASE,
                     }}
                     className="
-                      text-[11px]
+                      text-[10px]
                       font-medium
                       text-gray-500
                     "
@@ -1068,21 +1097,25 @@ export default function FeedbackPage() {
               ease: EASE,
             }}
             className="
-              mt-7
+              mt-3
+              md:mt-7
               flex
               items-start
-              gap-2.5
-              rounded-[14px]
+              gap-2
+              rounded-xl
               bg-primary/[0.045]
-              px-4
-              py-3
+              px-3
+              py-2
+              md:rounded-[14px]
+              md:px-4
+              md:py-3
             "
           >
             <svg
               className="
                 mt-0.5
-                h-4
-                w-4
+                h-3.5
+                w-3.5
                 shrink-0
                 text-primary
               "
@@ -1106,9 +1139,11 @@ export default function FeedbackPage() {
 
             <p
               className="
-                text-[10px]
-                leading-[17px]
+                text-[9px]
+                leading-4
                 text-gray-500
+                md:text-[10px]
+                md:leading-[17px]
               "
             >
               Feedback is completely optional. You can return
@@ -1134,10 +1169,10 @@ export default function FeedbackPage() {
             ease: EASE,
           }}
           className="
-            px-6
-            py-7
-            sm:px-8
-            sm:py-8
+            px-4
+            py-4
+            sm:px-6
+            sm:py-6
             md:px-8
             md:py-9
           "
@@ -1183,18 +1218,23 @@ export default function FeedbackPage() {
               maxLength={500}
               placeholder="Tell us anything that could make your experience better..."
               className="
-                mt-2.5
-                min-h-[132px]
+                mt-2
+                min-h-[100px]
+                md:min-h-[132px]
                 w-full
                 resize-none
                 rounded-[14px]
                 border
                 border-gray-200
                 bg-[#FAFBFC]
-                px-4
-                py-3.5
-                text-[12px]
-                leading-5
+                px-3
+                py-2.5
+                text-[11px]
+                leading-4
+                md:px-4
+                md:py-3.5
+                md:text-[12px]
+                md:leading-5
                 text-secondary
                 outline-none
                 transition-all
@@ -1222,7 +1262,8 @@ export default function FeedbackPage() {
 
           <div
             className="
-              mt-5
+              mt-3
+              md:mt-5
             "
           >
             <label
@@ -1265,15 +1306,18 @@ export default function FeedbackPage() {
               maxLength={200}
               placeholder="Example: calendar reminders, easier ticket access..."
               className="
-                mt-2.5
-                h-12
+                mt-2
+                h-10
+                md:h-12
                 w-full
                 rounded-[14px]
                 border
                 border-gray-200
                 bg-[#FAFBFC]
-                px-4
-                text-[12px]
+                px-3
+                text-[11px]
+                md:px-4
+                md:text-[12px]
                 text-secondary
                 outline-none
                 transition-all
@@ -1303,7 +1347,8 @@ export default function FeedbackPage() {
               ease: EASE,
             }}
             className="
-              mt-7
+              mt-3
+              md:mt-7
               space-y-2.5
             "
           >
@@ -1319,12 +1364,14 @@ export default function FeedbackPage() {
                 handleSubmit
               }
               className="
-                h-12
+                h-10
+                md:h-12
                 w-full
                 cursor-pointer
                 rounded-xl
                 bg-primary
-                text-[13px]
+                text-[12px]
+                md:text-[13px]
                 font-semibold
                 text-white
                 shadow-[0_8px_20px_rgba(26,158,143,0.17)]

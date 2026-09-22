@@ -147,7 +147,7 @@ export async function GET(
     }
 
     const feedback =
-      await getBookingFeedback(
+      await getBookingFeedbackCategories(
         booking,
       );
 
@@ -366,7 +366,7 @@ export async function PATCH(
     }
 
     const feedback =
-      await getBookingFeedback(
+      await getBookingFeedbackCategories(
         updated,
       );
 
@@ -581,8 +581,34 @@ async function getBooking(
    so feedback from a different attendee is not mixed in.
 ============================================================ */
 
+async function getBookingFeedbackCategories(
+  booking: unknown,
+) {
+  const [
+    event,
+    application,
+  ] = await Promise.all([
+    getBookingFeedback(
+      booking,
+      'event',
+    ),
+    getBookingFeedback(
+      booking,
+      'application',
+    ),
+  ]);
+
+  return {
+    event,
+    application,
+  };
+}
+
 async function getBookingFeedback(
   booking: unknown,
+  scope:
+    | 'event'
+    | 'application',
 ): Promise<BookingFeedback> {
   const emptyFeedback:
     BookingFeedback = {
@@ -789,8 +815,9 @@ async function getBookingFeedback(
             );
 
           if (
-            feedbackScope ===
-            'application'
+            (feedbackScope ||
+              'event') !==
+            scope
           ) {
             return false;
           }
