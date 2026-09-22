@@ -21,18 +21,55 @@ import {
   Slot,
 } from '@/models/Slot';
 
+import {
+  UserActivity,
+} from '@/models/UserActivity';
+
 import '@/models/Event';
 import '@/models/DaySchedule';
 
+export const dynamic =
+  'force-dynamic';
+
+export const revalidate =
+  0;
+
 /* ============================================================
-   PARAM TYPE
+   TYPES
 ============================================================ */
 
 type RouteContext = {
-  params:
-    Promise<{
-      id: string;
-    }>;
+  params: Promise<{
+    id: string;
+  }>;
+};
+
+type GenericRecord =
+  Record<
+    string,
+    unknown
+  >;
+
+type FeedbackStatus =
+  | 'SUBMITTED'
+  | 'SKIPPED'
+  | 'NONE';
+
+type BookingFeedback = {
+  status:
+    FeedbackStatus;
+
+  rating:
+    number | null;
+
+  message:
+    string;
+
+  suggestedFeature:
+    string;
+
+  submittedAt:
+    string | null;
 };
 
 /* ============================================================
@@ -57,15 +94,12 @@ export async function GET(
     ) {
       return NextResponse.json(
         {
-          success:
-            false,
-
+          success: false,
           message:
             'Unauthorized.',
         },
         {
-          status:
-            401,
+          status: 401,
         },
       );
     }
@@ -82,15 +116,12 @@ export async function GET(
     ) {
       return NextResponse.json(
         {
-          success:
-            false,
-
+          success: false,
           message:
             'Invalid booking ID.',
         },
         {
-          status:
-            400,
+          status: 400,
         },
       );
     }
@@ -105,28 +136,34 @@ export async function GET(
     if (!booking) {
       return NextResponse.json(
         {
-          success:
-            false,
-
+          success: false,
           message:
             'Booking not found.',
         },
         {
-          status:
-            404,
+          status: 404,
         },
       );
     }
 
+    const feedback =
+      await getBookingFeedback(
+        booking,
+      );
+
     return NextResponse.json(
       {
-        success:
-          true,
+        success: true,
 
         booking:
           serialize(
             booking,
           ),
+
+        feedback,
+      },
+      {
+        status: 200,
       },
     );
   } catch (error) {
@@ -137,15 +174,13 @@ export async function GET(
 
     return NextResponse.json(
       {
-        success:
-          false,
+        success: false,
 
         message:
           'Unable to load booking.',
       },
       {
-        status:
-          500,
+        status: 500,
       },
     );
   }
@@ -165,15 +200,13 @@ export async function PATCH(
     ) {
       return NextResponse.json(
         {
-          success:
-            false,
+          success: false,
 
           message:
             'Unauthorized.',
         },
         {
-          status:
-            401,
+          status: 401,
         },
       );
     }
@@ -190,15 +223,13 @@ export async function PATCH(
     ) {
       return NextResponse.json(
         {
-          success:
-            false,
+          success: false,
 
           message:
             'Invalid booking ID.',
         },
         {
-          status:
-            400,
+          status: 400,
         },
       );
     }
@@ -219,15 +250,13 @@ export async function PATCH(
     ) {
       return NextResponse.json(
         {
-          success:
-            false,
+          success: false,
 
           message:
             'Valid booking details are required.',
         },
         {
-          status:
-            400,
+          status: 400,
         },
       );
     }
@@ -245,15 +274,13 @@ export async function PATCH(
     ) {
       return NextResponse.json(
         {
-          success:
-            false,
+          success: false,
 
           message:
             'Full name cannot be empty.',
         },
         {
-          status:
-            400,
+          status: 400,
         },
       );
     }
@@ -263,15 +290,13 @@ export async function PATCH(
     ) {
       return NextResponse.json(
         {
-          success:
-            false,
+          success: false,
 
           message:
             'Email cannot be empty.',
         },
         {
-          status:
-            400,
+          status: 400,
         },
       );
     }
@@ -281,15 +306,13 @@ export async function PATCH(
     ) {
       return NextResponse.json(
         {
-          success:
-            false,
+          success: false,
 
           message:
             'Mobile cannot be empty.',
         },
         {
-          status:
-            400,
+          status: 400,
         },
       );
     }
@@ -304,23 +327,17 @@ export async function PATCH(
     if (!booking) {
       return NextResponse.json(
         {
-          success:
-            false,
+          success: false,
 
           message:
             'Booking not found.',
         },
         {
-          status:
-            404,
+          status: 404,
         },
       );
     }
 
-    /*
-     * Merge instead of replacing blindly.
-     * Existing unknown fields stay safe.
-     */
     booking.details = {
       ...(booking.details ||
         {}),
@@ -334,10 +351,28 @@ export async function PATCH(
         id,
       );
 
+    if (!updated) {
+      return NextResponse.json(
+        {
+          success: false,
+
+          message:
+            'Updated booking could not be reloaded.',
+        },
+        {
+          status: 500,
+        },
+      );
+    }
+
+    const feedback =
+      await getBookingFeedback(
+        updated,
+      );
+
     return NextResponse.json(
       {
-        success:
-          true,
+        success: true,
 
         message:
           'Booking updated successfully.',
@@ -346,6 +381,11 @@ export async function PATCH(
           serialize(
             updated,
           ),
+
+        feedback,
+      },
+      {
+        status: 200,
       },
     );
   } catch (error) {
@@ -356,15 +396,13 @@ export async function PATCH(
 
     return NextResponse.json(
       {
-        success:
-          false,
+        success: false,
 
         message:
           'Unable to update booking.',
       },
       {
-        status:
-          500,
+        status: 500,
       },
     );
   }
@@ -384,15 +422,13 @@ export async function DELETE(
     ) {
       return NextResponse.json(
         {
-          success:
-            false,
+          success: false,
 
           message:
             'Unauthorized.',
         },
         {
-          status:
-            401,
+          status: 401,
         },
       );
     }
@@ -409,15 +445,13 @@ export async function DELETE(
     ) {
       return NextResponse.json(
         {
-          success:
-            false,
+          success: false,
 
           message:
             'Invalid booking ID.',
         },
         {
-          status:
-            400,
+          status: 400,
         },
       );
     }
@@ -432,15 +466,13 @@ export async function DELETE(
     if (!booking) {
       return NextResponse.json(
         {
-          success:
-            false,
+          success: false,
 
           message:
             'Booking not found.',
         },
         {
-          status:
-            404,
+          status: 404,
         },
       );
     }
@@ -454,8 +486,8 @@ export async function DELETE(
     });
 
     /*
-     * Return one capacity unit to the slot.
-     * Never allow bookedCount below zero.
+     * Return one capacity unit
+     * to the slot.
      */
     if (
       slotId &&
@@ -471,8 +503,7 @@ export async function DELETE(
             slotId,
 
           bookedCount: {
-            $gt:
-              0,
+            $gt: 0,
           },
         },
         {
@@ -486,11 +517,13 @@ export async function DELETE(
 
     return NextResponse.json(
       {
-        success:
-          true,
+        success: true,
 
         message:
           'Booking deleted successfully.',
+      },
+      {
+        status: 200,
       },
     );
   } catch (error) {
@@ -501,15 +534,13 @@ export async function DELETE(
 
     return NextResponse.json(
       {
-        success:
-          false,
+        success: false,
 
         message:
           'Unable to delete booking.',
       },
       {
-        status:
-          500,
+        status: 500,
       },
     );
   }
@@ -541,15 +572,309 @@ async function getBooking(
 }
 
 /* ============================================================
+   FEEDBACK
+
+   The browser activity session which created this booking is
+   located using bookingId / Mongo booking ID.
+
+   Feedback is then read from that SAME UserActivity record,
+   so feedback from a different attendee is not mixed in.
+============================================================ */
+
+async function getBookingFeedback(
+  booking: unknown,
+): Promise<BookingFeedback> {
+  const emptyFeedback:
+    BookingFeedback = {
+    status:
+      'NONE',
+
+    rating:
+      null,
+
+    message:
+      '',
+
+    suggestedFeature:
+      '',
+
+    submittedAt:
+      null,
+  };
+
+  if (
+    !isRecord(
+      booking,
+    )
+  ) {
+    return emptyFeedback;
+  }
+
+  const bookingId =
+    stringValue(
+      booking.bookingId,
+    );
+
+  const bookingMongoId =
+    referenceId(
+      booking._id,
+    );
+
+  const eventId =
+    referenceId(
+      booking.eventId,
+    );
+
+  const attendeeEmail =
+    isRecord(
+      booking.details,
+    )
+      ? stringValue(
+          booking.details.email,
+        ).toLowerCase()
+      : '';
+
+  if (!bookingId) {
+    return emptyFeedback;
+  }
+
+  const exactMatchFilters:
+    GenericRecord[] = [
+      {
+        'activities.metadata.bookingId':
+          bookingId,
+      },
+      {
+        'events.bookingId':
+          bookingId,
+      },
+    ];
+
+  if (
+    bookingMongoId
+  ) {
+    exactMatchFilters.push({
+      'activities.metadata.bookingMongoId':
+        bookingMongoId,
+    });
+  }
+
+  /*
+   * Best match:
+   * the exact browser activity session that
+   * recorded this booking.
+   */
+  let activity =
+    await UserActivity.findOne({
+      $or:
+        exactMatchFilters,
+    })
+      .select({
+        activities: 1,
+        events: 1,
+      })
+      .lean();
+
+  /*
+   * Legacy fallback.
+   *
+   * Some older booking_completed records may
+   * not contain bookingMongoId.
+   */
+  if (
+    !activity &&
+    eventId &&
+    attendeeEmail
+  ) {
+    activity =
+      await UserActivity.findOne({
+        $or: [
+          {
+            events: {
+              $elemMatch: {
+                eventId,
+
+                'bookingDetails.email':
+                  attendeeEmail,
+              },
+            },
+          },
+          {
+            activities: {
+              $elemMatch: {
+                eventId,
+
+                'metadata.bookingDetails.email':
+                  attendeeEmail,
+              },
+            },
+          },
+        ],
+      })
+        .select({
+          activities: 1,
+          events: 1,
+        })
+        .lean();
+  }
+
+  if (
+    !activity ||
+    !isRecord(
+      activity,
+    ) ||
+    !Array.isArray(
+      activity.activities,
+    )
+  ) {
+    return emptyFeedback;
+  }
+
+  /*
+   * We only use feedback belonging to the
+   * same event.
+   *
+   * Latest feedback action wins.
+   */
+  const feedbackEntries =
+    activity.activities
+      .filter(
+        (
+          item,
+        ) => {
+          if (
+            !isRecord(
+              item,
+            )
+          ) {
+            return false;
+          }
+
+          const action =
+            stringValue(
+              item.action,
+            );
+
+          if (
+            action !==
+              'feedback_submitted' &&
+            action !==
+              'feedback_skipped'
+          ) {
+            return false;
+          }
+
+          const itemEventId =
+            stringValue(
+              item.eventId,
+            );
+
+          return (
+            !eventId ||
+            !itemEventId ||
+            itemEventId ===
+              eventId
+          );
+        },
+      )
+      .sort(
+        (
+          first,
+          second,
+        ) =>
+          dateValue(
+            isRecord(
+              second,
+            )
+              ? second.occurredAt
+              : undefined,
+          ) -
+          dateValue(
+            isRecord(
+              first,
+            )
+              ? first.occurredAt
+              : undefined,
+          ),
+      );
+
+  const latest =
+    feedbackEntries[0];
+
+  if (
+    !latest ||
+    !isRecord(
+      latest,
+    )
+  ) {
+    return emptyFeedback;
+  }
+
+  const action =
+    stringValue(
+      latest.action,
+    );
+
+  const occurredAt =
+    dateIsoValue(
+      latest.occurredAt,
+    );
+
+  if (
+    action ===
+    'feedback_skipped'
+  ) {
+    return {
+      ...emptyFeedback,
+
+      status:
+        'SKIPPED',
+
+      submittedAt:
+        occurredAt,
+    };
+  }
+
+  const metadata =
+    isRecord(
+      latest.metadata,
+    )
+      ? latest.metadata
+      : {};
+
+  return {
+    status:
+      'SUBMITTED',
+
+    rating:
+      ratingValue(
+        metadata.rating,
+      ),
+
+    message:
+      stringValue(
+        metadata.message,
+      ),
+
+    suggestedFeature:
+      stringValue(
+        metadata.suggestedFeature,
+      ),
+
+    submittedAt:
+      occurredAt,
+  };
+}
+
+/* ============================================================
    SANITIZE DETAILS
 ============================================================ */
 
 function sanitizeDetails(
-  input:
-    Record<
-      string,
-      unknown
-    >,
+  input: Record<
+    string,
+    unknown
+  >,
 ) {
   const output:
     Record<
@@ -568,9 +893,6 @@ function sanitizeDetails(
     const key =
       rawKey.trim();
 
-    /*
-     * Prevent unsafe Mongo object keys.
-     */
     if (
       !key ||
       key.startsWith(
@@ -589,17 +911,17 @@ function sanitizeDetails(
       continue;
     }
 
-    /*
-     * Booking model expects details values
-     * to be strings.
-     */
     if (
       typeof value ===
       'string'
     ) {
       output[key] =
         value.trim();
-    } else if (
+
+      continue;
+    }
+
+    if (
       value ===
         null ||
       value ===
@@ -607,15 +929,142 @@ function sanitizeDetails(
     ) {
       output[key] =
         '';
-    } else {
-      output[key] =
-        String(
-          value,
-        );
+
+      continue;
     }
+
+    output[key] =
+      String(
+        value,
+      );
   }
 
   return output;
+}
+
+/* ============================================================
+   HELPERS
+============================================================ */
+
+function isRecord(
+  value: unknown,
+): value is GenericRecord {
+  return (
+    typeof value ===
+      'object' &&
+    value !==
+      null &&
+    !Array.isArray(
+      value,
+    )
+  );
+}
+
+function stringValue(
+  value: unknown,
+) {
+  if (
+    value ===
+      undefined ||
+    value ===
+      null
+  ) {
+    return '';
+  }
+
+  return String(
+    value,
+  ).trim();
+}
+
+function referenceId(
+  value: unknown,
+) {
+  if (
+    value instanceof
+    mongoose.Types.ObjectId
+  ) {
+    return value.toString();
+  }
+
+  if (
+    isRecord(
+      value,
+    )
+  ) {
+    return stringValue(
+      value._id,
+    );
+  }
+
+  return stringValue(
+    value,
+  );
+}
+
+function ratingValue(
+  value: unknown,
+): number | null {
+  const number =
+    Number(
+      value,
+    );
+
+  if (
+    !Number.isFinite(
+      number,
+    ) ||
+    number < 1 ||
+    number > 5
+  ) {
+    return null;
+  }
+
+  return Math.round(
+    number,
+  );
+}
+
+function dateValue(
+  value: unknown,
+) {
+  if (!value) {
+    return 0;
+  }
+
+  const date =
+    new Date(
+      String(
+        value,
+      ),
+    );
+
+  if (
+    Number.isNaN(
+      date.getTime(),
+    )
+  ) {
+    return 0;
+  }
+
+  return date.getTime();
+}
+
+function dateIsoValue(
+  value: unknown,
+) {
+  const timestamp =
+    dateValue(
+      value,
+    );
+
+  if (!timestamp) {
+    return null;
+  }
+
+  return new Date(
+    timestamp,
+  ).toISOString();
 }
 
 /* ============================================================

@@ -1,7 +1,12 @@
 'use client';
 
+import type {
+  ReactNode,
+} from 'react';
+
 import Image from 'next/image';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 import {
   useCallback,
@@ -15,22 +20,42 @@ import {
   motion,
 } from 'framer-motion';
 
-import { useRealtimeRefresh } from '@/components/realtime/RealtimeProvider';
+import {
+  useRealtimeRefresh,
+} from '@/components/realtime/RealtimeProvider';
 
-import { trackActivity } from '@/lib/activity-client';
+import {
+  trackActivity,
+} from '@/lib/activity-client';
+
+/* ============================================================
+   TYPES
+============================================================ */
 
 interface IEvent {
   _id: string;
+
   eventName: string;
-  eventType: 'conference' | 'mantram' | 'event';
+
+  eventType:
+    | 'conference'
+    | 'mantram'
+    | 'event';
+
   venue: string;
+
   startDate: string;
+
   endDate: string;
+
   description?: string;
+
   imageUrl?: string;
-  totalSlots: number;
-  bookedSlots: number;
-  status: 'LIVE' | 'COMPLETED' | 'UPCOMING';
+
+  status:
+    | 'LIVE'
+    | 'COMPLETED'
+    | 'UPCOMING';
 }
 
 type EventStatusFilter =
@@ -45,21 +70,63 @@ type EventTypeFilter =
   | 'mantram'
   | 'event';
 
-const EASE = [0.16, 1, 0.3, 1] as const;
+/* ============================================================
+   ANIMATION
+============================================================ */
 
-export default function HomePage() {
+const EASE = [
+  0.16,
+  1,
+  0.3,
+  1,
+] as const;
+
+/* ============================================================
+   PAGE
+============================================================ */
+
+export default function EventsPage() {
+  const router = useRouter();
+
+  /* ==========================================================
+     TRACK PAGE VIEW
+  ========================================================== */
+
   useEffect(() => {
-    void trackActivity('page_view');
+    void trackActivity(
+      'page_view',
+    );
   }, []);
 
-  const [events, setEvents] =
-    useState<IEvent[]>([]);
+  /* ==========================================================
+     EVENTS
+  ========================================================== */
 
-  const [loading, setLoading] =
-    useState(true);
+  const [
+    events,
+    setEvents,
+  ] = useState<IEvent[]>(
+    [],
+  );
 
-  const [search, setSearch] =
-    useState('');
+  const [
+    loading,
+    setLoading,
+  ] = useState(true);
+
+  const [
+    refreshing,
+    setRefreshing,
+  ] = useState(false);
+
+  /* ==========================================================
+     SEARCH + FILTERS
+  ========================================================== */
+
+  const [
+    search,
+    setSearch,
+  ] = useState('');
 
   const [
     showFilters,
@@ -82,76 +149,147 @@ export default function HomePage() {
       'ALL',
     );
 
+  /* ==========================================================
+     FEEDBACK PICKER
+
+     We intentionally DO NOT create another feedback form here.
+
+     User chooses the event, then we route to the already
+     existing:
+
+     /events/[id]/book/feedback
+
+     This keeps the existing feedback data structure/backend.
+  ========================================================== */
+
+  const [
+    showFeedbackPicker,
+    setShowFeedbackPicker,
+  ] = useState(false);
+
+  /* ==========================================================
+     LOAD EVENTS
+  ========================================================== */
+
   const fetchEvents =
-    useCallback(async (showLoading = true) => {
-      if (showLoading) {
-        setLoading(true);
-      }
-
-      try {
-        const res = await fetch(
-          '/api/events',
-          {
-            method: 'GET',
-            cache: 'no-store',
-          },
-        );
-
-        const data =
-          await res.json();
-
+    useCallback(
+      async (
+        showInitialLoading =
+          true,
+      ) => {
         if (
-          !res.ok ||
-          !data.success
+          showInitialLoading
         ) {
-          throw new Error(
-            data.error ||
-              'Failed to fetch events.',
+          setLoading(
+            true,
+          );
+        } else {
+          setRefreshing(
+            true,
           );
         }
 
-        setEvents(
-          data.events || [],
-        );
-      } catch (error) {
-        console.error(
-          'Failed to fetch events:',
-          error,
-        );
+        try {
+          const response =
+            await fetch(
+              '/api/events',
+              {
+                method:
+                  'GET',
 
-        setEvents([]);
-      } finally {
-        if (showLoading) {
-          setLoading(false);
+                cache:
+                  'no-store',
+              },
+            );
+
+          const data =
+            await response.json();
+
+          if (
+            !response.ok ||
+            !data.success
+          ) {
+            throw new Error(
+              data.error ||
+                'Failed to fetch events.',
+            );
+          }
+
+          setEvents(
+            Array.isArray(
+              data.events,
+            )
+              ? data.events
+              : [],
+          );
+        } catch (
+          error
+        ) {
+          console.error(
+            'Failed to fetch events:',
+            error,
+          );
+
+          setEvents(
+            [],
+          );
+        } finally {
+          setLoading(
+            false,
+          );
+
+          setRefreshing(
+            false,
+          );
         }
-      }
-    }, []);
+      },
+      [],
+    );
 
   useEffect(() => {
-    void Promise.resolve().then(
-      () => fetchEvents(),
-    );
-  }, [fetchEvents]);
+    const loadEvents = async () => {
+      await fetchEvents();
+    };
+
+    void loadEvents();
+  }, [
+    fetchEvents,
+  ]);
 
   useRealtimeRefresh(
     'events',
     () => {
-      void fetchEvents(false);
+      void fetchEvents(
+        false,
+      );
     },
   );
 
+  /* ==========================================================
+     FILTERING
+  ========================================================== */
+
   const hasActiveFilters =
-    statusFilter !== 'ALL' ||
-    typeFilter !== 'ALL';
+    statusFilter !==
+      'ALL' ||
+    typeFilter !==
+      'ALL';
+
+  const hasSearch =
+    search.trim().length >
+    0;
 
   const filteredEvents =
     useMemo(() => {
-      const query = search
-        .trim()
-        .toLowerCase();
+      const query =
+        search
+          .trim()
+          .toLowerCase();
 
       return events.filter(
-        (event) => {
+        (
+          event,
+        ) => {
           const matchesSearch =
             !query ||
             [
@@ -161,10 +299,14 @@ export default function HomePage() {
               event.description ||
                 '',
             ].some(
-              (value) =>
+              (
+                value,
+              ) =>
                 value
                   .toLowerCase()
-                  .includes(query),
+                  .includes(
+                    query,
+                  ),
             );
 
           const matchesStatus =
@@ -174,7 +316,8 @@ export default function HomePage() {
               statusFilter;
 
           const matchesType =
-            typeFilter === 'ALL' ||
+            typeFilter ===
+              'ALL' ||
             event.eventType ===
               typeFilter;
 
@@ -196,247 +339,545 @@ export default function HomePage() {
     useMemo(
       () =>
         filteredEvents.filter(
-          (event) =>
+          (
+            event,
+          ) =>
             event.status ===
             'LIVE',
         ),
-      [filteredEvents],
+      [
+        filteredEvents,
+      ],
     );
 
   const upcomingConferences =
     useMemo(
       () =>
         filteredEvents.filter(
-          (event) =>
+          (
+            event,
+          ) =>
             event.status ===
               'UPCOMING' &&
             event.eventType ===
               'conference',
         ),
-      [filteredEvents],
+      [
+        filteredEvents,
+      ],
     );
 
   const upcomingMantram =
     useMemo(
       () =>
         filteredEvents.filter(
-          (event) =>
+          (
+            event,
+          ) =>
             event.status ===
               'UPCOMING' &&
             event.eventType ===
               'mantram',
         ),
-      [filteredEvents],
+      [
+        filteredEvents,
+      ],
     );
 
   const upcomingEvents =
     useMemo(
       () =>
         filteredEvents.filter(
-          (event) =>
+          (
+            event,
+          ) =>
             event.status ===
               'UPCOMING' &&
             event.eventType ===
               'event',
         ),
-      [filteredEvents],
+      [
+        filteredEvents,
+      ],
     );
 
   const completedEvents =
     useMemo(
       () =>
         filteredEvents.filter(
-          (event) =>
+          (
+            event,
+          ) =>
             event.status ===
             'COMPLETED',
         ),
-      [filteredEvents],
+      [
+        filteredEvents,
+      ],
     );
 
+  /* ==========================================================
+     FILTER ACTIONS
+  ========================================================== */
+
   function clearFilters() {
-    setStatusFilter('ALL');
-    setTypeFilter('ALL');
+    setStatusFilter(
+      'ALL',
+    );
+
+    setTypeFilter(
+      'ALL',
+    );
   }
 
+  function resetAll() {
+    setSearch('');
+
+    clearFilters();
+
+    setShowFilters(
+      false,
+    );
+  }
+
+  /* ==========================================================
+     FEEDBACK
+  ========================================================== */
+
+  function openFeedback() {
+    setShowFeedbackPicker(
+      true,
+    );
+  }
+
+  function closeFeedback() {
+    setShowFeedbackPicker(
+      false,
+    );
+  }
+
+  function goToFeedback(
+    eventId:
+      string,
+  ) {
+    setShowFeedbackPicker(
+      false,
+    );
+
+    router.push(
+      `/events/${encodeURIComponent(
+        eventId,
+      )}/book/feedback`,
+    );
+  }
+
+  /* ==========================================================
+     PAGE
+  ========================================================== */
+
   return (
-    <div className="min-h-dvh bg-gray-50 pb-[86px] md:pb-0">
-      {/* =====================================================
+    <div
+      className="
+        min-h-dvh
+
+        bg-[#F7F9FA]
+
+        pb-[76px]
+
+        md:pb-0
+      "
+    >
+      {/* ======================================================
           DESKTOP HEADER
       ====================================================== */}
-      <header className="sticky top-0 z-40 hidden border-b border-gray-200/80 bg-white/90 backdrop-blur-xl md:block">
-        <div className="mx-auto grid h-16 w-full max-w-[1500px] grid-cols-[auto_minmax(320px,560px)_auto] items-center gap-8 px-6 lg:px-10">
+
+      <header
+        className="
+          sticky
+          top-0
+          z-50
+
+          hidden
+
+          border-b
+          border-gray-200/80
+
+          bg-white/95
+
+          backdrop-blur-xl
+
+          md:block
+        "
+      >
+        <div
+          className="
+            mx-auto
+
+            grid
+            h-[66px]
+            w-full
+            max-w-[1500px]
+
+            grid-cols-[auto_minmax(300px,540px)_auto]
+
+            items-center
+
+            gap-6
+
+            px-6
+
+            lg:px-10
+          "
+        >
+          {/* BRAND */}
+
           <Brand />
 
-          <SearchBar
-            value={search}
-            onChange={setSearch}
-            showFilters={
-              showFilters
-            }
-            onToggleFilters={() =>
-              setShowFilters(
-                (value) => !value,
-              )
-            }
-            hasActiveFilters={
-              hasActiveFilters
-            }
-          />
+          {/* SEARCH */}
 
-          <div className="flex justify-end">
-            <Link
-              href="/tickets"
-              className="
-                inline-flex
-                h-10
-                cursor-pointer
-                items-center
-                justify-center
-                rounded-full
-                border
-                border-primary/20
-                bg-white
-                px-5
-                text-xs
-                font-semibold
-                text-primary
-                shadow-sm
-                transition-all
-                duration-200
-
-                hover:-translate-y-0.5
-                hover:border-primary/40
-                hover:bg-primary/5
-                hover:shadow-md
-              "
-            >
-              My Tickets
-            </Link>
-          </div>
-        </div>
-
-        <AnimatePresence>
-          {showFilters && (
-            <DesktopFilterPanel
-              statusFilter={
-                statusFilter
+          <div
+            className="
+              relative
+            "
+          >
+            <SearchBar
+              value={
+                search
               }
-              typeFilter={
-                typeFilter
+              onChange={
+                setSearch
               }
-              setStatusFilter={
-                setStatusFilter
+              showFilters={
+                showFilters
               }
-              setTypeFilter={
-                setTypeFilter
-              }
-              clearFilters={
-                clearFilters
+              onToggleFilters={() =>
+                setShowFilters(
+                  (
+                    current,
+                  ) =>
+                    !current,
+                )
               }
               hasActiveFilters={
                 hasActiveFilters
               }
-              onClose={() =>
-                setShowFilters(
+            />
+
+            <AnimatePresence>
+              {showFilters && (
+                <DesktopFilterPanel
+                  statusFilter={
+                    statusFilter
+                  }
+                  typeFilter={
+                    typeFilter
+                  }
+                  setStatusFilter={
+                    setStatusFilter
+                  }
+                  setTypeFilter={
+                    setTypeFilter
+                  }
+                  clearFilters={
+                    clearFilters
+                  }
+                  hasActiveFilters={
+                    hasActiveFilters
+                  }
+                  onClose={() =>
+                    setShowFilters(
+                      false,
+                    )
+                  }
+                />
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* ACTIONS */}
+
+          <div
+            className="
+              flex
+              items-center
+              justify-end
+              gap-2
+            "
+          >
+            <button
+              type="button"
+              aria-label="Refresh events"
+              disabled={
+                refreshing
+              }
+              onClick={() =>
+                void fetchEvents(
                   false,
                 )
               }
-            />
-          )}
-        </AnimatePresence>
+              className="
+                grid
+                h-10
+                w-10
+
+                place-items-center
+
+                rounded-lg
+
+                border
+                border-gray-200
+
+                bg-white
+
+                text-gray-500
+
+                transition-all
+                duration-150
+
+                hover:border-gray-300
+                hover:bg-gray-50
+                hover:text-secondary
+
+                focus:outline-none
+                focus-visible:ring-2
+                focus-visible:ring-primary/15
+
+                disabled:cursor-not-allowed
+                disabled:opacity-50
+              "
+            >
+              <RefreshIcon
+                spinning={
+                  refreshing
+                }
+              />
+            </button>
+
+            <Link
+              href="/events/mytickets"
+              className="
+                inline-flex
+                h-10
+
+                items-center
+                justify-center
+                gap-2
+
+                rounded-lg
+
+                border
+                border-gray-200
+
+                bg-white
+
+                px-4
+
+                text-[11px]
+                font-semibold
+
+                text-secondary
+
+                transition-all
+                duration-150
+
+                hover:border-primary/25
+                hover:bg-primary/[0.035]
+                hover:text-primary
+
+                focus:outline-none
+                focus-visible:ring-2
+                focus-visible:ring-primary/15
+              "
+            >
+              <TicketIcon />
+
+              My Tickets
+            </Link>
+
+            <button
+              type="button"
+              onClick={
+                openFeedback
+              }
+              className="
+                inline-flex
+                h-10
+
+                items-center
+                justify-center
+                gap-2
+
+                rounded-lg
+
+                border
+                border-gray-200
+
+                bg-white
+
+                px-4
+
+                text-[11px]
+                font-semibold
+
+                text-secondary
+
+                transition-all
+                duration-150
+
+                hover:border-primary/25
+                hover:bg-primary/[0.035]
+                hover:text-primary
+
+                focus:outline-none
+                focus-visible:ring-2
+                focus-visible:ring-primary/15
+              "
+            >
+              <FeedbackIcon />
+
+              Feedback
+            </button>
+          </div>
+        </div>
       </header>
 
-      {/* =====================================================
-          MOBILE FIXED HEADER
+      {/* ======================================================
+          MOBILE HEADER
       ====================================================== */}
+
       <header
         className="
-          fixed
-          inset-x-0
+          sticky
           top-0
           z-50
 
           border-b
-          border-gray-200/70
+          border-gray-200/80
 
-          bg-gray-50/95
+          bg-[#F7F9FA]/95
 
           px-4
-          pb-4
-          pt-[max(14px,env(safe-area-inset-top))]
-
-          shadow-[0_10px_30px_rgba(27,75,107,0.05)]
+          pb-3
+          pt-[max(10px,env(safe-area-inset-top))]
 
           backdrop-blur-xl
 
           md:hidden
         "
       >
-        <div className="mx-auto w-full max-w-[430px]">
-          <motion.div
-            initial={{
-              opacity: 0,
-              y: -10,
-              scale: 0.97,
-            }}
-            animate={{
-              opacity: 1,
-              y: 0,
-              scale: 1,
-            }}
-            transition={{
-              duration: 0.55,
-              ease: EASE,
-            }}
-            className="flex justify-center"
-          >
-            <Brand />
-          </motion.div>
+        <div
+          className="
+            mx-auto
+            max-w-[520px]
+          "
+        >
+          {/* TOP ROW */}
 
-          <motion.h1
-            initial={{
-              opacity: 0,
-              y: 8,
-            }}
-            animate={{
-              opacity: 1,
-              y: 0,
-            }}
-            transition={{
-              duration: 0.45,
-              delay: 0.06,
-              ease: EASE,
-            }}
+          <div
             className="
-              mt-7
-              font-heading
-              text-[27px]
-              font-bold
-              tracking-[-0.03em]
-              text-secondary
+              flex
+              items-center
+              justify-between
+              gap-3
             "
           >
-            Hello!
-          </motion.h1>
+            <Brand
+              compact
+            />
 
-          <motion.div
-            initial={{
-              opacity: 0,
-              y: 8,
-            }}
-            animate={{
-              opacity: 1,
-              y: 0,
-            }}
-            transition={{
-              duration: 0.45,
-              delay: 0.1,
-              ease: EASE,
-            }}
-            className="relative mt-4"
+            <button
+              type="button"
+              onClick={
+                openFeedback
+              }
+              className="
+                inline-flex
+                h-9
+                shrink-0
+
+                items-center
+                justify-center
+                gap-1.5
+
+                rounded-lg
+
+                border
+                border-gray-200
+
+                bg-white
+
+                px-3
+
+                text-[10px]
+                font-semibold
+
+                text-secondary
+
+                shadow-[0_2px_8px_rgba(27,75,107,0.025)]
+
+                transition-colors
+
+                active:bg-gray-50
+              "
+            >
+              <FeedbackIcon />
+
+              Feedback
+            </button>
+          </div>
+
+          {/* TITLE */}
+
+          <div
+            className="
+              mt-4
+            "
+          >
+            <h1
+              className="
+                font-heading
+
+                text-[22px]
+                font-bold
+
+                leading-[1.2]
+
+                tracking-[-0.03em]
+
+                text-secondary
+              "
+            >
+              Discover Events
+            </h1>
+
+            <p
+              className="
+                mt-1
+
+                text-[11px]
+                leading-[17px]
+
+                text-gray-500
+              "
+            >
+              Explore conferences,
+              MantraM sessions and
+              upcoming programmes.
+            </p>
+          </div>
+
+          {/* SEARCH */}
+
+          <div
+            className="
+              relative
+              mt-3
+            "
           >
             <SearchBar
-              value={search}
+              value={
+                search
+              }
               onChange={
                 setSearch
               }
@@ -446,8 +887,10 @@ export default function HomePage() {
               }
               onToggleFilters={() =>
                 setShowFilters(
-                  (value) =>
-                    !value,
+                  (
+                    current,
+                  ) =>
+                    !current,
                 )
               }
               hasActiveFilters={
@@ -484,22 +927,23 @@ export default function HomePage() {
                 />
               )}
             </AnimatePresence>
-          </motion.div>
+          </div>
         </div>
       </header>
 
-      {/* =====================================================
-          MAIN CONTENT
+      {/* ======================================================
+          CONTENT
       ====================================================== */}
+
       <main
         className="
           mx-auto
+
           w-full
           max-w-[1500px]
 
           px-4
-          pb-7
-          pt-[230px]
+          py-5
 
           sm:px-5
 
@@ -509,118 +953,69 @@ export default function HomePage() {
           lg:px-10
         "
       >
-        {/* Desktop Hero */}
-        <motion.section
-          initial={{
-            opacity: 0,
-            y: 10,
-          }}
-          animate={{
-            opacity: 1,
-            y: 0,
-          }}
-          transition={{
-            duration: 0.5,
-            ease: EASE,
-          }}
-          className="hidden md:block md:mb-8"
+        {/* ====================================================
+            DESKTOP INTRO
+        ==================================================== */}
+
+        <section
+          className="
+            hidden
+
+            md:block
+          "
         >
-          <h1 className="font-heading text-3xl font-bold tracking-[-0.03em] text-secondary lg:text-[34px]">
-            Hello!
-          </h1>
+          <div
+            className="
+              max-w-[680px]
+            "
+          >
+            <h1
+              className="
+                font-heading
 
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-500">
-            Welcome to your
-            central medical
-            networking hub.
-            Discover live
-            conferences and share
-            expert research inside
-            discussions.
-          </p>
-        </motion.section>
+                text-[30px]
+                font-bold
 
-        {/* Active filter row */}
+                tracking-[-0.035em]
+
+                text-secondary
+
+                lg:text-[34px]
+              "
+            >
+              Discover Events
+            </h1>
+
+            <p
+              className="
+                mt-1.5
+
+                text-[12px]
+                leading-5
+
+                text-gray-500
+              "
+            >
+              Browse conferences,
+              MantraM sessions and
+              programmes currently
+              available through SSI
+              Maya Connect.
+            </p>
+          </div>
+        </section>
+
+        {/* ====================================================
+            ACTIVE FILTERS
+        ==================================================== */}
+
         <AnimatePresence>
-          {hasActiveFilters && (
+          {(hasActiveFilters ||
+            hasSearch) && (
             <motion.div
               initial={{
                 opacity: 0,
-                height: 0,
-                y: -6,
-              }}
-              animate={{
-                opacity: 1,
-                height: 'auto',
-                y: 0,
-              }}
-              exit={{
-                opacity: 0,
-                height: 0,
-                y: -6,
-              }}
-              transition={{
-                duration: 0.3,
-                ease: EASE,
-              }}
-              className="mb-5 overflow-hidden"
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[11px] font-semibold text-gray-400">
-                  Filters:
-                </span>
-
-                {statusFilter !==
-                  'ALL' && (
-                  <FilterTag
-                    label={formatStatus(
-                      statusFilter,
-                    )}
-                    onRemove={() =>
-                      setStatusFilter(
-                        'ALL',
-                      )
-                    }
-                  />
-                )}
-
-                {typeFilter !==
-                  'ALL' && (
-                  <FilterTag
-                    label={formatType(
-                      typeFilter,
-                    )}
-                    onRemove={() =>
-                      setTypeFilter(
-                        'ALL',
-                      )
-                    }
-                  />
-                )}
-
-                <button
-                  type="button"
-                  onClick={
-                    clearFilters
-                  }
-                  className="ml-1 cursor-pointer text-[11px] font-semibold text-primary transition hover:text-primary-dark"
-                >
-                  Clear
-                </button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {loading ? (
-          <LoadingState />
-        ) : (
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={`${search}-${statusFilter}-${typeFilter}`}
-              initial={{
-                opacity: 0,
-                y: 8,
+                y: -5,
               }}
               animate={{
                 opacity: 1,
@@ -628,135 +1023,306 @@ export default function HomePage() {
               }}
               exit={{
                 opacity: 0,
-                y: -4,
+                y: -5,
               }}
-              transition={{
-                duration: 0.3,
-                ease: EASE,
-              }}
-              className="space-y-8 md:space-y-10"
+              className="
+                mt-4
+
+                flex
+                flex-wrap
+                items-center
+                gap-1.5
+
+                md:mt-6
+              "
             >
-              {liveEvents.length >
-                0 && (
-                <AnimatedSection>
-                  <SectionHeading
-                    title="Live Now"
-                    live
-                  />
-
-                  <div className="grid grid-cols-2 gap-3 md:gap-5">
-                    {liveEvents.map(
-                      (
-                        event,
-                        index,
-                      ) => (
-                        <LiveEventCard
-                          key={
-                            event._id
-                          }
-                          event={
-                            event
-                          }
-                          index={
-                            index
-                          }
-                        />
-                      ),
-                    )}
-                  </div>
-                </AnimatedSection>
-              )}
-
-              {upcomingConferences.length >
-                0 && (
-                <AnimatedSection>
-                  <SectionHeading
-                    title="Upcoming Conferences"
-                  />
-
-                  <UpcomingGrid
-                    events={
-                      upcomingConferences
-                    }
-                  />
-                </AnimatedSection>
-              )}
-
-              {upcomingMantram.length >
-                0 && (
-                <AnimatedSection>
-                  <SectionHeading
-                    title="Upcoming MantraM Sessions"
-                  />
-
-                  <UpcomingGrid
-                    events={
-                      upcomingMantram
-                    }
-                  />
-                </AnimatedSection>
-              )}
-
-              {upcomingEvents.length >
-                0 && (
-                <AnimatedSection>
-                  <SectionHeading
-                    title="Upcoming Events"
-                  />
-
-                  <UpcomingGrid
-                    events={
-                      upcomingEvents
-                    }
-                  />
-                </AnimatedSection>
-              )}
-
-              {completedEvents.length >
-                0 &&
-                statusFilter ===
-                  'COMPLETED' && (
-                  <AnimatedSection>
-                    <SectionHeading
-                      title="Completed"
-                    />
-
-                    <UpcomingGrid
-                      events={
-                        completedEvents
-                      }
-                    />
-                  </AnimatedSection>
-                )}
-
-              {filteredEvents.length ===
-                0 && (
-                <EmptyState
-                  hasFilters={
-                    hasActiveFilters
-                  }
-                  clearFilters={
-                    clearFilters
-                  }
-                  clearSearch={() =>
+              {hasSearch && (
+                <FilterTag
+                  label={`Search: ${search}`}
+                  onRemove={() =>
                     setSearch('')
                   }
                 />
               )}
+
+              {statusFilter !==
+                'ALL' && (
+                <FilterTag
+                  label={formatStatus(
+                    statusFilter,
+                  )}
+                  onRemove={() =>
+                    setStatusFilter(
+                      'ALL',
+                    )
+                  }
+                />
+              )}
+
+              {typeFilter !==
+                'ALL' && (
+                <FilterTag
+                  label={formatType(
+                    typeFilter,
+                  )}
+                  onRemove={() =>
+                    setTypeFilter(
+                      'ALL',
+                    )
+                  }
+                />
+              )}
+
+              <button
+                type="button"
+                onClick={
+                  resetAll
+                }
+                className="
+                  ml-1
+
+                  text-[10px]
+                  font-semibold
+
+                  text-gray-400
+
+                  transition-colors
+
+                  hover:text-secondary
+                "
+              >
+                Clear all
+              </button>
             </motion.div>
-          </AnimatePresence>
+          )}
+        </AnimatePresence>
+
+        {/* ====================================================
+            LOADING
+        ==================================================== */}
+
+        {loading ? (
+          <div
+            className="
+              mt-5
+
+              md:mt-8
+            "
+          >
+            <LoadingState />
+          </div>
+        ) : events.length ===
+          0 ? (
+          /* ==================================================
+             NO EVENTS AT ALL
+          ================================================== */
+
+          <div
+            className="
+              mt-4
+
+              md:mt-8
+            "
+          >
+            <NoPublishedEvents
+              onRefresh={() =>
+                void fetchEvents(
+                  false,
+                )
+              }
+              refreshing={
+                refreshing
+              }
+              onFeedback={
+                openFeedback
+              }
+            />
+          </div>
+        ) : filteredEvents.length ===
+          0 ? (
+          /* ==================================================
+             FILTERS RETURNED NOTHING
+          ================================================== */
+
+          <div
+            className="
+              mt-4
+
+              md:mt-8
+            "
+          >
+            <NoMatchingEvents
+              clearAll={
+                resetAll
+              }
+            />
+          </div>
+        ) : (
+          /* ==================================================
+             EVENT SECTIONS
+          ================================================== */
+
+          <motion.div
+            key={`${search}-${statusFilter}-${typeFilter}`}
+            initial={{
+              opacity: 0,
+              y: 6,
+            }}
+            animate={{
+              opacity: 1,
+              y: 0,
+            }}
+            transition={{
+              duration:
+                0.28,
+
+              ease:
+                EASE,
+            }}
+            className="
+              mt-5
+              space-y-8
+
+              md:mt-8
+              md:space-y-10
+            "
+          >
+            {/* OPEN */}
+
+            {liveEvents.length >
+              0 && (
+              <AnimatedSection>
+                <SectionHeading
+                  title="Open for Registration"
+                  subtitle="Events currently accepting registrations"
+                />
+
+                <div
+                  className="
+                    grid
+                    grid-cols-1
+                    gap-3
+
+                    min-[520px]:grid-cols-2
+
+                    md:gap-5
+                  "
+                >
+                  {liveEvents.map(
+                    (
+                      event,
+                      index,
+                    ) => (
+                      <OpenEventCard
+                        key={
+                          event._id
+                        }
+                        event={
+                          event
+                        }
+                        index={
+                          index
+                        }
+                      />
+                    ),
+                  )}
+                </div>
+              </AnimatedSection>
+            )}
+
+            {/* CONFERENCES */}
+
+            {upcomingConferences.length >
+              0 && (
+              <AnimatedSection>
+                <SectionHeading
+                  title="Upcoming Conferences"
+                  subtitle="Upcoming conferences and scientific programmes"
+                />
+
+                <UpcomingGrid
+                  events={
+                    upcomingConferences
+                  }
+                />
+              </AnimatedSection>
+            )}
+
+            {/* MANTRAM */}
+
+            {upcomingMantram.length >
+              0 && (
+              <AnimatedSection>
+                <SectionHeading
+                  title="Upcoming MantraM Sessions"
+                  subtitle="Upcoming MantraM programmes"
+                />
+
+                <UpcomingGrid
+                  events={
+                    upcomingMantram
+                  }
+                />
+              </AnimatedSection>
+            )}
+
+            {/* OTHER */}
+
+            {upcomingEvents.length >
+              0 && (
+              <AnimatedSection>
+                <SectionHeading
+                  title="Upcoming Events"
+                  subtitle="More programmes and opportunities to participate"
+                />
+
+                <UpcomingGrid
+                  events={
+                    upcomingEvents
+                  }
+                />
+              </AnimatedSection>
+            )}
+
+            {/* COMPLETED */}
+
+            {completedEvents.length >
+              0 &&
+              statusFilter ===
+                'COMPLETED' && (
+                <AnimatedSection>
+                  <SectionHeading
+                    title="Completed Events"
+                    subtitle="Previously concluded programmes"
+                  />
+
+                  <UpcomingGrid
+                    events={
+                      completedEvents
+                    }
+                    completed
+                  />
+                </AnimatedSection>
+              )}
+          </motion.div>
         )}
       </main>
 
-      {/* =====================================================
-          MOBILE BOTTOM NAV
+      {/* ======================================================
+          MOBILE BOTTOM NAVIGATION
+
+          Tickets remain here.
+          They are removed only from the top header.
       ====================================================== */}
+
       <nav
         className="
           fixed
+
           inset-x-0
           bottom-0
-          z-50
+
+          z-40
 
           grid
           grid-cols-2
@@ -766,88 +1332,58 @@ export default function HomePage() {
 
           bg-white/95
 
-          pb-[max(10px,env(safe-area-inset-bottom))]
-          pt-2
+          pb-[max(8px,env(safe-area-inset-bottom))]
+          pt-1.5
 
-          shadow-[0_-8px_25px_rgba(27,75,107,0.06)]
+          shadow-[0_-4px_18px_rgba(27,75,107,0.045)]
 
           backdrop-blur-xl
 
           md:hidden
         "
       >
-        <Link
+        <MobileNavItem
           href="/events"
-          className="
-            flex
-            min-h-[52px]
-            cursor-pointer
-            flex-col
-            items-center
-            justify-center
-            gap-1
-            text-primary
-          "
-        >
-          <motion.svg
-            whileTap={{
-              scale: 0.88,
-            }}
-            className="h-5 w-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M3 11l9-8 9 8v9a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1z"
-            />
-          </motion.svg>
+          label="Events"
+          active
+          icon={
+            <HomeIcon />
+          }
+        />
 
-          <span className="text-[10px] font-medium">
-            Home
-          </span>
-        </Link>
-
-        <Link
-          href="/tickets"
-          className="
-            flex
-            min-h-[52px]
-            cursor-pointer
-            flex-col
-            items-center
-            justify-center
-            gap-1
-            text-gray-500
-            transition
-            hover:text-primary
-          "
-        >
-          <motion.svg
-            whileTap={{
-              scale: 0.88,
-            }}
-            className="h-5 w-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={1.8}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M5 4v16M9 4v16M13 4v16M17 4v16M21 4v16"
-            />
-          </motion.svg>
-
-          <span className="text-[10px] font-medium">
-            My Tickets
-          </span>
-        </Link>
+        <MobileNavItem
+          href="/events/mytickets"
+          label="My Tickets"
+          icon={
+            <TicketIcon />
+          }
+        />
       </nav>
+
+      {/* ======================================================
+          FEEDBACK EVENT SELECTOR
+
+          This is NOT a new feedback form.
+
+          Selecting an event takes the user directly to the
+          existing feedback page/backend.
+      ====================================================== */}
+
+      <AnimatePresence>
+        {showFeedbackPicker && (
+          <FeedbackEventPicker
+            events={
+              events
+            }
+            onSelect={
+              goToFeedback
+            }
+            onClose={
+              closeFeedback
+            }
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -856,51 +1392,59 @@ export default function HomePage() {
    BRAND
 ============================================================ */
 
-function Brand() {
+function Brand({
+  compact = false,
+}: {
+  compact?: boolean;
+}) {
   return (
     <Link
       href="/"
       className="
         inline-flex
         w-fit
-        cursor-pointer
+
         items-center
-        gap-2.5
+        gap-2
 
-        rounded-full
+        transition-opacity
 
-        border
-        border-primary/25
-
-        bg-white/95
-
-        px-4
-        py-2.5
-
-        shadow-[0_8px_25px_rgba(27,75,107,0.09)]
-
-        backdrop-blur-xl
-
-        transition-all
-        duration-200
-
-        hover:-translate-y-0.5
-        hover:border-primary/40
-        hover:shadow-[0_12px_30px_rgba(27,75,107,0.13)]
-
-        active:scale-[0.98]
+        hover:opacity-80
       "
     >
       <Image
         src="/logos/ssilogo.png"
         alt="SSI"
-        width={22}
-        height={22}
+        width={
+          compact
+            ? 24
+            : 26
+        }
+        height={
+          compact
+            ? 24
+            : 26
+        }
         priority
-        className="h-[22px] w-[22px] object-contain"
+        className="
+          shrink-0
+          object-contain
+        "
       />
 
-      <span className="text-sm font-semibold text-secondary">
+      <span
+        className={`
+          font-semibold
+
+          text-secondary
+
+          ${
+            compact
+              ? 'text-[13px]'
+              : 'text-[14px]'
+          }
+        `}
+      >
         SSI Maya Connect
       </span>
     </Link>
@@ -908,7 +1452,7 @@ function Brand() {
 }
 
 /* ============================================================
-   SEARCH
+   SEARCH BAR
 ============================================================ */
 
 function SearchBar({
@@ -921,98 +1465,99 @@ function SearchBar({
 }: {
   value: string;
 
-  onChange: (
-    value: string,
-  ) => void;
+  onChange:
+    (
+      value:
+        string,
+    ) => void;
 
   mobile?: boolean;
 
   showFilters: boolean;
 
-  onToggleFilters: () => void;
+  onToggleFilters:
+    () => void;
 
-  hasActiveFilters: boolean;
+  hasActiveFilters:
+    boolean;
 }) {
   return (
-    <div className="relative w-full">
-      <svg
+    <div
+      className="
+        relative
+        w-full
+      "
+    >
+      <span
         className="
           pointer-events-none
-          absolute
-          left-4
-          top-1/2
-          h-[18px]
-          w-[18px]
-          -translate-y-1/2
-          text-primary
-        "
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        strokeWidth={2}
-      >
-        <circle
-          cx="11"
-          cy="11"
-          r="7"
-        />
 
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="m20 20-3.5-3.5"
-        />
-      </svg>
+          absolute
+          left-3.5
+          top-1/2
+
+          -translate-y-1/2
+
+          text-gray-400
+        "
+      >
+        <SearchIcon />
+      </span>
 
       <input
         type="search"
-        value={value}
-        onChange={(event) =>
+        value={
+          value
+        }
+        onChange={(
+          event,
+        ) =>
           onChange(
             event.target.value,
           )
         }
-        placeholder="Search conferences, manthan, speakers..."
+        placeholder={
+          mobile
+            ? 'Search events...'
+            : 'Search events, venue or type...'
+        }
         className={`
           w-full
 
-          rounded-xl
+          rounded-lg
 
           border
           border-gray-200
 
           bg-white
 
-          pl-11
-          pr-13
+          pl-10
+          pr-12
 
           text-secondary
-
-          shadow-[0_3px_12px_rgba(27,75,107,0.025)]
 
           outline-none
 
           transition-all
-          duration-200
+          duration-150
 
-          placeholder:text-gray-500
+          placeholder:text-gray-400
 
           hover:border-gray-300
 
-          focus:border-primary/60
-          focus:shadow-[0_7px_20px_rgba(26,158,143,0.08)]
+          focus:border-primary/40
           focus:ring-2
           focus:ring-primary/10
 
           ${
             mobile
-              ? 'h-[46px] text-[13px]'
-              : 'h-10 text-xs'
+              ? 'h-11 text-[12px]'
+              : 'h-10 text-[11px]'
           }
         `}
       />
 
-      <motion.button
+      <button
         type="button"
         aria-label="Filter events"
         aria-expanded={
@@ -1021,125 +1566,138 @@ function SearchBar({
         onClick={
           onToggleFilters
         }
-        whileTap={{
-          scale: 0.9,
-        }}
         className={`
           absolute
-          right-2
+          right-1.5
           top-1/2
 
           grid
           h-8
           w-8
+
           -translate-y-1/2
-          cursor-pointer
+
           place-items-center
 
-          rounded-lg
+          rounded-md
 
           transition-all
-          duration-200
 
           ${
             showFilters ||
             hasActiveFilters
               ? `
-                bg-primary/10
-                text-primary
-              `
+                  bg-primary/[0.08]
+                  text-primary
+                `
               : `
-                text-gray-500
-                hover:bg-gray-100
-                hover:text-secondary
-              `
+                  text-gray-400
+
+                  hover:bg-gray-100
+                  hover:text-secondary
+                `
           }
         `}
       >
-        <svg
-          className="h-[17px] w-[17px]"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={1.8}
-        >
-          <path d="M4 7h10M18 7h2M4 17h4M12 17h8M4 12h2M10 12h10" />
-
-          <circle
-            cx="16"
-            cy="7"
-            r="2"
-          />
-
-          <circle
-            cx="10"
-            cy="17"
-            r="2"
-          />
-
-          <circle
-            cx="8"
-            cy="12"
-            r="2"
-          />
-        </svg>
+        <FilterIcon />
 
         {hasActiveFilters && (
-          <span className="absolute right-[4px] top-[4px] h-[5px] w-[5px] rounded-full bg-primary" />
+          <span
+            className="
+              absolute
+              right-[4px]
+              top-[4px]
+
+              h-[5px]
+              w-[5px]
+
+              rounded-full
+
+              bg-primary
+            "
+          />
         )}
-      </motion.button>
+      </button>
     </div>
   );
 }
 
 /* ============================================================
-   FILTERS
+   FILTER TYPES
+============================================================ */
+
+interface FilterPanelProps {
+  statusFilter:
+    EventStatusFilter;
+
+  typeFilter:
+    EventTypeFilter;
+
+  setStatusFilter:
+    (
+      value:
+        EventStatusFilter,
+    ) => void;
+
+  setTypeFilter:
+    (
+      value:
+        EventTypeFilter,
+    ) => void;
+
+  clearFilters:
+    () => void;
+
+  hasActiveFilters:
+    boolean;
+
+  onClose:
+    () => void;
+}
+
+/* ============================================================
+   MOBILE FILTER PANEL
 ============================================================ */
 
 function MobileFilterPanel(
-  props: FilterPanelProps,
+  props:
+    FilterPanelProps,
 ) {
   return (
     <motion.div
       initial={{
         opacity: 0,
-        y: -8,
-        scale: 0.97,
+        y: -5,
       }}
       animate={{
         opacity: 1,
         y: 0,
-        scale: 1,
       }}
       exit={{
         opacity: 0,
-        y: -8,
-        scale: 0.97,
+        y: -5,
       }}
       transition={{
-        duration: 0.22,
-        ease: EASE,
+        duration: 0.16,
       }}
       className="
         absolute
+
         inset-x-0
-        top-[56px]
-        z-[60]
+        top-[50px]
 
-        overflow-hidden
+        z-[70]
 
-        rounded-2xl
+        rounded-xl
 
         border
-        border-gray-200/90
+        border-gray-200
 
-        bg-white/98
+        bg-white
 
-        p-4
+        p-3.5
 
-        shadow-[0_20px_55px_rgba(27,75,107,0.16)]
-
-        backdrop-blur-2xl
+        shadow-[0_18px_42px_rgba(27,75,107,0.15)]
       "
     >
       <FilterContents
@@ -1149,14 +1707,19 @@ function MobileFilterPanel(
   );
 }
 
+/* ============================================================
+   DESKTOP FILTER PANEL
+============================================================ */
+
 function DesktopFilterPanel(
-  props: FilterPanelProps,
+  props:
+    FilterPanelProps,
 ) {
   return (
     <motion.div
       initial={{
         opacity: 0,
-        y: -10,
+        y: -5,
       }}
       animate={{
         opacity: 1,
@@ -1164,13 +1727,34 @@ function DesktopFilterPanel(
       }}
       exit={{
         opacity: 0,
-        y: -8,
+        y: -5,
       }}
       transition={{
-        duration: 0.22,
-        ease: EASE,
+        duration: 0.16,
       }}
-      className="absolute left-1/2 top-[58px] z-50 w-[430px] -translate-x-1/2 rounded-2xl border border-gray-200 bg-white p-5 shadow-[0_24px_60px_rgba(27,75,107,0.15)]"
+      className="
+        absolute
+
+        left-1/2
+        top-[48px]
+
+        z-50
+
+        w-[400px]
+
+        -translate-x-1/2
+
+        rounded-xl
+
+        border
+        border-gray-200
+
+        bg-white
+
+        p-4
+
+        shadow-[0_18px_45px_rgba(27,75,107,0.14)]
+      "
     >
       <FilterContents
         {...props}
@@ -1179,25 +1763,9 @@ function DesktopFilterPanel(
   );
 }
 
-interface FilterPanelProps {
-  statusFilter: EventStatusFilter;
-
-  typeFilter: EventTypeFilter;
-
-  setStatusFilter: (
-    value: EventStatusFilter,
-  ) => void;
-
-  setTypeFilter: (
-    value: EventTypeFilter,
-  ) => void;
-
-  clearFilters: () => void;
-
-  hasActiveFilters: boolean;
-
-  onClose: () => void;
-}
+/* ============================================================
+   FILTER CONTENT
+============================================================ */
 
 function FilterContents({
   statusFilter,
@@ -1210,37 +1778,86 @@ function FilterContents({
 }: FilterPanelProps) {
   return (
     <>
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-secondary">
-          Filter events
-        </h3>
+      <div
+        className="
+          flex
+          items-start
+          justify-between
+          gap-3
+        "
+      >
+        <div>
+          <h3
+            className="
+              text-[12px]
+              font-semibold
+
+              text-secondary
+            "
+          >
+            Filter events
+          </h3>
+
+          <p
+            className="
+              mt-0.5
+
+              text-[8px]
+
+              text-gray-400
+            "
+          >
+            Refine the events shown below.
+          </p>
+        </div>
 
         <button
           type="button"
-          onClick={onClose}
-          className="grid h-8 w-8 cursor-pointer place-items-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-secondary"
+          aria-label="Close filters"
+          onClick={
+            onClose
+          }
+          className="
+            grid
+            h-8
+            w-8
+
+            place-items-center
+
+            rounded-lg
+
+            text-gray-400
+
+            transition
+
+            hover:bg-gray-100
+            hover:text-secondary
+          "
         >
-          <svg
-            className="h-4 w-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              d="M6 6l12 12M18 6 6 18"
-            />
-          </svg>
+          <CloseIcon />
         </button>
       </div>
 
-      <div className="mt-4">
-        <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.08em] text-gray-400">
-          Status
-        </p>
+      {/* STATUS */}
 
-        <div className="flex flex-wrap gap-2">
+      <div
+        className="
+          mt-4
+        "
+      >
+        <FilterLabel>
+          Status
+        </FilterLabel>
+
+        <div
+          className="
+            mt-2
+
+            flex
+            flex-wrap
+            gap-1.5
+          "
+        >
           {(
             [
               'ALL',
@@ -1248,32 +1865,52 @@ function FilterContents({
               'UPCOMING',
               'COMPLETED',
             ] as EventStatusFilter[]
-          ).map((value) => (
-            <FilterChoice
-              key={value}
-              selected={
-                statusFilter ===
-                value
-              }
-              label={formatStatus(
-                value,
-              )}
-              onClick={() =>
-                setStatusFilter(
+          ).map(
+            (
+              value,
+            ) => (
+              <FilterChoice
+                key={
+                  value
+                }
+                selected={
+                  statusFilter ===
+                  value
+                }
+                label={formatStatus(
                   value,
-                )
-              }
-            />
-          ))}
+                )}
+                onClick={() =>
+                  setStatusFilter(
+                    value,
+                  )
+                }
+              />
+            ),
+          )}
         </div>
       </div>
 
-      <div className="mt-4">
-        <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.08em] text-gray-400">
-          Type
-        </p>
+      {/* EVENT TYPE */}
 
-        <div className="flex flex-wrap gap-2">
+      <div
+        className="
+          mt-4
+        "
+      >
+        <FilterLabel>
+          Event Type
+        </FilterLabel>
+
+        <div
+          className="
+            mt-2
+
+            flex
+            flex-wrap
+            gap-1.5
+          "
+        >
           {(
             [
               'ALL',
@@ -1281,27 +1918,48 @@ function FilterContents({
               'mantram',
               'event',
             ] as EventTypeFilter[]
-          ).map((value) => (
-            <FilterChoice
-              key={value}
-              selected={
-                typeFilter ===
-                value
-              }
-              label={formatType(
-                value,
-              )}
-              onClick={() =>
-                setTypeFilter(
+          ).map(
+            (
+              value,
+            ) => (
+              <FilterChoice
+                key={
+                  value
+                }
+                selected={
+                  typeFilter ===
+                  value
+                }
+                label={formatType(
                   value,
-                )
-              }
-            />
-          ))}
+                )}
+                onClick={() =>
+                  setTypeFilter(
+                    value,
+                  )
+                }
+              />
+            ),
+          )}
         </div>
       </div>
 
-      <div className="mt-5 flex items-center justify-between border-t border-gray-100 pt-4">
+      {/* FOOTER */}
+
+      <div
+        className="
+          mt-4
+
+          flex
+          items-center
+          justify-between
+
+          border-t
+          border-gray-100
+
+          pt-3
+        "
+      >
         <button
           type="button"
           onClick={
@@ -1310,76 +1968,139 @@ function FilterContents({
           disabled={
             !hasActiveFilters
           }
-          className="cursor-pointer text-xs font-semibold text-gray-500 transition hover:text-secondary disabled:cursor-default disabled:opacity-40"
+          className="
+            text-[10px]
+            font-semibold
+
+            text-gray-400
+
+            transition-colors
+
+            hover:text-secondary
+
+            disabled:opacity-40
+          "
         >
           Clear filters
         </button>
 
         <button
           type="button"
-          onClick={onClose}
-          className="cursor-pointer rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-white transition hover:bg-primary-dark"
+          onClick={
+            onClose
+          }
+          className="
+            h-8
+
+            rounded-lg
+
+            bg-primary
+
+            px-4
+
+            text-[9px]
+            font-semibold
+
+            text-white
+
+            transition-colors
+
+            hover:bg-primary-dark
+          "
         >
-          Done
+          Apply
         </button>
       </div>
     </>
   );
 }
 
+/* ============================================================
+   FILTER LABEL
+============================================================ */
+
+function FilterLabel({
+  children,
+}: {
+  children:
+    ReactNode;
+}) {
+  return (
+    <p
+      className="
+        text-[8px]
+        font-bold
+
+        uppercase
+
+        tracking-[0.08em]
+
+        text-gray-400
+      "
+    >
+      {children}
+    </p>
+  );
+}
+
+/* ============================================================
+   FILTER CHOICE
+============================================================ */
+
 function FilterChoice({
   selected,
   label,
   onClick,
 }: {
-  selected: boolean;
-  label: string;
-  onClick: () => void;
+  selected:
+    boolean;
+
+  label:
+    string;
+
+  onClick:
+    () => void;
 }) {
   return (
-    <motion.button
+    <button
       type="button"
-      onClick={onClick}
-      whileTap={{
-        scale: 0.96,
-      }}
+      onClick={
+        onClick
+      }
       className={`
-        cursor-pointer
+        min-h-[34px]
 
-        rounded-full
+        rounded-lg
 
         border
 
         px-3
-        py-2
 
-        text-[11px]
+        text-[9px]
         font-semibold
 
         transition-all
-        duration-200
 
         ${
           selected
             ? `
-              border-primary/30
-              bg-primary/10
-              text-primary
-            `
+                border-primary/25
+                bg-primary/[0.07]
+                text-primary
+              `
             : `
-              border-gray-200
-              bg-white
-              text-gray-500
+                border-gray-200
+                bg-white
+                text-gray-500
 
-              hover:border-gray-300
-              hover:bg-gray-50
-              hover:text-secondary
-            `
+                hover:border-gray-300
+                hover:text-secondary
+              `
         }
       `}
     >
       {label}
-    </motion.button>
+    </button>
   );
 }
 
@@ -1391,28 +2112,76 @@ function FilterTag({
   label,
   onRemove,
 }: {
-  label: string;
-  onRemove: () => void;
+  label:
+    string;
+
+  onRemove:
+    () => void;
 }) {
   return (
     <motion.span
       layout
       initial={{
         opacity: 0,
-        scale: 0.9,
+        scale: 0.96,
       }}
       animate={{
         opacity: 1,
         scale: 1,
       }}
-      className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/[0.07] px-2.5 py-1 text-[10px] font-semibold text-primary"
+      className="
+        inline-flex
+        max-w-full
+
+        items-center
+        gap-1.5
+
+        rounded-full
+
+        border
+        border-gray-200
+
+        bg-white
+
+        px-2.5
+        py-1.5
+
+        text-[9px]
+        font-medium
+
+        text-secondary
+      "
     >
-      {label}
+      <span
+        className="
+          max-w-[210px]
+          truncate
+        "
+      >
+        {label}
+      </span>
 
       <button
         type="button"
-        onClick={onRemove}
-        className="grid h-4 w-4 cursor-pointer place-items-center rounded-full transition hover:bg-primary/10"
+        aria-label={`Remove ${label}`}
+        onClick={
+          onRemove
+        }
+        className="
+          grid
+          h-4
+          w-4
+          shrink-0
+
+          place-items-center
+
+          rounded-full
+
+          text-gray-400
+
+          hover:bg-gray-100
+          hover:text-secondary
+        "
       >
         ×
       </button>
@@ -1421,20 +2190,20 @@ function FilterTag({
 }
 
 /* ============================================================
-   SECTIONS
+   SECTION
 ============================================================ */
 
 function AnimatedSection({
   children,
 }: {
   children:
-    React.ReactNode;
+    ReactNode;
 }) {
   return (
     <motion.section
       initial={{
         opacity: 0,
-        y: 16,
+        y: 8,
       }}
       whileInView={{
         opacity: 1,
@@ -1442,10 +2211,10 @@ function AnimatedSection({
       }}
       viewport={{
         once: true,
-        amount: 0.08,
+        amount: 0.04,
       }}
       transition={{
-        duration: 0.48,
+        duration: 0.35,
         ease: EASE,
       }}
     >
@@ -1454,83 +2223,112 @@ function AnimatedSection({
   );
 }
 
+/* ============================================================
+   SECTION HEADING
+============================================================ */
+
 function SectionHeading({
   title,
-  live = false,
+  subtitle,
 }: {
-  title: string;
-  live?: boolean;
+  title:
+    string;
+
+  subtitle?:
+    string;
 }) {
   return (
-    <div className="mb-3.5 flex items-center justify-between md:mb-4">
-      <div className="flex items-center gap-2">
-        <h2 className="font-heading text-[19px] font-semibold tracking-[-0.02em] text-secondary md:text-xl">
-          {title}
-        </h2>
+    <div
+      className="
+        mb-3
 
-        {live && (
-          <motion.span
-            animate={{
-              scale: [
-                1,
-                1.08,
-                1,
-              ],
-            }}
-            transition={{
-              duration: 1.8,
-              repeat: Infinity,
-              ease: 'easeInOut',
-            }}
-            className="grid h-[14px] w-[14px] place-items-center rounded-[10px] bg-[rgba(25,204,106,0.20)]"
-          >
-            <span className="h-[6px] w-[6px] rounded-full bg-[#19CC6A]" />
-          </motion.span>
-        )}
-      </div>
+        md:mb-4
+      "
+    >
+      <h2
+        className="
+          font-heading
+
+          text-[17px]
+          font-semibold
+
+          tracking-[-0.02em]
+
+          text-secondary
+
+          md:text-[20px]
+        "
+      >
+        {title}
+      </h2>
+
+      {subtitle && (
+        <p
+          className="
+            mt-0.5
+
+            text-[9px]
+
+            text-gray-400
+
+            md:text-[10px]
+          "
+        >
+          {subtitle}
+        </p>
+      )}
     </div>
   );
 }
 
 /* ============================================================
-   LIVE CARD
+   OPEN EVENT CARD
 ============================================================ */
 
-function LiveEventCard({
+function OpenEventCard({
   event,
   index,
 }: {
-  event: IEvent;
-  index: number;
+  event:
+    IEvent;
+
+  index:
+    number;
 }) {
   return (
     <motion.div
       initial={{
         opacity: 0,
-        y: 12,
-        scale: 0.98,
+        y: 8,
       }}
       animate={{
         opacity: 1,
         y: 0,
-        scale: 1,
       }}
       transition={{
-        duration: 0.45,
+        duration:
+          0.32,
+
         delay:
-          index * 0.05,
-        ease: EASE,
+          index *
+          0.035,
+
+        ease:
+          EASE,
       }}
-      whileHover={{
-        y: -4,
-      }}
+      className="
+        h-full
+      "
     >
       <Link
         href={`/events/${event._id}`}
         className="
           group
-          block
+
+          flex
           h-full
+          flex-col
+
           overflow-hidden
 
           rounded-xl
@@ -1540,16 +2338,32 @@ function LiveEventCard({
 
           bg-white
 
-          shadow-[0_4px_14px_rgba(27,75,107,0.04)]
+          shadow-[0_3px_12px_rgba(27,75,107,0.025)]
 
           transition-all
-          duration-300
+          duration-200
 
-          hover:border-primary/25
-          hover:shadow-[0_14px_32px_rgba(27,75,107,0.10)]
+          hover:border-gray-300
+          hover:shadow-[0_8px_24px_rgba(27,75,107,0.055)]
         "
       >
-        <div className="relative aspect-[16/7.3] overflow-hidden bg-gray-100 md:aspect-[16/7]">
+        {/* IMAGE */}
+
+        <div
+          className="
+            relative
+
+            aspect-[16/8.5]
+
+            overflow-hidden
+
+            bg-gray-100
+
+            sm:aspect-[16/8]
+
+            md:aspect-[16/7.4]
+          "
+        >
           {event.imageUrl ? (
             <Image
               src={
@@ -1558,28 +2372,91 @@ function LiveEventCard({
               alt={
                 event.eventName
               }
-              width={640}
-              height={292}
+              fill
               unoptimized
-              className="h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.035]"
+              sizes="
+                (max-width: 520px) 100vw,
+                (max-width: 768px) 50vw,
+                45vw
+              "
+              className="
+                object-cover
+
+                transition-transform
+                duration-500
+
+                group-hover:scale-[1.02]
+              "
             />
           ) : (
-            <div className="h-full w-full bg-gray-100" />
+            <EventPlaceholder />
           )}
-
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/[0.10] to-transparent" />
-
-          <span className="absolute left-2 top-2 rounded bg-red-500 px-1.5 py-1 text-[8px] font-bold uppercase leading-none text-white shadow-sm md:left-3 md:top-3 md:px-2 md:text-[10px]">
-            LIVE
-          </span>
         </div>
 
-        <div className="p-2.5 md:p-5">
-          <h3 className="line-clamp-2 min-h-[32px] text-[11px] font-semibold leading-4 text-secondary md:min-h-0 md:text-base md:leading-5">
+        {/* CONTENT */}
+
+        <div
+          className="
+            flex
+            flex-1
+            flex-col
+
+            p-3.5
+
+            md:p-4
+          "
+        >
+          {/* TYPE */}
+
+          <p
+            className="
+              text-[8px]
+              font-semibold
+
+              uppercase
+
+              tracking-[0.06em]
+
+              text-gray-400
+            "
+          >
+            {formatType(
+              event.eventType,
+            )}
+          </p>
+
+          {/* NAME */}
+
+          <h3
+            className="
+              mt-1
+
+              line-clamp-2
+
+              font-heading
+
+              text-[15px]
+              font-semibold
+
+              leading-5
+
+              text-secondary
+
+              md:text-[16px]
+            "
+          >
             {event.eventName}
           </h3>
 
-          <div className="mt-2 space-y-1 md:mt-3 md:space-y-1.5">
+          {/* META */}
+
+          <div
+            className="
+              mt-2.5
+
+              space-y-1.5
+            "
+          >
             <MetaRow
               type="location"
               value={
@@ -1596,9 +2473,117 @@ function LiveEventCard({
             />
           </div>
 
-          <span className="mt-2.5 inline-flex rounded bg-primary px-2 py-1.5 text-[9px] font-semibold leading-none text-white transition-colors group-hover:bg-primary-dark md:mt-4 md:px-4 md:py-2 md:text-xs">
-            Book Slot
-          </span>
+          {/* ABOUT
+
+              This replaces the old booked/remaining capacity bar.
+          */}
+
+          <div
+            className="
+              mt-3
+
+              border-t
+              border-gray-100
+
+              pt-3
+            "
+          >
+            <div
+              className="
+                flex
+                min-w-0
+                items-baseline
+                gap-2
+              "
+            >
+              <span
+                className="
+                  shrink-0
+
+                  text-[8px]
+                  font-semibold
+
+                  text-secondary
+                "
+              >
+                About
+              </span>
+
+              <p
+                className="
+                  min-w-0
+                  flex-1
+
+                  truncate
+
+                  text-[10px]
+                  leading-4
+
+                  text-gray-500
+
+                  md:text-[11px]
+                "
+              >
+                {event.description
+                  ?.trim() ||
+                  'View event information, schedule and registration details.'}
+              </p>
+            </div>
+          </div>
+
+          {/* ACTION */}
+
+          <div
+            className="
+              mt-auto
+              pt-3
+            "
+          >
+            <div
+              className="
+                flex
+                items-center
+                justify-between
+
+                border-t
+                border-gray-100
+
+                pt-3
+              "
+            >
+              <span
+                className="
+                  text-[8px]
+                  font-medium
+
+                  text-gray-400
+                "
+              >
+                Registration available
+              </span>
+
+              <span
+                className="
+                  inline-flex
+                  items-center
+                  gap-1.5
+
+                  text-[10px]
+                  font-semibold
+
+                  text-primary
+
+                  transition-colors
+
+                  group-hover:text-primary-dark
+                "
+              >
+                View event
+
+                <ArrowIcon />
+              </span>
+            </div>
+          </div>
         </div>
       </Link>
     </motion.div>
@@ -1606,22 +2591,51 @@ function LiveEventCard({
 }
 
 /* ============================================================
-   UPCOMING
+   UPCOMING GRID
 ============================================================ */
 
 function UpcomingGrid({
   events,
+  completed = false,
 }: {
-  events: IEvent[];
+  events:
+    IEvent[];
+
+  completed?:
+    boolean;
 }) {
   return (
-    <div className="grid gap-3 md:grid-cols-2 md:gap-4 xl:grid-cols-3">
+    <div
+      className="
+        grid
+        grid-cols-1
+        gap-2.5
+
+        sm:grid-cols-2
+
+        xl:grid-cols-3
+
+        md:gap-3
+      "
+    >
       {events.map(
-        (event, index) => (
+        (
+          event,
+          index,
+        ) => (
           <UpcomingEventCard
-            key={event._id}
-            event={event}
-            index={index}
+            key={
+              event._id
+            }
+            event={
+              event
+            }
+            index={
+              index
+            }
+            completed={
+              completed
+            }
           />
         ),
       )}
@@ -1629,18 +2643,29 @@ function UpcomingGrid({
   );
 }
 
+/* ============================================================
+   UPCOMING CARD
+============================================================ */
+
 function UpcomingEventCard({
   event,
   index,
+  completed,
 }: {
-  event: IEvent;
-  index: number;
+  event:
+    IEvent;
+
+  index:
+    number;
+
+  completed:
+    boolean;
 }) {
   return (
     <motion.div
       initial={{
         opacity: 0,
-        y: 12,
+        y: 6,
       }}
       whileInView={{
         opacity: 1,
@@ -1650,16 +2675,17 @@ function UpcomingEventCard({
         once: true,
       }}
       transition={{
-        duration: 0.42,
+        duration:
+          0.28,
+
         delay:
           Math.min(
             index,
-            4,
-          ) * 0.04,
-        ease: EASE,
-      }}
-      whileHover={{
-        y: -3,
+            5,
+          ) * 0.025,
+
+        ease:
+          EASE,
       }}
     >
       <Link
@@ -1668,8 +2694,8 @@ function UpcomingEventCard({
           group
 
           flex
-          min-h-[96px]
-          cursor-pointer
+          min-h-[108px]
+
           items-center
           gap-3
 
@@ -1682,20 +2708,38 @@ function UpcomingEventCard({
 
           p-2.5
 
-          shadow-[0_3px_12px_rgba(27,75,107,0.035)]
+          shadow-[0_2px_10px_rgba(27,75,107,0.02)]
 
           transition-all
-          duration-300
+          duration-200
 
-          hover:border-primary/25
-          hover:shadow-[0_12px_28px_rgba(27,75,107,0.09)]
+          hover:border-gray-300
+          hover:shadow-[0_7px_20px_rgba(27,75,107,0.05)]
 
           md:min-h-[112px]
-          md:gap-4
           md:p-3
         "
       >
-        <div className="h-[78px] w-[78px] shrink-0 overflow-hidden rounded-lg bg-gray-100 md:h-[86px] md:w-[86px]">
+        {/* THUMBNAIL */}
+
+        <div
+          className="
+            relative
+
+            h-[82px]
+            w-[82px]
+            shrink-0
+
+            overflow-hidden
+
+            rounded-lg
+
+            bg-gray-100
+
+            md:h-[88px]
+            md:w-[88px]
+          "
+        >
           {event.imageUrl ? (
             <Image
               src={
@@ -1704,52 +2748,1185 @@ function UpcomingEventCard({
               alt={
                 event.eventName
               }
-              width={86}
-              height={86}
+              fill
               unoptimized
-              className="h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.06]"
+              sizes="90px"
+              className="
+                object-cover
+
+                transition-transform
+                duration-400
+
+                group-hover:scale-[1.025]
+              "
             />
           ) : (
-            <div className="h-full w-full bg-gray-100" />
+            <EventPlaceholder
+              compact
+            />
+          )}
+
+          {completed && (
+            <div
+              className="
+                absolute
+                inset-0
+
+                bg-black/15
+              "
+            />
           )}
         </div>
 
-        <div className="min-w-0 flex-1">
-          <h3 className="truncate text-[14px] font-semibold leading-5 text-secondary md:text-[15px]">
+        {/* DETAILS */}
+
+        <div
+          className="
+            min-w-0
+            flex-1
+          "
+        >
+          <p
+            className="
+              text-[7px]
+              font-semibold
+
+              uppercase
+
+              tracking-[0.05em]
+
+              text-gray-400
+            "
+          >
+            {formatType(
+              event.eventType,
+            )}
+          </p>
+
+          <h3
+            className="
+              mt-1
+
+              line-clamp-2
+
+              text-[13px]
+              font-semibold
+
+              leading-[18px]
+
+              text-secondary
+
+              md:text-[14px]
+            "
+          >
             {event.eventName}
           </h3>
 
-          <p className="mt-1.5 truncate text-[11px] leading-5 text-gray-500 md:text-xs">
+          <p
+            className="
+              mt-1
+
+              truncate
+
+              text-[9px]
+
+              text-gray-500
+            "
+          >
             {formatDate(
               event.startDate,
             )}
+          </p>
 
-            {event.venue
-              ? ` • ${event.venue}`
-              : ''}
+          <p
+            className="
+              mt-1
+
+              truncate
+
+              text-[8px]
+
+              text-gray-400
+            "
+          >
+            {event.description
+              ?.trim() ||
+              event.venue}
           </p>
         </div>
 
-        <svg
-          className="hidden h-4 w-4 shrink-0 text-gray-300 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-primary sm:block"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
+        {/* ARROW */}
+
+        <span
+          className="
+            grid
+            h-8
+            w-8
+            shrink-0
+
+            place-items-center
+
+            text-gray-300
+
+            transition-colors
+
+            group-hover:text-primary
+          "
         >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="m9 18 6-6-6-6"
-          />
-        </svg>
+          <ArrowIcon />
+        </span>
       </Link>
     </motion.div>
   );
 }
 
 /* ============================================================
-   META
+   FEEDBACK EVENT PICKER
+
+   IMPORTANT:
+   This component DOES NOT save feedback.
+
+   It only selects the event and navigates into the existing
+   /events/[id]/book/feedback page.
+
+   Therefore the existing:
+   - rating
+   - message
+   - suggestedFeature
+   - submittedAt
+   - sessionStorage keys
+   - trackActivity
+   all remain unchanged.
+============================================================ */
+
+function FeedbackEventPicker({
+  events,
+  onSelect,
+  onClose,
+}: {
+  events:
+    IEvent[];
+
+  onSelect:
+    (
+      eventId:
+        string,
+    ) => void;
+
+  onClose:
+    () => void;
+}) {
+  const sortedEvents =
+    useMemo(
+      () =>
+        [...events].sort(
+          (
+            first,
+            second,
+          ) => {
+            const firstRank =
+              feedbackEventRank(
+                first.status,
+              );
+
+            const secondRank =
+              feedbackEventRank(
+                second.status,
+              );
+
+            if (
+              firstRank !==
+              secondRank
+            ) {
+              return (
+                firstRank -
+                secondRank
+              );
+            }
+
+            return (
+              new Date(
+                first.startDate,
+              ).getTime() -
+              new Date(
+                second.startDate,
+              ).getTime()
+            );
+          },
+        ),
+      [
+        events,
+      ],
+    );
+
+  return (
+    <motion.div
+      initial={{
+        opacity: 0,
+      }}
+      animate={{
+        opacity: 1,
+      }}
+      exit={{
+        opacity: 0,
+      }}
+      className="
+        fixed
+        inset-0
+
+        z-[100]
+
+        flex
+        items-end
+        justify-center
+
+        bg-[#07151F]/35
+
+        backdrop-blur-[2px]
+
+        sm:items-center
+        sm:px-4
+      "
+      onMouseDown={(
+        event,
+      ) => {
+        if (
+          event.target ===
+          event.currentTarget
+        ) {
+          onClose();
+        }
+      }}
+    >
+      <motion.section
+        initial={{
+          opacity: 0,
+          y: 22,
+          scale: 0.99,
+        }}
+        animate={{
+          opacity: 1,
+          y: 0,
+          scale: 1,
+        }}
+        exit={{
+          opacity: 0,
+          y: 14,
+          scale: 0.99,
+        }}
+        transition={{
+          duration:
+            0.22,
+
+          ease:
+            EASE,
+        }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="feedback-picker-title"
+        className="
+          w-full
+
+          overflow-hidden
+
+          rounded-t-[18px]
+
+          border
+          border-gray-200
+
+          bg-white
+
+          shadow-[0_-10px_40px_rgba(6,19,29,0.12)]
+
+          sm:max-w-[520px]
+          sm:rounded-xl
+          sm:shadow-[0_20px_60px_rgba(6,19,29,0.16)]
+        "
+      >
+        {/* HEADER */}
+
+        <div
+          className="
+            flex
+            items-start
+            justify-between
+            gap-4
+
+            border-b
+            border-gray-100
+
+            px-4
+            py-4
+
+            sm:px-5
+          "
+        >
+          <div
+            className="
+              flex
+              min-w-0
+              items-start
+              gap-3
+            "
+          >
+            <span
+              className="
+                grid
+                h-9
+                w-9
+                shrink-0
+
+                place-items-center
+
+                rounded-lg
+
+                bg-primary/[0.07]
+
+                text-primary
+              "
+            >
+              <FeedbackIcon />
+            </span>
+
+            <div
+              className="
+                min-w-0
+              "
+            >
+              <h2
+                id="feedback-picker-title"
+                className="
+                  text-[15px]
+                  font-semibold
+
+                  text-secondary
+                "
+              >
+                Share Feedback
+              </h2>
+
+              <p
+                className="
+                  mt-0.5
+
+                  text-[10px]
+                  leading-4
+
+                  text-gray-500
+                "
+              >
+                Select the event you
+                would like to review.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            aria-label="Close feedback"
+            onClick={
+              onClose
+            }
+            className="
+              grid
+              h-8
+              w-8
+              shrink-0
+
+              place-items-center
+
+              rounded-lg
+
+              text-gray-400
+
+              transition-colors
+
+              hover:bg-gray-100
+              hover:text-secondary
+            "
+          >
+            <CloseIcon />
+          </button>
+        </div>
+
+        {/* CONTENT */}
+
+        <div
+          className="
+            max-h-[62dvh]
+
+            overflow-y-auto
+
+            px-4
+            py-3
+
+            sm:max-h-[520px]
+            sm:px-5
+            sm:py-4
+          "
+        >
+          {sortedEvents.length >
+          0 ? (
+            <div
+              className="
+                space-y-2
+              "
+            >
+              {sortedEvents.map(
+                (
+                  event,
+                ) => (
+                  <button
+                    key={
+                      event._id
+                    }
+                    type="button"
+                    onClick={() =>
+                      onSelect(
+                        event._id,
+                      )
+                    }
+                    className="
+                      group
+
+                      flex
+                      w-full
+
+                      items-center
+                      gap-3
+
+                      rounded-xl
+
+                      border
+                      border-gray-200
+
+                      bg-white
+
+                      p-2.5
+
+                      text-left
+
+                      transition-all
+                      duration-150
+
+                      hover:border-primary/25
+                      hover:bg-primary/[0.025]
+                    "
+                  >
+                    {/* EVENT IMAGE */}
+
+                    <div
+                      className="
+                        relative
+
+                        h-14
+                        w-14
+                        shrink-0
+
+                        overflow-hidden
+
+                        rounded-lg
+
+                        bg-gray-100
+                      "
+                    >
+                      {event.imageUrl ? (
+                        <Image
+                          src={
+                            event.imageUrl
+                          }
+                          alt=""
+                          fill
+                          unoptimized
+                          sizes="56px"
+                          className="
+                            object-cover
+                          "
+                        />
+                      ) : (
+                        <EventPlaceholder
+                          compact
+                        />
+                      )}
+                    </div>
+
+                    {/* EVENT */}
+
+                    <div
+                      className="
+                        min-w-0
+                        flex-1
+                      "
+                    >
+                      <div
+                        className="
+                          flex
+                          flex-wrap
+                          items-center
+                          gap-x-2
+                          gap-y-0.5
+                        "
+                      >
+                        <span
+                          className="
+                            text-[7px]
+                            font-semibold
+
+                            uppercase
+
+                            tracking-[0.05em]
+
+                            text-gray-400
+                          "
+                        >
+                          {formatType(
+                            event.eventType,
+                          )}
+                        </span>
+
+                        <span
+                          className="
+                            text-[7px]
+                            font-medium
+
+                            text-primary
+                          "
+                        >
+                          {feedbackStatusLabel(
+                            event.status,
+                          )}
+                        </span>
+                      </div>
+
+                      <p
+                        className="
+                          mt-1
+
+                          truncate
+
+                          text-[12px]
+                          font-semibold
+
+                          text-secondary
+                        "
+                      >
+                        {event.eventName}
+                      </p>
+
+                      <p
+                        className="
+                          mt-0.5
+
+                          truncate
+
+                          text-[8px]
+
+                          text-gray-400
+                        "
+                      >
+                        {formatDate(
+                          event.startDate,
+                        )}
+
+                        {event.venue
+                          ? ` · ${event.venue}`
+                          : ''}
+                      </p>
+                    </div>
+
+                    <span
+                      className="
+                        grid
+                        h-8
+                        w-8
+                        shrink-0
+
+                        place-items-center
+
+                        rounded-lg
+
+                        text-gray-300
+
+                        transition-colors
+
+                        group-hover:bg-primary/[0.05]
+                        group-hover:text-primary
+                      "
+                    >
+                      <ArrowIcon />
+                    </span>
+                  </button>
+                ),
+              )}
+            </div>
+          ) : (
+            /* NO EVENTS */
+
+            <div
+              className="
+                py-8
+
+                text-center
+              "
+            >
+              <span
+                className="
+                  mx-auto
+
+                  grid
+                  h-10
+                  w-10
+
+                  place-items-center
+
+                  rounded-lg
+
+                  bg-gray-50
+
+                  text-gray-400
+                "
+              >
+                <CalendarLargeIcon />
+              </span>
+
+              <h3
+                className="
+                  mt-3
+
+                  text-[13px]
+                  font-semibold
+
+                  text-secondary
+                "
+              >
+                No event available
+              </h3>
+
+              <p
+                className="
+                  mx-auto
+                  mt-1
+
+                  max-w-[290px]
+
+                  text-[10px]
+                  leading-5
+
+                  text-gray-500
+                "
+              >
+                Event feedback becomes
+                available once an event
+                is published.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* FOOTER */}
+
+        <div
+          className="
+            border-t
+            border-gray-100
+
+            bg-gray-50/50
+
+            px-4
+            pb-[max(12px,env(safe-area-inset-bottom))]
+            pt-3
+
+            sm:px-5
+            sm:pb-3
+          "
+        >
+          <p
+            className="
+              text-center
+
+              text-[8px]
+              leading-4
+
+              text-gray-400
+            "
+          >
+            Feedback is associated
+            with the selected event.
+          </p>
+        </div>
+      </motion.section>
+    </motion.div>
+  );
+}
+
+/* ============================================================
+   EMPTY STATE
+============================================================ */
+
+function NoPublishedEvents({
+  onRefresh,
+  refreshing,
+  onFeedback,
+}: {
+  onRefresh:
+    () => void;
+
+  refreshing:
+    boolean;
+
+  onFeedback:
+    () => void;
+}) {
+  return (
+    <motion.section
+      initial={{
+        opacity: 0,
+        y: 8,
+      }}
+      animate={{
+        opacity: 1,
+        y: 0,
+      }}
+      className="
+        rounded-2xl
+
+        border
+        border-gray-200
+
+        bg-white
+
+        px-5
+        py-9
+
+        text-center
+
+        shadow-[0_4px_18px_rgba(27,75,107,0.025)]
+
+        sm:px-8
+        sm:py-12
+      "
+    >
+      <span
+        className="
+          mx-auto
+
+          grid
+          h-11
+          w-11
+
+          place-items-center
+
+          rounded-xl
+
+          border
+          border-gray-200
+
+          bg-gray-50
+
+          text-gray-400
+        "
+      >
+        <CalendarLargeIcon />
+      </span>
+
+      <h2
+        className="
+          mt-4
+
+          font-heading
+
+          text-[19px]
+          font-semibold
+
+          tracking-[-0.02em]
+
+          text-secondary
+        "
+      >
+        No events are available
+        right now
+      </h2>
+
+      <p
+        className="
+          mx-auto
+          mt-1.5
+
+          max-w-[450px]
+
+          text-[11px]
+          leading-5
+
+          text-gray-500
+        "
+      >
+        New conferences,
+        MantraM sessions and
+        programmes will appear here
+        when they are published.
+      </p>
+
+      <div
+        className="
+          mt-5
+
+          flex
+          flex-wrap
+          items-center
+          justify-center
+          gap-2
+        "
+      >
+        <button
+          type="button"
+          disabled={
+            refreshing
+          }
+          onClick={
+            onRefresh
+          }
+          className="
+            inline-flex
+            h-10
+
+            items-center
+            justify-center
+            gap-2
+
+            rounded-lg
+
+            bg-primary
+
+            px-4
+
+            text-[10px]
+            font-semibold
+
+            text-white
+
+            transition-colors
+
+            hover:bg-primary-dark
+
+            disabled:opacity-50
+          "
+        >
+          <RefreshIcon
+            spinning={
+              refreshing
+            }
+          />
+
+          {refreshing
+            ? 'Checking...'
+            : 'Check Again'}
+        </button>
+
+        <button
+          type="button"
+          onClick={
+            onFeedback
+          }
+          className="
+            inline-flex
+            h-10
+
+            items-center
+            justify-center
+            gap-2
+
+            rounded-lg
+
+            border
+            border-gray-200
+
+            bg-white
+
+            px-4
+
+            text-[10px]
+            font-semibold
+
+            text-secondary
+
+            transition-colors
+
+            hover:bg-gray-50
+          "
+        >
+          <FeedbackIcon />
+
+          Feedback
+        </button>
+      </div>
+    </motion.section>
+  );
+}
+
+/* ============================================================
+   NO MATCHING EVENTS
+============================================================ */
+
+function NoMatchingEvents({
+  clearAll,
+}: {
+  clearAll:
+    () => void;
+}) {
+  return (
+    <motion.section
+      initial={{
+        opacity: 0,
+        y: 6,
+      }}
+      animate={{
+        opacity: 1,
+        y: 0,
+      }}
+      className="
+        rounded-xl
+
+        border
+        border-gray-200
+
+        bg-white
+
+        px-5
+        py-10
+
+        text-center
+
+        shadow-[0_3px_14px_rgba(27,75,107,0.02)]
+      "
+    >
+      <span
+        className="
+          mx-auto
+
+          grid
+          h-10
+          w-10
+
+          place-items-center
+
+          rounded-lg
+
+          bg-gray-50
+
+          text-gray-400
+        "
+      >
+        <SearchLargeIcon />
+      </span>
+
+      <h2
+        className="
+          mt-3
+
+          text-[14px]
+          font-semibold
+
+          text-secondary
+        "
+      >
+        No matching events
+      </h2>
+
+      <p
+        className="
+          mx-auto
+          mt-1
+
+          max-w-[350px]
+
+          text-[10px]
+          leading-5
+
+          text-gray-500
+        "
+      >
+        Try another search or clear
+        the current filters.
+      </p>
+
+      <button
+        type="button"
+        onClick={
+          clearAll
+        }
+        className="
+          mt-4
+
+          h-9
+
+          rounded-lg
+
+          border
+          border-gray-200
+
+          bg-white
+
+          px-4
+
+          text-[9px]
+          font-semibold
+
+          text-secondary
+
+          transition-colors
+
+          hover:bg-gray-50
+        "
+      >
+        Clear Search & Filters
+      </button>
+    </motion.section>
+  );
+}
+
+/* ============================================================
+   LOADING
+============================================================ */
+
+function LoadingState() {
+  return (
+    <div
+      className="
+        space-y-8
+      "
+    >
+      <section>
+        <div
+          className="
+            h-5
+            w-40
+
+            animate-pulse
+
+            rounded
+
+            bg-gray-100
+          "
+        />
+
+        <div
+          className="
+            mt-3
+
+            grid
+            grid-cols-1
+            gap-3
+
+            min-[520px]:grid-cols-2
+
+            md:gap-5
+          "
+        >
+          {Array.from({
+            length: 2,
+          }).map(
+            (
+              _,
+              index,
+            ) => (
+              <div
+                key={
+                  index
+                }
+                className="
+                  overflow-hidden
+
+                  rounded-xl
+
+                  border
+                  border-gray-200
+
+                  bg-white
+                "
+              >
+                <div
+                  className="
+                    aspect-[16/8]
+
+                    animate-pulse
+
+                    bg-gray-100
+                  "
+                />
+
+                <div
+                  className="
+                    p-4
+                  "
+                >
+                  <div
+                    className="
+                      h-3
+                      w-20
+
+                      animate-pulse
+
+                      rounded
+
+                      bg-gray-100
+                    "
+                  />
+
+                  <div
+                    className="
+                      mt-2
+
+                      h-4
+                      w-3/4
+
+                      animate-pulse
+
+                      rounded
+
+                      bg-gray-100
+                    "
+                  />
+
+                  <div
+                    className="
+                      mt-3
+
+                      h-3
+                      w-1/2
+
+                      animate-pulse
+
+                      rounded
+
+                      bg-gray-100
+                    "
+                  />
+
+                  <div
+                    className="
+                      mt-4
+
+                      h-9
+
+                      animate-pulse
+
+                      rounded-lg
+
+                      bg-gray-50
+                    "
+                  />
+                </div>
+              </div>
+            ),
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/* ============================================================
+   META ROW
 ============================================================ */
 
 function MetaRow({
@@ -1760,44 +3937,36 @@ function MetaRow({
     | 'location'
     | 'date';
 
-  value: string;
+  value:
+    string;
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-1.5 text-gray-500">
+    <div
+      className="
+        flex
+        min-w-0
+        items-center
+        gap-1.5
+
+        text-gray-500
+      "
+    >
       {type ===
       'location' ? (
-        <svg
-          className="h-3 w-3 shrink-0 md:h-4 md:w-4"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M12 21s6-5.2 6-11a6 6 0 1 0-12 0c0 5.8 6 11 6 11z"
-          />
-
-          <circle
-            cx="12"
-            cy="10"
-            r="2"
-          />
-        </svg>
+        <LocationIcon />
       ) : (
-        <svg
-          className="h-3 w-3 shrink-0 md:h-4 md:w-4"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-        >
-          <path d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1z" />
-        </svg>
+        <CalendarIcon />
       )}
 
-      <span className="truncate text-[9px] md:text-xs">
+      <span
+        className="
+          truncate
+
+          text-[9px]
+
+          md:text-[10px]
+        "
+      >
         {value}
       </span>
     </div>
@@ -1805,102 +3974,156 @@ function MetaRow({
 }
 
 /* ============================================================
-   EMPTY
+   MOBILE NAV ITEM
 ============================================================ */
 
-function EmptyState({
-  hasFilters,
-  clearFilters,
-  clearSearch,
+function MobileNavItem({
+  href,
+  label,
+  icon,
+  active = false,
 }: {
-  hasFilters: boolean;
-  clearFilters: () => void;
-  clearSearch: () => void;
+  href:
+    string;
+
+  label:
+    string;
+
+  icon:
+    ReactNode;
+
+  active?:
+    boolean;
 }) {
   return (
-    <motion.div
-      initial={{
-        opacity: 0,
-        scale: 0.98,
-      }}
-      animate={{
-        opacity: 1,
-        scale: 1,
-      }}
-      className="rounded-2xl border border-gray-200 bg-white px-6 py-14 text-center shadow-sm"
+    <Link
+      href={
+        href
+      }
+      className={`
+        flex
+        min-h-[54px]
+
+        flex-col
+        items-center
+        justify-center
+        gap-1
+
+        text-[9px]
+        font-medium
+
+        transition-colors
+
+        ${
+          active
+            ? 'text-primary'
+            : 'text-gray-400'
+        }
+      `}
     >
-      <div className="mx-auto grid h-11 w-11 place-items-center rounded-full bg-gray-50 text-gray-400">
-        <svg
-          className="h-5 w-5"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={1.8}
-        >
-          <circle
-            cx="11"
-            cy="11"
-            r="7"
-          />
+      {icon}
 
-          <path d="m20 20-3.5-3.5" />
-        </svg>
-      </div>
-
-      <p className="mt-4 text-sm font-semibold text-secondary">
-        No events found
-      </p>
-
-      <p className="mt-1 text-xs text-gray-500">
-        {hasFilters
-          ? 'Try changing your search or filters.'
-          : 'There are no published events yet.'}
-      </p>
-
-      <button
-        type="button"
-        onClick={() => {
-          clearSearch();
-          clearFilters();
-        }}
-        className="mt-5 cursor-pointer rounded-lg border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-secondary transition hover:border-primary/30 hover:bg-primary/[0.04] hover:text-primary"
-      >
-        Reset
-      </button>
-    </motion.div>
+      <span>
+        {label}
+      </span>
+    </Link>
   );
 }
 
 /* ============================================================
-   LOADING
+   PLACEHOLDER
 ============================================================ */
 
-function LoadingState() {
+function EventPlaceholder({
+  compact = false,
+}: {
+  compact?: boolean;
+}) {
   return (
-    <div className="space-y-8 md:space-y-10">
-      <section>
-        <div className="mb-4 h-6 w-32 animate-pulse rounded bg-gray-100" />
+    <div
+      className="
+        flex
+        h-full
+        w-full
 
-        <div className="grid grid-cols-2 gap-3 md:gap-5">
-          <div className="h-[220px] animate-pulse rounded-xl bg-gray-100 md:h-[330px]" />
+        items-center
+        justify-center
 
-          <div className="h-[220px] animate-pulse rounded-xl bg-gray-100 md:h-[330px]" />
-        </div>
-      </section>
+        bg-[#F2F6F6]
+      "
+    >
+      <span
+        className="
+          grid
+          h-10
+          w-10
 
-      <section>
-        <div className="mb-4 h-6 w-52 animate-pulse rounded bg-gray-100" />
+          place-items-center
 
-        <div className="grid gap-3 md:grid-cols-2 md:gap-4 xl:grid-cols-3">
-          <div className="h-[96px] animate-pulse rounded-xl bg-gray-100 md:h-[112px]" />
+          rounded-lg
 
-          <div className="h-[96px] animate-pulse rounded-xl bg-gray-100 md:h-[112px]" />
+          border
+          border-gray-200
 
-          <div className="h-[96px] animate-pulse rounded-xl bg-gray-100 md:h-[112px]" />
-        </div>
-      </section>
+          bg-white
+
+          text-primary/45
+        "
+      >
+        {compact ? (
+          <EventSmallIcon />
+        ) : (
+          <EventIcon />
+        )}
+      </span>
     </div>
   );
+}
+
+/* ============================================================
+   FEEDBACK EVENT HELPERS
+============================================================ */
+
+function feedbackEventRank(
+  status:
+    IEvent['status'],
+) {
+  if (
+    status ===
+    'LIVE'
+  ) {
+    return 0;
+  }
+
+  if (
+    status ===
+    'UPCOMING'
+  ) {
+    return 1;
+  }
+
+  return 2;
+}
+
+function feedbackStatusLabel(
+  status:
+    IEvent['status'],
+) {
+  if (
+    status ===
+    'LIVE'
+  ) {
+    return 'Open';
+  }
+
+  if (
+    status ===
+    'UPCOMING'
+  ) {
+    return 'Upcoming';
+  }
+
+  return 'Completed';
 }
 
 /* ============================================================
@@ -1908,42 +4131,55 @@ function LoadingState() {
 ============================================================ */
 
 function formatStatus(
-  value: EventStatusFilter,
+  value:
+    EventStatusFilter,
 ) {
-  if (value === 'ALL') {
+  if (
+    value ===
+    'ALL'
+  ) {
     return 'All';
   }
 
   if (
-    value === 'UPCOMING'
+    value ===
+    'UPCOMING'
   ) {
     return 'Upcoming';
   }
 
   if (
-    value === 'COMPLETED'
+    value ===
+    'COMPLETED'
   ) {
     return 'Completed';
   }
 
-  return 'Live';
+  return 'Open';
 }
 
 function formatType(
-  value: EventTypeFilter,
+  value:
+    EventTypeFilter |
+    IEvent['eventType'],
 ) {
-  if (value === 'ALL') {
+  if (
+    value ===
+    'ALL'
+  ) {
     return 'All';
   }
 
   if (
-    value === 'conference'
+    value ===
+    'conference'
   ) {
     return 'Conference';
   }
 
   if (
-    value === 'mantram'
+    value ===
+    'mantram'
   ) {
     return 'MantraM';
   }
@@ -1952,62 +4188,412 @@ function formatType(
 }
 
 function formatDate(
-  value: string,
+  value:
+    string,
 ) {
+  const date =
+    new Date(
+      value,
+    );
+
+  if (
+    Number.isNaN(
+      date.getTime(),
+    )
+  ) {
+    return '';
+  }
+
   return new Intl.DateTimeFormat(
     'en-GB',
     {
-      day: '2-digit',
-      month: 'long',
-      year: 'numeric',
+      day:
+        '2-digit',
+
+      month:
+        'short',
+
+      year:
+        'numeric',
     },
   ).format(
-    new Date(value),
+    date,
   );
 }
 
 function formatDateRange(
-  startValue: string,
-  endValue: string,
+  startValue:
+    string,
+
+  endValue:
+    string,
 ) {
   const start =
-    new Date(startValue);
+    new Date(
+      startValue,
+    );
 
   const end =
-    new Date(endValue);
+    new Date(
+      endValue,
+    );
 
   if (
-    start.toDateString() ===
-    end.toDateString()
+    Number.isNaN(
+      start.getTime(),
+    )
   ) {
-    return new Intl.DateTimeFormat(
-      'en-GB',
-      {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      },
-    ).format(start);
+    return '';
+  }
+
+  if (
+    Number.isNaN(
+      end.getTime(),
+    ) ||
+    start.toDateString() ===
+      end.toDateString()
+  ) {
+    return formatDate(
+      startValue,
+    );
   }
 
   const startLabel =
     new Intl.DateTimeFormat(
       'en-GB',
       {
-        day: '2-digit',
-        month: 'short',
+        day:
+          '2-digit',
+
+        month:
+          'short',
       },
-    ).format(start);
+    ).format(
+      start,
+    );
 
   const endLabel =
     new Intl.DateTimeFormat(
       'en-GB',
       {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      },
-    ).format(end);
+        day:
+          '2-digit',
 
-  return `${startLabel} - ${endLabel}`;
+        month:
+          'short',
+
+        year:
+          'numeric',
+      },
+    ).format(
+      end,
+    );
+
+  return `${startLabel} – ${endLabel}`;
+}
+
+/* ============================================================
+   ICONS
+============================================================ */
+
+function SearchIcon() {
+  return (
+    <svg
+      className="h-4 w-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.9}
+    >
+      <circle
+        cx="11"
+        cy="11"
+        r="6.5"
+      />
+
+      <path
+        strokeLinecap="round"
+        d="m16 16 4 4"
+      />
+    </svg>
+  );
+}
+
+function SearchLargeIcon() {
+  return (
+    <svg
+      className="h-5 w-5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.8}
+    >
+      <circle
+        cx="11"
+        cy="11"
+        r="6.5"
+      />
+
+      <path
+        strokeLinecap="round"
+        d="m16 16 4 4"
+      />
+    </svg>
+  );
+}
+
+function FilterIcon() {
+  return (
+    <svg
+      className="h-4 w-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.8}
+    >
+      <path
+        strokeLinecap="round"
+        d="M4 6h16M7 12h10M10 18h4"
+      />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg
+      className="h-4 w-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        d="M6 6l12 12M18 6 6 18"
+      />
+    </svg>
+  );
+}
+
+function FeedbackIcon() {
+  return (
+    <svg
+      className="h-4 w-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.8}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-8l-5 3v-3H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"
+      />
+
+      <path
+        strokeLinecap="round"
+        d="M8 9h8M8 13h5"
+      />
+    </svg>
+  );
+}
+
+function TicketIcon() {
+  return (
+    <svg
+      className="h-4 w-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.8}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M5 5h14v4a3 3 0 010 6v4H5v-4a3 3 0 010-6V5Z"
+      />
+
+      <path
+        strokeLinecap="round"
+        d="M12 7v10"
+      />
+    </svg>
+  );
+}
+
+function HomeIcon() {
+  return (
+    <svg
+      className="h-[18px] w-[18px]"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.9}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M3 11l9-8 9 8v9a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1z"
+      />
+    </svg>
+  );
+}
+
+function LocationIcon() {
+  return (
+    <svg
+      className="h-3.5 w-3.5 shrink-0"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.8}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 21s6-5.2 6-11a6 6 0 10-12 0c0 5.8 6 11 6 11Z"
+      />
+
+      <circle
+        cx="12"
+        cy="10"
+        r="2"
+      />
+    </svg>
+  );
+}
+
+function CalendarIcon() {
+  return (
+    <svg
+      className="h-3.5 w-3.5 shrink-0"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.8}
+    >
+      <path
+        strokeLinecap="round"
+        d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 011 1v14H4V6a1 1 0 011-1Z"
+      />
+    </svg>
+  );
+}
+
+function CalendarLargeIcon() {
+  return (
+    <svg
+      className="h-5 w-5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.8}
+    >
+      <path
+        strokeLinecap="round"
+        d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 011 1v14H4V6a1 1 0 011-1Z"
+      />
+    </svg>
+  );
+}
+
+function EventIcon() {
+  return (
+    <svg
+      className="h-5 w-5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.7}
+    >
+      <rect
+        x="4"
+        y="5"
+        width="16"
+        height="14"
+        rx="2"
+      />
+
+      <path
+        strokeLinecap="round"
+        d="M8 9h8M8 13h5"
+      />
+    </svg>
+  );
+}
+
+function EventSmallIcon() {
+  return (
+    <svg
+      className="h-4 w-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.7}
+    >
+      <rect
+        x="4"
+        y="5"
+        width="16"
+        height="14"
+        rx="2"
+      />
+
+      <path
+        strokeLinecap="round"
+        d="M8 9h8M8 13h5"
+      />
+    </svg>
+  );
+}
+
+function ArrowIcon() {
+  return (
+    <svg
+      className="h-3 w-3"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m9 6 6 6-6 6"
+      />
+    </svg>
+  );
+}
+
+function RefreshIcon({
+  spinning,
+}: {
+  spinning:
+    boolean;
+}) {
+  return (
+    <svg
+      className={`
+        h-4
+        w-4
+
+        ${
+          spinning
+            ? 'animate-spin'
+            : ''
+        }
+      `}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.9}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M20 11a8 8 0 10-2.35 5.65M20 4v7h-7"
+      />
+    </svg>
+  );
 }

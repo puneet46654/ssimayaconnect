@@ -1,6 +1,10 @@
 'use client';
 
-import React, {
+import type {
+  ReactNode,
+} from 'react';
+
+import {
   useCallback,
   useEffect,
   useMemo,
@@ -10,7 +14,18 @@ import React, {
 import Link from 'next/link';
 import Image from 'next/image';
 
-import { useRealtimeRefresh } from '@/components/realtime/RealtimeProvider';
+import {
+  AnimatePresence,
+  motion,
+} from 'framer-motion';
+
+import {
+  useRealtimeRefresh,
+} from '@/components/realtime/RealtimeProvider';
+
+/* ============================================================
+   TYPES
+============================================================ */
 
 interface IEvent {
   _id: string;
@@ -55,6 +70,11 @@ type EventTab =
   | 'Upcoming'
   | 'Completed';
 
+type DeleteTarget = {
+  id: string;
+  name: string;
+};
+
 const tabs: EventTab[] = [
   'All Events',
   'Conferences',
@@ -64,15 +84,40 @@ const tabs: EventTab[] = [
   'Completed',
 ];
 
+const EASE = [
+  0.16,
+  1,
+  0.3,
+  1,
+] as const;
+
+/* ============================================================
+   PAGE
+============================================================ */
+
 export default function EventsManagementPage() {
-  const [events, setEvents] =
-    useState<IEvent[]>([]);
+  const [
+    events,
+    setEvents,
+  ] =
+    useState<IEvent[]>(
+      [],
+    );
 
-  const [loading, setLoading] =
-    useState(true);
+  const [
+    loading,
+    setLoading,
+  ] = useState(true);
 
-  const [error, setError] =
-    useState('');
+  const [
+    refreshing,
+    setRefreshing,
+  ] = useState(false);
+
+  const [
+    error,
+    setError,
+  ] = useState('');
 
   const [
     activeTab,
@@ -83,95 +128,163 @@ export default function EventsManagementPage() {
     );
 
   const [
+    search,
+    setSearch,
+  ] = useState('');
+
+  const [
     deletingId,
     setDeletingId,
   ] =
-    useState<string | null>(
-      null,
-    );
+    useState<
+      string | null
+    >(null);
+
+  const [
+    deleteTarget,
+    setDeleteTarget,
+  ] =
+    useState<
+      DeleteTarget | null
+    >(null);
+
+  const [
+    successMessage,
+    setSuccessMessage,
+  ] = useState('');
+
+  /* ==========================================================
+     FETCH
+  ========================================================== */
 
   const fetchEvents =
-    useCallback(async (showLoading = true) => {
-      if (showLoading) {
-        setLoading(true);
-      }
-
-      setError('');
-
-      try {
-        const response =
-          await fetch(
-            '/api/events',
-            {
-              method: 'GET',
-              cache: 'no-store',
-            },
-          );
-
-        const data =
-          await response.json();
-
+    useCallback(
+      async (
+        showLoading =
+          true,
+      ) => {
         if (
-          !response.ok ||
-          !data.success
+          showLoading
         ) {
-          throw new Error(
-            data.error ||
-              'Failed to fetch events.',
+          setLoading(
+            true,
+          );
+        } else {
+          setRefreshing(
+            true,
           );
         }
 
-        setEvents(
-          Array.isArray(
-            data.events,
-          )
-            ? data.events
-            : [],
-        );
-      } catch (
-        error: unknown
-      ) {
-        setError(
-          error instanceof Error
-            ? error.message
-            : 'An unexpected error occurred.',
-        );
-      } finally {
-        if (showLoading) {
-          setLoading(false);
+        setError('');
+
+        try {
+          const response =
+            await fetch(
+              '/api/events',
+              {
+                method:
+                  'GET',
+
+                cache:
+                  'no-store',
+              },
+            );
+
+          const data =
+            await response.json();
+
+          if (
+            !response.ok ||
+            !data.success
+          ) {
+            throw new Error(
+              data.error ||
+                'Failed to fetch events.',
+            );
+          }
+
+          setEvents(
+            Array.isArray(
+              data.events,
+            )
+              ? data.events
+              : [],
+          );
+        } catch (
+          error: unknown
+        ) {
+          setError(
+            error instanceof
+              Error
+              ? error.message
+              : 'An unexpected error occurred.',
+          );
+        } finally {
+          setLoading(
+            false,
+          );
+
+          setRefreshing(
+            false,
+          );
         }
-      }
-    }, []);
+      },
+      [],
+    );
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void fetchEvents();
-    }, 0);
+    const timer =
+      window.setTimeout(
+        () => {
+          void fetchEvents();
+        },
+        0,
+      );
 
-    return () => window.clearTimeout(timer);
-  }, [fetchEvents]);
+    return () =>
+      window.clearTimeout(
+        timer,
+      );
+  }, [
+    fetchEvents,
+  ]);
+
+  /* ==========================================================
+     REALTIME
+  ========================================================== */
 
   useRealtimeRefresh(
     'events',
     () => {
-      void fetchEvents(false);
+      void fetchEvents(
+        false,
+      );
     },
   );
 
-  async function handleDelete(
-    id: string,
-    name: string,
-  ) {
-    const confirmed =
-      window.confirm(
-        `Are you sure you want to delete "${name}"?`,
-      );
+  /* ==========================================================
+     DELETE
+  ========================================================== */
 
-    if (!confirmed) {
+  async function handleDelete() {
+    if (
+      !deleteTarget
+    ) {
       return;
     }
 
-    setDeletingId(id);
+    const {
+      id,
+      name,
+    } = deleteTarget;
+
+    setDeletingId(
+      id,
+    );
+
+    setSuccessMessage(
+      '',
+    );
 
     try {
       const response =
@@ -180,7 +293,8 @@ export default function EventsManagementPage() {
             id,
           )}`,
           {
-            method: 'DELETE',
+            method:
+              'DELETE',
           },
         );
 
@@ -198,93 +312,53 @@ export default function EventsManagementPage() {
       }
 
       setEvents(
-        (current) =>
+        (
+          current,
+        ) =>
           current.filter(
-            (event) =>
-              event._id !== id,
+            (
+              event,
+            ) =>
+              event._id !==
+              id,
           ),
+      );
+
+      setDeleteTarget(
+        null,
+      );
+
+      setSuccessMessage(
+        `"${name}" was deleted successfully.`,
+      );
+
+      window.setTimeout(
+        () => {
+          setSuccessMessage(
+            '',
+          );
+        },
+        3500,
       );
     } catch (
       error: unknown
     ) {
-      window.alert(
-        error instanceof Error
+      setError(
+        error instanceof
+          Error
           ? error.message
           : 'Error deleting event.',
       );
     } finally {
-      setDeletingId(null);
+      setDeletingId(
+        null,
+      );
     }
   }
 
-  const filteredEvents =
-    useMemo(() => {
-      return events.filter(
-        (event) => {
-          if (
-            activeTab ===
-            'All Events'
-          ) {
-            return true;
-          }
-
-          if (
-            activeTab ===
-            'Conferences'
-          ) {
-            return (
-              event.eventType ===
-              'conference'
-            );
-          }
-
-          if (
-            activeTab ===
-            'Mantram'
-          ) {
-            return (
-              event.eventType ===
-              'mantram'
-            );
-          }
-
-          if (
-            activeTab ===
-            'Live'
-          ) {
-            return (
-              event.status ===
-              'LIVE'
-            );
-          }
-
-          if (
-            activeTab ===
-            'Upcoming'
-          ) {
-            return (
-              event.status ===
-              'UPCOMING'
-            );
-          }
-
-          if (
-            activeTab ===
-            'Completed'
-          ) {
-            return (
-              event.status ===
-              'COMPLETED'
-            );
-          }
-
-          return true;
-        },
-      );
-    }, [
-      events,
-      activeTab,
-    ]);
+  /* ==========================================================
+     STATS
+  ========================================================== */
 
   const stats =
     useMemo(
@@ -294,46 +368,168 @@ export default function EventsManagementPage() {
 
         live:
           events.filter(
-            (event) =>
+            (
+              event,
+            ) =>
               event.status ===
               'LIVE',
           ).length,
 
         upcoming:
           events.filter(
-            (event) =>
+            (
+              event,
+            ) =>
               event.status ===
               'UPCOMING',
           ).length,
 
         completed:
           events.filter(
-            (event) =>
+            (
+              event,
+            ) =>
               event.status ===
               'COMPLETED',
           ).length,
       }),
-      [events],
+      [
+        events,
+      ],
     );
 
+  /* ==========================================================
+     FILTER
+  ========================================================== */
+
+  const filteredEvents =
+    useMemo(() => {
+      const normalizedSearch =
+        search
+          .trim()
+          .toLowerCase();
+
+      return events.filter(
+        (
+          event,
+        ) => {
+          let matchesTab =
+            true;
+
+          if (
+            activeTab ===
+            'Conferences'
+          ) {
+            matchesTab =
+              event.eventType ===
+              'conference';
+          }
+
+          if (
+            activeTab ===
+            'Mantram'
+          ) {
+            matchesTab =
+              event.eventType ===
+              'mantram';
+          }
+
+          if (
+            activeTab ===
+            'Live'
+          ) {
+            matchesTab =
+              event.status ===
+              'LIVE';
+          }
+
+          if (
+            activeTab ===
+            'Upcoming'
+          ) {
+            matchesTab =
+              event.status ===
+              'UPCOMING';
+          }
+
+          if (
+            activeTab ===
+            'Completed'
+          ) {
+            matchesTab =
+              event.status ===
+              'COMPLETED';
+          }
+
+          if (
+            !matchesTab
+          ) {
+            return false;
+          }
+
+          if (
+            !normalizedSearch
+          ) {
+            return true;
+          }
+
+          const haystack = [
+            event.eventName,
+            event.venue,
+            event.description,
+            event.eventType,
+            event.status,
+          ]
+            .filter(
+              Boolean,
+            )
+            .join(
+              ' ',
+            )
+            .toLowerCase();
+
+          return haystack.includes(
+            normalizedSearch,
+          );
+        },
+      );
+    }, [
+      events,
+      activeTab,
+      search,
+    ]);
+
+  /* ==========================================================
+     DATE HELPERS
+  ========================================================== */
+
   function formatDate(
-    date: string,
+    date:
+      string,
   ) {
     return new Date(
       date,
     ).toLocaleDateString(
       'en-GB',
       {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
+        day:
+          '2-digit',
+
+        month:
+          'short',
+
+        year:
+          'numeric',
       },
     );
   }
 
   function formatDateRange(
-    startDate: string,
-    endDate: string,
+    startDate:
+      string,
+
+    endDate:
+      string,
   ) {
     const start =
       new Date(
@@ -362,56 +558,109 @@ export default function EventsManagementPage() {
   }
 
   function shortDescription(
-    description?: string,
+    description?:
+      string,
   ) {
-    if (!description) {
+    if (
+      !description
+    ) {
       return '';
     }
 
     if (
       description.length <=
-      120
+      145
     ) {
       return description;
     }
 
     return `${description.slice(
       0,
-      120,
+      145,
     )}…`;
   }
+
+  /* ==========================================================
+     RENDER
+  ========================================================== */
 
   return (
     <main
       className="
         w-full
+        min-w-0
+        max-w-full
+
+        overflow-x-hidden
+
         pb-8
       "
     >
-      {/* HEADER */}
+      {/* ======================================================
+          HEADER
+      ====================================================== */}
 
-      <header
+      <motion.header
+        initial={{
+          opacity:
+            0,
+
+          y:
+            10,
+        }}
+        animate={{
+          opacity:
+            1,
+
+          y:
+            0,
+        }}
+        transition={{
+          duration:
+            0.45,
+
+          ease:
+            EASE,
+        }}
         className="
           flex
+          min-w-0
           flex-col
-          gap-5
+          gap-4
+
           border-b
           border-gray-200
-          pb-6
+
+          pb-5
+
           sm:flex-row
           sm:items-end
           sm:justify-between
+
+          sm:pb-6
         "
       >
-        <div>
+        <div
+          className="
+            min-w-0
+            flex-1
+          "
+        >
+
+
           <h1
             className="
               font-heading
-              text-[26px]
+
+              text-[23px]
               font-bold
-              tracking-[-0.025em]
+
+              tracking-[-0.035em]
+
               text-secondary
-              sm:text-[30px]
+
+              sm:text-[27px]
+              lg:text-[30px]
             "
           >
             Events Management
@@ -419,190 +668,658 @@ export default function EventsManagementPage() {
 
           <p
             className="
-              mt-1.5
-              max-w-xl
-              text-[13px]
-              leading-5
+              mt-1
+
+              max-w-[650px]
+
+              text-[11px]
+              leading-[18px]
+
               text-gray-500
-              sm:text-sm
+
+              sm:text-[13px]
+              sm:leading-5
             "
           >
-            Manage event information,
-            schedules and registrations.
+            Create, monitor and
+            manage events,
+            schedules,
+            registration capacity
+            and attendee activity.
           </p>
         </div>
 
-        <Link
-          href="/admin/eventmanagement/new"
+        <div
           className="
-            inline-flex
-            h-10
+            grid
             w-full
-            items-center
-            justify-center
+            grid-cols-2
             gap-2
-            rounded-lg
-            bg-primary
-            px-4
-            text-sm
-            font-semibold
-            text-white
-            transition-colors
-            duration-200
-            hover:brightness-95
+
+            sm:flex
             sm:w-auto
           "
         >
-          <svg
-            className="h-4 w-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M12 5v14M5 12h14"
-            />
-          </svg>
-
-          New Event
-        </Link>
-      </header>
-
-      {/* SUMMARY */}
-
-      <section
-        className="
-          grid
-          grid-cols-2
-          border-b
-          border-gray-200
-          sm:grid-cols-4
-        "
-      >
-        <SummaryItem
-          label="Total"
-          value={stats.total}
-        />
-
-        <SummaryItem
-          label="Live"
-          value={stats.live}
-        />
-
-        <SummaryItem
-          label="Upcoming"
-          value={stats.upcoming}
-        />
-
-        <SummaryItem
-          label="Completed"
-          value={stats.completed}
-        />
-      </section>
-
-      {/* FILTER */}
-
-      <section
-        className="
-          mt-5
-          overflow-x-auto
-          border-b
-          border-gray-200
-          [scrollbar-width:none]
-          [&::-webkit-scrollbar]:hidden
-        "
-      >
-        <div
-          className="
-            flex
-            min-w-max
-            gap-6
-          "
-        >
-          {tabs.map(
-            (tab) => {
-              const active =
-                activeTab ===
-                tab;
-
-              return (
-                <button
-                  key={
-                    tab
-                  }
-                  type="button"
-                  onClick={() =>
-                    setActiveTab(
-                      tab,
-                    )
-                  }
-                  className={`
-                    relative
-                    cursor-pointer
-                    pb-3
-                    text-[13px]
-                    font-medium
-                    transition-colors
-                    duration-200
-                    sm:text-sm
-
-                    ${
-                      active
-                        ? 'text-secondary'
-                        : 'text-gray-400 hover:text-gray-600'
-                    }
-                  `}
-                >
-                  {tab}
-
-                  {active && (
-                    <span
-                      className="
-                        absolute
-                        inset-x-0
-                        bottom-0
-                        h-[2px]
-                        rounded-full
-                        bg-primary
-                      "
-                    />
-                  )}
-                </button>
-              );
-            },
-          )}
-        </div>
-      </section>
-
-      {/* ERROR */}
-
-      {error && (
-        <div
-          className="
-            mt-5
-            flex
-            items-center
-            justify-between
-            gap-4
-            rounded-lg
-            border
-            border-red-200
-            bg-red-50
-            px-4
-            py-3
-          "
-        >
-          <p
+          <motion.button
+            type="button"
+            whileTap={{
+              scale:
+                0.97,
+            }}
+            disabled={
+              refreshing
+            }
+            onClick={() =>
+              void fetchEvents(
+                false,
+              )
+            }
             className="
-              text-sm
-              text-red-700
+              inline-flex
+
+              min-h-[42px]
+
+              items-center
+              justify-center
+              gap-2
+
+              rounded-lg
+
+              border
+              border-gray-200
+
+              bg-white
+
+              px-3
+
+              text-[10px]
+              font-semibold
+
+              text-secondary
+
+              shadow-sm
+
+              transition-colors
+
+              hover:border-primary/30
+              hover:text-primary
+
+              disabled:opacity-50
+
+              sm:px-4
+              sm:text-[11px]
             "
           >
-            {error}
+            <RefreshIcon
+              spinning={
+                refreshing
+              }
+            />
+
+            Refresh
+          </motion.button>
+
+          <motion.div
+            whileTap={{
+              scale:
+                0.98,
+            }}
+          >
+            <Link
+              href="/admin/eventmanagement/new"
+              className="
+                inline-flex
+
+                min-h-[42px]
+                w-full
+
+                items-center
+                justify-center
+                gap-2
+
+                rounded-lg
+
+                bg-primary
+
+                px-3.5
+
+                text-[10px]
+                font-semibold
+
+                text-white
+
+                shadow-[0_5px_16px_rgba(26,158,143,0.18)]
+
+                transition-all
+
+                hover:brightness-95
+
+                sm:w-auto
+                sm:px-4
+                sm:text-[11px]
+              "
+            >
+              <PlusIcon />
+
+              New Event
+            </Link>
+          </motion.div>
+        </div>
+      </motion.header>
+
+      {/* ======================================================
+          SUMMARY
+      ====================================================== */}
+
+      <motion.section
+        initial={{
+          opacity:
+            0,
+
+          y:
+            12,
+        }}
+        animate={{
+          opacity:
+            1,
+
+          y:
+            0,
+        }}
+        transition={{
+          delay:
+            0.05,
+
+          duration:
+            0.45,
+
+          ease:
+            EASE,
+        }}
+        className="
+          mt-4
+
+          grid
+          grid-cols-2
+          gap-2.5
+
+          sm:mt-5
+          sm:gap-3
+
+          lg:grid-cols-4
+        "
+      >
+        <SummaryCard
+          label="Total Events"
+          value={
+            stats.total
+          }
+          icon={
+            <EventsIcon />
+          }
+          description="All configured events"
+        />
+
+        <SummaryCard
+          label="Live"
+          value={
+            stats.live
+          }
+          icon={
+            <LiveIcon />
+          }
+          description="Currently active"
+          accent
+        />
+
+        <SummaryCard
+          label="Upcoming"
+          value={
+            stats.upcoming
+          }
+          icon={
+            <CalendarIcon />
+          }
+          description="Scheduled ahead"
+        />
+
+        <SummaryCard
+          label="Completed"
+          value={
+            stats.completed
+          }
+          icon={
+            <CheckIcon />
+          }
+          description="Finished events"
+        />
+      </motion.section>
+
+      {/* ======================================================
+          TOOLBAR
+      ====================================================== */}
+
+      <motion.section
+        initial={{
+          opacity:
+            0,
+
+          y:
+            12,
+        }}
+        animate={{
+          opacity:
+            1,
+
+          y:
+            0,
+        }}
+        transition={{
+          delay:
+            0.1,
+
+          duration:
+            0.45,
+
+          ease:
+            EASE,
+        }}
+        className="
+          mt-4
+
+          min-w-0
+
+          overflow-hidden
+
+          rounded-xl
+
+          border
+          border-gray-200
+
+          bg-white
+
+          shadow-[0_4px_18px_rgba(27,75,107,0.035)]
+
+          sm:mt-5
+        "
+      >
+        {/* SEARCH */}
+
+        <div
+          className="
+            flex
+            min-w-0
+            flex-col
+            gap-3
+
+            border-b
+            border-gray-100
+
+            p-3
+
+            sm:flex-row
+            sm:items-center
+            sm:justify-between
+
+            sm:p-4
+          "
+        >
+          <div
+            className="
+              relative
+              w-full
+              min-w-0
+
+              sm:max-w-[420px]
+            "
+          >
+            <span
+              className="
+                pointer-events-none
+
+                absolute
+                left-3
+                top-1/2
+
+                -translate-y-1/2
+
+                text-gray-400
+              "
+            >
+              <SearchIcon />
+            </span>
+
+            <input
+              value={
+                search
+              }
+              onChange={(
+                event,
+              ) =>
+                setSearch(
+                  event
+                    .target
+                    .value,
+                )
+              }
+              placeholder="Search event, venue or type..."
+              className="
+                h-10
+                w-full
+                min-w-0
+
+                rounded-lg
+
+                border
+                border-gray-200
+
+                bg-gray-50/70
+
+                pl-9
+                pr-9
+
+                text-[11px]
+
+                text-secondary
+
+                outline-none
+
+                transition-all
+
+                placeholder:text-gray-400
+
+                focus:border-primary/40
+                focus:bg-white
+                focus:ring-2
+                focus:ring-primary/10
+
+                sm:text-[12px]
+              "
+            />
+
+            {search && (
+              <button
+                type="button"
+                onClick={() =>
+                  setSearch(
+                    '',
+                  )
+                }
+                className="
+                  absolute
+                  right-2.5
+                  top-1/2
+
+                  grid
+                  h-6
+                  w-6
+
+                  -translate-y-1/2
+
+                  place-items-center
+
+                  rounded-md
+
+                  text-gray-400
+
+                  hover:bg-gray-100
+                  hover:text-secondary
+                "
+              >
+                <CloseSmallIcon />
+              </button>
+            )}
+          </div>
+
+          <p
+            className="
+              shrink-0
+
+              text-[9px]
+              font-medium
+
+              text-gray-400
+
+              sm:text-[10px]
+            "
+          >
+            {filteredEvents.length}{' '}
+            {filteredEvents.length ===
+            1
+              ? 'event'
+              : 'events'}
           </p>
+        </div>
+
+        {/* TABS */}
+
+        <div
+          className="
+            min-w-0
+            overflow-x-auto
+
+            px-3
+
+            [scrollbar-width:none]
+
+            [&::-webkit-scrollbar]:hidden
+
+            sm:px-4
+          "
+        >
+          <div
+            className="
+              flex
+              min-w-max
+              gap-1
+            "
+          >
+            {tabs.map(
+              (
+                tab,
+              ) => {
+                const active =
+                  activeTab ===
+                  tab;
+
+                return (
+                  <button
+                    key={
+                      tab
+                    }
+                    type="button"
+                    onClick={() =>
+                      setActiveTab(
+                        tab,
+                      )
+                    }
+                    className={`
+                      relative
+
+                      min-h-[44px]
+
+                      cursor-pointer
+
+                      whitespace-nowrap
+
+                      px-2.5
+
+                      text-[10px]
+                      font-semibold
+
+                      transition-colors
+
+                      sm:px-3
+                      sm:text-[11px]
+
+                      ${
+                        active
+                          ? 'text-primary'
+                          : 'text-gray-400 hover:text-secondary'
+                      }
+                    `}
+                  >
+                    {tab}
+
+                    {active && (
+                      <motion.span
+                        layoutId="active-event-tab"
+                        className="
+                          absolute
+
+                          inset-x-2
+                          bottom-0
+
+                          h-[2px]
+
+                          rounded-full
+
+                          bg-primary
+                        "
+                      />
+                    )}
+                  </button>
+                );
+              },
+            )}
+          </div>
+        </div>
+      </motion.section>
+
+      {/* ======================================================
+          MESSAGES
+      ====================================================== */}
+
+      <AnimatePresence>
+        {successMessage && (
+          <motion.div
+            initial={{
+              opacity:
+                0,
+
+              y:
+                -5,
+            }}
+            animate={{
+              opacity:
+                1,
+
+              y:
+                0,
+            }}
+            exit={{
+              opacity:
+                0,
+
+              y:
+                -5,
+            }}
+            className="
+              mt-4
+
+              flex
+              items-start
+              gap-2.5
+
+              rounded-xl
+
+              border
+              border-emerald-200
+
+              bg-emerald-50
+
+              px-3.5
+              py-3
+
+              text-[11px]
+
+              text-emerald-700
+            "
+          >
+            <CheckCircleIcon />
+
+            <span
+              className="
+                min-w-0
+                break-words
+              "
+            >
+              {successMessage}
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {error && (
+        <motion.div
+          initial={{
+            opacity:
+              0,
+
+            y:
+              -5,
+          }}
+          animate={{
+            opacity:
+              1,
+
+            y:
+              0,
+          }}
+          className="
+            mt-4
+
+            flex
+            flex-col
+            gap-3
+
+            rounded-xl
+
+            border
+            border-red-200
+
+            bg-red-50
+
+            px-3.5
+            py-3
+
+            sm:flex-row
+            sm:items-center
+            sm:justify-between
+          "
+        >
+          <div
+            className="
+              flex
+              min-w-0
+              items-start
+              gap-2.5
+            "
+          >
+            <span
+              className="
+                mt-0.5
+                text-red-500
+              "
+            >
+              <AlertIcon />
+            </span>
+
+            <p
+              className="
+                min-w-0
+
+                break-words
+
+                text-[11px]
+                leading-5
+
+                text-red-700
+              "
+            >
+              {error}
+            </p>
+          </div>
 
           <button
             type="button"
@@ -611,42 +1328,96 @@ export default function EventsManagementPage() {
             }
             className="
               shrink-0
-              cursor-pointer
-              text-sm
+
+              text-[10px]
               font-semibold
+
               text-red-700
             "
           >
             Retry
           </button>
-        </div>
+        </motion.div>
       )}
 
-      {/* LOADING */}
+      {/* ======================================================
+          LOADING
+      ====================================================== */}
 
       {loading && (
         <EventsSkeleton />
       )}
 
-      {/* EMPTY */}
+      {/* ======================================================
+          EMPTY
+      ====================================================== */}
 
       {!loading &&
         filteredEvents.length ===
           0 && (
-          <div
+          <motion.div
+            initial={{
+              opacity:
+                0,
+            }}
+            animate={{
+              opacity:
+                1,
+            }}
             className="
+              mt-5
+
               flex
               min-h-[320px]
+
               items-center
               justify-center
+
+              rounded-xl
+
+              border
+              border-dashed
+              border-gray-200
+
+              bg-white
+
+              px-4
+
               text-center
             "
           >
-            <div>
+            <div
+              className="
+                max-w-[300px]
+              "
+            >
+              <div
+                className="
+                  mx-auto
+
+                  grid
+                  h-12
+                  w-12
+
+                  place-items-center
+
+                  rounded-xl
+
+                  bg-gray-100
+
+                  text-gray-400
+                "
+              >
+                <SearchEmptyIcon />
+              </div>
+
               <h2
                 className="
-                  text-base
+                  mt-3
+
+                  text-[13px]
                   font-semibold
+
                   text-secondary
                 "
               >
@@ -656,86 +1427,218 @@ export default function EventsManagementPage() {
               <p
                 className="
                   mt-1
-                  text-sm
+
+                  text-[10px]
+                  leading-5
+
                   text-gray-500
                 "
               >
-                No events match
-                the selected filter.
+                Try another filter or
+                search term, or create
+                a new event.
               </p>
+
+              {(search ||
+                activeTab !==
+                  'All Events') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearch(
+                      '',
+                    );
+
+                    setActiveTab(
+                      'All Events',
+                    );
+                  }}
+                  className="
+                    mt-4
+
+                    rounded-lg
+
+                    border
+                    border-gray-200
+
+                    bg-white
+
+                    px-3
+                    py-2
+
+                    text-[10px]
+                    font-semibold
+
+                    text-secondary
+
+                    hover:bg-gray-50
+                  "
+                >
+                  Clear Filters
+                </button>
+              )}
             </div>
-          </div>
+          </motion.div>
         )}
 
-      {/* EVENT GRID */}
+      {/* ======================================================
+          EVENT GRID
+      ====================================================== */}
 
       {!loading &&
         filteredEvents.length >
           0 && (
-          <section
+          <motion.section
+            layout
             className="
-              mt-6
+              mt-4
+
               grid
+              min-w-0
               grid-cols-1
               gap-4
-              xl:grid-cols-2
+
+              sm:mt-5
+
+              min-[1450px]:grid-cols-2
             "
           >
-            {filteredEvents.map(
-              (event) => (
-                <EventCard
-                  key={
-                    event._id
-                  }
-                  event={
-                    event
-                  }
-                  deleting={
-                    deletingId ===
-                    event._id
-                  }
-                  dateRange={formatDateRange(
-                    event.startDate,
-                    event.endDate,
-                  )}
-                  description={shortDescription(
-                    event.description,
-                  )}
-                  onDelete={
-                    handleDelete
-                  }
-                />
-              ),
-            )}
-          </section>
+            <AnimatePresence
+              mode="popLayout"
+            >
+              {filteredEvents.map(
+                (
+                  event,
+                  index,
+                ) => (
+                  <EventCard
+                    key={
+                      event._id
+                    }
+                    event={
+                      event
+                    }
+                    index={
+                      index
+                    }
+                    deleting={
+                      deletingId ===
+                      event._id
+                    }
+                    dateRange={formatDateRange(
+                      event.startDate,
+                      event.endDate,
+                    )}
+                    description={shortDescription(
+                      event.description,
+                    )}
+                    onDelete={() =>
+                      setDeleteTarget({
+                        id:
+                          event._id,
+
+                        name:
+                          event.eventName,
+                      })
+                    }
+                  />
+                ),
+              )}
+            </AnimatePresence>
+          </motion.section>
         )}
+
+      {/* ======================================================
+          FOOTER COUNT
+      ====================================================== */}
 
       {!loading &&
         filteredEvents.length >
           0 && (
           <div
             className="
-              mt-6
+              mt-5
+
+              flex
+              flex-col
+              gap-1
+
               border-t
               border-gray-200
+
               pt-4
-              text-xs
+
+              text-[9px]
+
               text-gray-400
+
+              sm:flex-row
+              sm:items-center
+              sm:justify-between
+
+              sm:text-[10px]
             "
           >
-            Showing{' '}
-            <span className="font-semibold text-gray-600">
-              {
-                filteredEvents.length
-              }
-            </span>{' '}
-            of{' '}
-            <span className="font-semibold text-gray-600">
-              {events.length}
-            </span>{' '}
-            events
+            <span>
+              Showing{' '}
+              <strong
+                className="
+                  font-semibold
+                  text-gray-600
+                "
+              >
+                {
+                  filteredEvents.length
+                }
+              </strong>{' '}
+              of{' '}
+              <strong
+                className="
+                  font-semibold
+                  text-gray-600
+                "
+              >
+                {events.length}
+              </strong>{' '}
+              events
+            </span>
+
+            <span>
+              SSI Maya Connect •
+              Event Management
+            </span>
           </div>
         )}
+
+      {/* ======================================================
+          DELETE MODAL
+      ====================================================== */}
+
+      <AnimatePresence>
+        {deleteTarget && (
+          <DeleteModal
+            target={
+              deleteTarget
+            }
+            deleting={
+              deletingId ===
+              deleteTarget.id
+            }
+            onCancel={() => {
+              if (
+                !deletingId
+              ) {
+                setDeleteTarget(
+                  null,
+                );
+              }
+            }}
+            onConfirm={() =>
+              void handleDelete()
+            }
+          />
+        )}
+      </AnimatePresence>
     </main>
   );
 }
@@ -746,69 +1649,143 @@ export default function EventsManagementPage() {
 
 function EventCard({
   event,
+  index,
   deleting,
   dateRange,
   description,
   onDelete,
 }: {
-  event: IEvent;
+  event:
+    IEvent;
 
-  deleting: boolean;
+  index:
+    number;
 
-  dateRange: string;
+  deleting:
+    boolean;
 
-  description: string;
+  dateRange:
+    string;
 
-  onDelete: (
-    id: string,
-    name: string,
-  ) => Promise<void>;
+  description:
+    string;
+
+  onDelete:
+    () => void;
 }) {
   const booked =
-    event.bookedSlots || 0;
+    event.bookedSlots ||
+    0;
 
   const total =
-    event.totalSlots || 0;
+    event.totalSlots ||
+    0;
 
   const progress =
     total > 0
       ? Math.min(
           100,
-          (booked / total) *
+          (booked /
+            total) *
             100,
         )
       : 0;
 
+  const remaining =
+    Math.max(
+      total -
+        booked,
+      0,
+    );
+
   return (
-    <article
+    <motion.article
+      layout
+      initial={{
+        opacity:
+          0,
+
+        y:
+          14,
+      }}
+      animate={{
+        opacity:
+          1,
+
+        y:
+          0,
+      }}
+      exit={{
+        opacity:
+          0,
+
+        scale:
+          0.98,
+      }}
+      transition={{
+        duration:
+          0.42,
+
+        delay:
+          Math.min(
+            index *
+              0.035,
+            0.2,
+          ),
+
+        ease:
+          EASE,
+      }}
+      whileHover={{
+        y:
+          -2,
+      }}
       className="
+        group
+
+        min-w-0
         overflow-hidden
-        rounded-xl
+
+        rounded-[16px]
+
         border
         border-gray-200
+
         bg-white
-        transition-colors
-        duration-200
-        hover:border-gray-300
+
+        shadow-[0_5px_20px_rgba(27,75,107,0.03)]
+
+        transition-shadow
+
+        hover:shadow-[0_12px_32px_rgba(27,75,107,0.07)]
       "
     >
       <div
         className="
           grid
+          min-w-0
           grid-cols-1
-          sm:grid-cols-[180px_minmax(0,1fr)]
-          lg:grid-cols-[200px_minmax(0,1fr)]
+
+          sm:grid-cols-[170px_minmax(0,1fr)]
+
+          lg:grid-cols-[190px_minmax(0,1fr)]
         "
       >
-        {/* IMAGE */}
+        {/* ====================================================
+            IMAGE
+        ==================================================== */}
 
         <div
           className="
             relative
-            h-[190px]
+
+            aspect-[16/8.5]
+
             overflow-hidden
+
             bg-gray-100
-            sm:h-full
+
+            sm:aspect-auto
             sm:min-h-[250px]
           "
         >
@@ -824,10 +1801,15 @@ function EventCard({
               unoptimized
               sizes="
                 (max-width: 640px) 100vw,
-                220px
+                200px
               "
               className="
                 object-cover
+
+                transition-transform
+                duration-500
+
+                group-hover:scale-[1.025]
               "
             />
           ) : (
@@ -835,27 +1817,34 @@ function EventCard({
               className="
                 flex
                 h-full
+                min-h-[155px]
+
                 items-center
                 justify-center
-                bg-gray-100
+
+                bg-[linear-gradient(135deg,#f1f7f7,#f5f7f9)]
+
                 text-gray-300
               "
             >
-              <svg
-                className="h-9 w-9"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={1.5}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M3 16.5l5.5-5.5 4 4L15 12.5l6 6M5 5h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z"
-                />
-              </svg>
+              <ImagePlaceholderIcon />
             </div>
           )}
+
+          <div
+            className="
+              pointer-events-none
+
+              absolute
+              inset-0
+
+              bg-gradient-to-t
+
+              from-secondary/25
+              via-transparent
+              to-transparent
+            "
+          />
 
           <div
             className="
@@ -870,115 +1859,141 @@ function EventCard({
               }
             />
           </div>
+
+          <span
+            className="
+              absolute
+              bottom-3
+              left-3
+
+              rounded-md
+
+              bg-black/35
+
+              px-2
+              py-1
+
+              text-[8px]
+              font-semibold
+
+              uppercase
+
+              tracking-[0.08em]
+
+              text-white
+
+              backdrop-blur-md
+            "
+          >
+            {event.eventType}
+          </span>
         </div>
 
-        {/* BODY */}
+        {/* ====================================================
+            BODY
+        ==================================================== */}
 
         <div
           className="
             flex
             min-w-0
             flex-col
-            p-4
-            sm:p-5
+
+            p-3.5
+
+            sm:p-4
+
+            lg:p-5
           "
         >
+          {/* TITLE */}
+
           <div
             className="
-              flex
-              items-start
-              justify-between
-              gap-4
+              min-w-0
             "
           >
-            <div className="min-w-0">
-              <p
-                className="
-                  text-[10px]
-                  font-semibold
-                  uppercase
-                  tracking-[0.08em]
-                  text-gray-400
-                "
-              >
-                {
-                  event.eventType
-                }
-              </p>
+            <h2
+              className="
+                line-clamp-2
 
-              <h2
-                className="
-                  mt-1
-                  line-clamp-2
-                  font-heading
-                  text-[17px]
-                  font-bold
-                  leading-[1.3]
-                  text-secondary
-                  sm:text-[18px]
-                "
-              >
-                {
-                  event.eventName
-                }
-              </h2>
-            </div>
+                break-words
+
+                font-heading
+
+                text-[16px]
+                font-bold
+
+                leading-[1.35]
+
+                tracking-[-0.02em]
+
+                text-secondary
+
+                sm:text-[17px]
+                lg:text-[18px]
+              "
+            >
+              {event.eventName}
+            </h2>
           </div>
 
-          {/* INFO */}
+          {/* META */}
 
           <div
             className="
-              mt-4
-              space-y-2
+              mt-3
+
+              grid
+              grid-cols-1
+              gap-2
+
+              min-[430px]:grid-cols-2
+
+              sm:grid-cols-1
+
+              lg:grid-cols-2
             "
           >
-            <MetaRow
+            <MetaBox
               icon={
                 <CalendarIcon />
               }
-            >
-              {dateRange}
-            </MetaRow>
+              label="Schedule"
+              value={
+                dateRange
+              }
+            />
 
-            <MetaRow
+            <MetaBox
               icon={
                 <LocationIcon />
               }
-            >
-              {event.venue}
-            </MetaRow>
+              label="Venue"
+              value={
+                event.venue
+              }
+            />
           </div>
 
-          {/* ABOUT */}
+          {/* DESCRIPTION */}
 
           {description && (
             <div
               className="
-                mt-4
-                border-t
-                border-gray-100
-                pt-3.5
+                mt-3
               "
             >
               <p
                 className="
-                  text-[11px]
-                  font-semibold
-                  text-gray-500
-                "
-              >
-                About
-              </p>
-
-              <p
-                className="
-                  mt-1
                   line-clamp-2
-                  text-[12px]
-                  leading-[1.6]
+
+                  text-[10px]
+                  leading-[17px]
+
                   text-gray-500
-                  sm:text-[13px]
+
+                  sm:text-[11px]
                 "
               >
                 {description}
@@ -986,128 +2001,262 @@ function EventCard({
             </div>
           )}
 
-          {/* BOOKING */}
+          {/* CAPACITY */}
 
           <div
             className="
               mt-auto
-              pt-5
+              pt-4
             "
           >
             <div
               className="
-                flex
-                items-center
-                justify-between
-                gap-3
-                text-[11px]
-              "
-            >
-              <span
-                className="
-                  font-medium
-                  text-gray-500
-                "
-              >
-                Booking capacity
-              </span>
+                rounded-xl
 
-              <span
-                className="
-                  font-semibold
-                  text-secondary
-                "
-              >
-                {booked} /{' '}
-                {total}
-              </span>
-            </div>
+                border
+                border-gray-100
 
-            <div
-              className="
-                mt-2
-                h-[3px]
-                overflow-hidden
-                rounded-full
-                bg-gray-100
+                bg-gray-50/70
+
+                p-3
               "
             >
               <div
                 className="
-                  h-full
-                  rounded-full
-                  bg-primary
+                  flex
+                  items-start
+                  justify-between
+                  gap-3
                 "
-                style={{
-                  width:
-                    `${progress}%`,
-                }}
-              />
+              >
+                <div>
+                  <p
+                    className="
+                      text-[8px]
+                      font-semibold
+
+                      uppercase
+
+                      tracking-[0.05em]
+
+                      text-gray-400
+                    "
+                  >
+                    Booking Capacity
+                  </p>
+
+                  <p
+                    className="
+                      mt-1
+
+                      text-[11px]
+                      font-semibold
+
+                      text-secondary
+                    "
+                  >
+                    {booked}{' '}
+                    booked
+                  </p>
+                </div>
+
+                <div
+                  className="
+                    text-right
+                  "
+                >
+                  <p
+                    className="
+                      text-[13px]
+                      font-bold
+
+                      text-secondary
+                    "
+                  >
+                    {booked}
+                    <span
+                      className="
+                        text-[9px]
+                        font-medium
+                        text-gray-400
+                      "
+                    >
+                      {' '}
+                      / {total}
+                    </span>
+                  </p>
+
+                  <p
+                    className="
+                      mt-0.5
+
+                      text-[8px]
+                      text-gray-400
+                    "
+                  >
+                    {remaining}{' '}
+                    remaining
+                  </p>
+                </div>
+              </div>
+
+              <div
+                className="
+                  mt-3
+
+                  h-1.5
+
+                  overflow-hidden
+
+                  rounded-full
+
+                  bg-gray-200/70
+                "
+              >
+                <motion.div
+                  initial={{
+                    width:
+                      0,
+                  }}
+                  animate={{
+                    width:
+                      `${progress}%`,
+                  }}
+                  transition={{
+                    duration:
+                      0.75,
+
+                    delay:
+                      0.25,
+
+                    ease:
+                      EASE,
+                  }}
+                  className={`
+                    h-full
+
+                    rounded-full
+
+                    ${
+                      progress >=
+                      90
+                        ? 'bg-secondary'
+                        : 'bg-primary'
+                    }
+                  `}
+                />
+              </div>
+
+              <div
+                className="
+                  mt-1.5
+
+                  flex
+                  justify-end
+                "
+              >
+                <span
+                  className="
+                    text-[8px]
+                    font-semibold
+
+                    text-gray-400
+                  "
+                >
+                  {Math.round(
+                    progress,
+                  )}
+                  % filled
+                </span>
+              </div>
             </div>
 
             {/* ACTIONS */}
 
             <div
               className="
-                mt-4
-                flex
-                items-center
-                justify-between
-                border-t
-                border-gray-100
-                pt-4
+                mt-3
+
+                grid
+                grid-cols-2
+                gap-2
               "
             >
               <Link
                 href={`/admin/eventmanagement/${event._id}/edit`}
                 className="
                   inline-flex
-                  h-9
+
+                  min-h-[38px]
+
                   items-center
-                  gap-2
+                  justify-center
+                  gap-1.5
+
                   rounded-lg
+
                   border
                   border-gray-200
+
                   bg-white
+
                   px-3
-                  text-xs
+
+                  text-[10px]
                   font-semibold
+
                   text-secondary
-                  transition-colors
-                  hover:border-gray-300
-                  hover:bg-gray-50
+
+                  transition-all
+
+                  hover:border-primary/25
+                  hover:bg-primary/[0.03]
+                  hover:text-primary
                 "
               >
                 <EditIcon />
 
-                Edit
+                Edit Event
               </Link>
 
               <button
                 type="button"
-                onClick={() =>
-                  void onDelete(
-                    event._id,
-                    event.eventName,
-                  )
-                }
                 disabled={
                   deleting
                 }
+                onClick={
+                  onDelete
+                }
                 className="
                   inline-flex
-                  h-9
+
+                  min-h-[38px]
+
                   cursor-pointer
+
                   items-center
-                  gap-2
+                  justify-center
+                  gap-1.5
+
                   rounded-lg
-                  px-2.5
-                  text-xs
-                  font-medium
+
+                  border
+                  border-transparent
+
+                  px-3
+
+                  text-[10px]
+                  font-semibold
+
                   text-gray-400
-                  transition-colors
+
+                  transition-all
+
+                  hover:border-red-100
                   hover:bg-red-50
                   hover:text-red-600
+
+                  disabled:cursor-wait
                   disabled:opacity-40
                 "
               >
@@ -1117,68 +2266,242 @@ function EventCard({
                   <TrashIcon />
                 )}
 
-                <span className="hidden sm:inline">
-                  {deleting
-                    ? 'Deleting'
-                    : 'Delete'}
-                </span>
+                {deleting
+                  ? 'Deleting'
+                  : 'Delete'}
               </button>
             </div>
           </div>
         </div>
       </div>
-    </article>
+    </motion.article>
   );
 }
 
 /* ============================================================
-   SUMMARY
+   SUMMARY CARD
 ============================================================ */
 
-function SummaryItem({
+function SummaryCard({
+  label,
+  value,
+  description,
+  icon,
+  accent = false,
+}: {
+  label:
+    string;
+
+  value:
+    number;
+
+  description:
+    string;
+
+  icon:
+    ReactNode;
+
+  accent?:
+    boolean;
+}) {
+  return (
+    <motion.article
+      whileHover={{
+        y:
+          -2,
+      }}
+      className="
+        min-w-0
+
+        rounded-xl
+
+        border
+        border-gray-200
+
+        bg-white
+
+        p-3
+
+        shadow-[0_4px_16px_rgba(27,75,107,0.025)]
+
+        sm:p-4
+      "
+    >
+      <div
+        className="
+          flex
+          items-start
+          justify-between
+          gap-2
+        "
+      >
+        <div
+          className="
+            min-w-0
+          "
+        >
+          <p
+            className="
+              text-[8px]
+              font-bold
+
+              uppercase
+
+              tracking-[0.06em]
+
+              text-gray-400
+
+              sm:text-[9px]
+            "
+          >
+            {label}
+          </p>
+
+          <p
+            className={`
+              mt-1
+
+              font-heading
+
+              text-[24px]
+              font-bold
+
+              tracking-[-0.04em]
+
+              sm:text-[27px]
+
+              ${
+                accent
+                  ? 'text-primary'
+                  : 'text-secondary'
+              }
+            `}
+          >
+            {value}
+          </p>
+
+          <p
+            className="
+              mt-0.5
+
+              truncate
+
+              text-[8px]
+
+              text-gray-400
+
+              sm:text-[9px]
+            "
+          >
+            {description}
+          </p>
+        </div>
+
+        <span
+          className="
+            grid
+            h-8
+            w-8
+            shrink-0
+
+            place-items-center
+
+            rounded-lg
+
+            bg-primary/[0.07]
+
+            text-primary
+
+            sm:h-9
+            sm:w-9
+          "
+        >
+          {icon}
+        </span>
+      </div>
+    </motion.article>
+  );
+}
+
+/* ============================================================
+   META BOX
+============================================================ */
+
+function MetaBox({
+  icon,
   label,
   value,
 }: {
-  label: string;
+  icon:
+    ReactNode;
 
-  value: number;
+  label:
+    string;
+
+  value:
+    string;
 }) {
   return (
     <div
       className="
-        border-r
-        border-gray-200
-        px-2
-        py-5
-        first:pl-0
-        last:border-r-0
-        sm:px-5
-        sm:py-6
+        flex
+        min-w-0
+        items-start
+        gap-2
+
+        rounded-lg
+
+        bg-gray-50/70
+
+        px-2.5
+        py-2
       "
     >
-      <p
+      <span
         className="
-          text-[11px]
-          font-medium
+          mt-0.5
+          shrink-0
           text-gray-400
-          sm:text-xs
         "
       >
-        {label}
-      </p>
+        {icon}
+      </span>
 
-      <p
+      <div
         className="
-          mt-1
-          text-[23px]
-          font-bold
-          tracking-[-0.025em]
-          text-secondary
-          sm:text-[26px]
+          min-w-0
         "
       >
-        {value}
-      </p>
+        <p
+          className="
+            text-[7px]
+            font-semibold
+
+            uppercase
+
+            tracking-[0.05em]
+
+            text-gray-400
+          "
+        >
+          {label}
+        </p>
+
+        <p
+          className="
+            mt-0.5
+
+            truncate
+
+            text-[9px]
+            font-medium
+
+            text-gray-600
+          "
+        >
+          {value}
+        </p>
+      </div>
     </div>
   );
 }
@@ -1200,18 +2523,46 @@ function StatusLabel({
     return (
       <span
         className="
-          rounded-md
-          bg-white
+          inline-flex
+          items-center
+          gap-1.5
+
+          rounded-full
+
+          border
+          border-emerald-100
+
+          bg-white/95
+
           px-2
           py-1
-          text-[10px]
+
+          text-[8px]
           font-bold
-          tracking-wide
-          text-[#278C78]
+
+          uppercase
+
+          tracking-[0.06em]
+
+          text-emerald-600
+
           shadow-sm
+
+          backdrop-blur
         "
       >
-        LIVE
+        <span
+          className="
+            h-1.5
+            w-1.5
+
+            rounded-full
+
+            bg-emerald-500
+          "
+        />
+
+        Live
       </span>
     );
   }
@@ -1223,17 +2574,29 @@ function StatusLabel({
     return (
       <span
         className="
-          rounded-md
-          bg-white
+          rounded-full
+
+          border
+          border-gray-100
+
+          bg-white/95
+
           px-2
           py-1
-          text-[10px]
-          font-semibold
+
+          text-[8px]
+          font-bold
+
+          uppercase
+
+          tracking-[0.05em]
+
           text-gray-500
+
           shadow-sm
         "
       >
-        COMPLETED
+        Completed
       </span>
     );
   }
@@ -1241,66 +2604,316 @@ function StatusLabel({
   return (
     <span
       className="
-        rounded-md
-        bg-white
+        rounded-full
+
+        border
+        border-blue-100
+
+        bg-white/95
+
         px-2
         py-1
-        text-[10px]
-        font-semibold
+
+        text-[8px]
+        font-bold
+
+        uppercase
+
+        tracking-[0.05em]
+
         text-secondary
+
         shadow-sm
       "
     >
-      UPCOMING
+      Upcoming
     </span>
   );
 }
 
 /* ============================================================
-   META ROW
+   DELETE MODAL
 ============================================================ */
 
-function MetaRow({
-  icon,
-  children,
+function DeleteModal({
+  target,
+  deleting,
+  onCancel,
+  onConfirm,
 }: {
-  icon:
-    React.ReactNode;
+  target:
+    DeleteTarget;
 
-  children:
-    React.ReactNode;
+  deleting:
+    boolean;
+
+  onCancel:
+    () => void;
+
+  onConfirm:
+    () => void;
 }) {
   return (
-    <div
-      className="
-        flex
-        min-w-0
-        items-center
-        gap-2
-        text-[12px]
-        leading-5
-        text-gray-500
-        sm:text-[13px]
-      "
-    >
-      <span
+    <>
+      <motion.button
+        type="button"
+        aria-label="Close delete dialog"
+        initial={{
+          opacity:
+            0,
+        }}
+        animate={{
+          opacity:
+            1,
+        }}
+        exit={{
+          opacity:
+            0,
+        }}
+        onClick={
+          onCancel
+        }
         className="
-          shrink-0
-          text-gray-400
-        "
-      >
-        {icon}
-      </span>
+          fixed
+          inset-0
+          z-[100]
 
-      <span
+          cursor-default
+
+          bg-secondary/30
+
+          backdrop-blur-[2px]
+        "
+      />
+
+      <div
         className="
-          min-w-0
-          truncate
+          fixed
+          inset-0
+          z-[110]
+
+          flex
+          items-end
+          justify-center
+
+          p-0
+
+          pointer-events-none
+
+          sm:items-center
+          sm:p-4
         "
       >
-        {children}
-      </span>
-    </div>
+        <motion.div
+          initial={{
+            opacity:
+              0,
+
+            y:
+              30,
+
+            scale:
+              0.98,
+          }}
+          animate={{
+            opacity:
+              1,
+
+            y:
+              0,
+
+            scale:
+              1,
+          }}
+          exit={{
+            opacity:
+              0,
+
+            y:
+              25,
+
+            scale:
+              0.98,
+          }}
+          transition={{
+            duration:
+              0.22,
+
+            ease:
+              EASE,
+          }}
+          className="
+            pointer-events-auto
+
+            w-full
+            max-w-[430px]
+
+            rounded-t-[20px]
+
+            border
+            border-gray-200
+
+            bg-white
+
+            p-4
+
+            shadow-[0_20px_60px_rgba(27,75,107,0.2)]
+
+            sm:rounded-[18px]
+            sm:p-5
+          "
+        >
+          <div
+            className="
+              flex
+              items-start
+              gap-3
+            "
+          >
+            <div
+              className="
+                grid
+                h-10
+                w-10
+                shrink-0
+
+                place-items-center
+
+                rounded-xl
+
+                bg-red-50
+
+                text-red-600
+              "
+            >
+              <TrashIcon />
+            </div>
+
+            <div
+              className="
+                min-w-0
+              "
+            >
+              <h2
+                className="
+                  text-[14px]
+                  font-semibold
+
+                  text-secondary
+                "
+              >
+                Delete Event?
+              </h2>
+
+              <p
+                className="
+                  mt-1
+
+                  text-[10px]
+                  leading-[17px]
+
+                  text-gray-500
+                "
+              >
+                You are about to
+                permanently delete{' '}
+                <strong
+                  className="
+                    font-semibold
+                    text-gray-700
+                  "
+                >
+                  {target.name}
+                </strong>
+                . This action cannot
+                be undone.
+              </p>
+            </div>
+          </div>
+
+          <div
+            className="
+              mt-5
+
+              grid
+              grid-cols-2
+              gap-2
+            "
+          >
+            <button
+              type="button"
+              disabled={
+                deleting
+              }
+              onClick={
+                onCancel
+              }
+              className="
+                min-h-[42px]
+
+                rounded-lg
+
+                border
+                border-gray-200
+
+                bg-white
+
+                text-[10px]
+                font-semibold
+
+                text-secondary
+
+                hover:bg-gray-50
+
+                disabled:opacity-50
+              "
+            >
+              Cancel
+            </button>
+
+            <button
+              type="button"
+              disabled={
+                deleting
+              }
+              onClick={
+                onConfirm
+              }
+              className="
+                inline-flex
+                min-h-[42px]
+
+                items-center
+                justify-center
+                gap-2
+
+                rounded-lg
+
+                bg-red-600
+
+                text-[10px]
+                font-semibold
+
+                text-white
+
+                hover:bg-red-700
+
+                disabled:cursor-wait
+                disabled:opacity-60
+              "
+            >
+              {deleting && (
+                <Spinner />
+              )}
+
+              {deleting
+                ? 'Deleting...'
+                : 'Delete Event'}
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    </>
   );
 }
 
@@ -1312,15 +2925,20 @@ function EventsSkeleton() {
   return (
     <section
       className="
-        mt-6
+        mt-4
+
         grid
         grid-cols-1
         gap-4
-        xl:grid-cols-2
+
+        sm:mt-5
+
+        min-[1450px]:grid-cols-2
       "
     >
       {Array.from({
-        length: 4,
+        length:
+          4,
       }).map(
         (
           _,
@@ -1332,9 +2950,12 @@ function EventsSkeleton() {
             }
             className="
               overflow-hidden
-              rounded-xl
+
+              rounded-[16px]
+
               border
               border-gray-200
+
               bg-white
             "
           >
@@ -1342,83 +2963,138 @@ function EventsSkeleton() {
               className="
                 grid
                 grid-cols-1
-                sm:grid-cols-[180px_minmax(0,1fr)]
-                lg:grid-cols-[200px_minmax(0,1fr)]
+
+                sm:grid-cols-[170px_minmax(0,1fr)]
+
+                lg:grid-cols-[190px_minmax(0,1fr)]
               "
             >
               <div
                 className="
-                  h-[190px]
+                  aspect-[16/8.5]
+
                   animate-pulse
+
                   bg-gray-100
-                  sm:h-full
+
+                  sm:aspect-auto
                   sm:min-h-[250px]
                 "
               />
 
-              <div className="p-5">
+              <div
+                className="
+                  p-4
+                "
+              >
                 <div
                   className="
-                    h-3
-                    w-20
-                    animate-pulse
-                    rounded
-                    bg-gray-100
-                  "
-                />
-
-                <div
-                  className="
-                    mt-3
                     h-5
                     w-3/4
+
                     animate-pulse
+
                     rounded
+
                     bg-gray-100
                   "
                 />
 
                 <div
                   className="
-                    mt-5
-                    h-3
-                    w-1/2
-                    animate-pulse
-                    rounded
-                    bg-gray-100
+                    mt-4
+
+                    grid
+                    grid-cols-2
+                    gap-2
                   "
-                />
+                >
+                  <div
+                    className="
+                      h-11
+
+                      animate-pulse
+
+                      rounded-lg
+
+                      bg-gray-100
+                    "
+                  />
+
+                  <div
+                    className="
+                      h-11
+
+                      animate-pulse
+
+                      rounded-lg
+
+                      bg-gray-100
+                    "
+                  />
+                </div>
 
                 <div
                   className="
-                    mt-3
-                    h-3
-                    w-2/3
-                    animate-pulse
-                    rounded
-                    bg-gray-100
-                  "
-                />
+                    mt-4
 
-                <div
-                  className="
-                    mt-5
-                    h-12
+                    h-8
+
                     animate-pulse
+
                     rounded
+
                     bg-gray-50
                   "
                 />
 
                 <div
                   className="
-                    mt-6
-                    h-9
+                    mt-5
+
+                    h-[86px]
+
                     animate-pulse
-                    rounded
+
+                    rounded-xl
+
                     bg-gray-100
                   "
                 />
+
+                <div
+                  className="
+                    mt-3
+
+                    grid
+                    grid-cols-2
+                    gap-2
+                  "
+                >
+                  <div
+                    className="
+                      h-9
+
+                      animate-pulse
+
+                      rounded-lg
+
+                      bg-gray-100
+                    "
+                  />
+
+                  <div
+                    className="
+                      h-9
+
+                      animate-pulse
+
+                      rounded-lg
+
+                      bg-gray-100
+                    "
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -1431,6 +3107,131 @@ function EventsSkeleton() {
 /* ============================================================
    ICONS
 ============================================================ */
+
+function RefreshIcon({
+  spinning,
+}: {
+  spinning:
+    boolean;
+}) {
+  return (
+    <svg
+      className={`h-4 w-4 ${
+        spinning
+          ? 'animate-spin'
+          : ''
+      }`}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.9}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M20 11a8 8 0 1 0-2.35 5.65M20 4v7h-7"
+      />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg
+      className="h-4 w-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        d="M12 5v14M5 12h14"
+      />
+    </svg>
+  );
+}
+
+function SearchIcon() {
+  return (
+    <svg
+      className="h-4 w-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.9}
+    >
+      <circle
+        cx="11"
+        cy="11"
+        r="6.5"
+      />
+
+      <path
+        strokeLinecap="round"
+        d="m16 16 4 4"
+      />
+    </svg>
+  );
+}
+
+function CloseSmallIcon() {
+  return (
+    <svg
+      className="h-3.5 w-3.5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        d="m6 6 12 12M18 6 6 18"
+      />
+    </svg>
+  );
+}
+
+function EventsIcon() {
+  return (
+    <svg
+      className="h-[17px] w-[17px]"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.8}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M8 3v4m8-4v4M4 9h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1Z"
+      />
+    </svg>
+  );
+}
+
+function LiveIcon() {
+  return (
+    <svg
+      className="h-[17px] w-[17px]"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.8}
+    >
+      <circle
+        cx="12"
+        cy="12"
+        r="2"
+      />
+
+      <path
+        strokeLinecap="round"
+        d="M7.8 7.8a6 6 0 0 0 0 8.4m8.4-8.4a6 6 0 0 1 0 8.4M5 5a10 10 0 0 0 0 14m14-14a10 10 0 0 1 0 14"
+      />
+    </svg>
+  );
+}
 
 function CalendarIcon() {
   return (
@@ -1445,6 +3246,24 @@ function CalendarIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
         d="M8 7V3m8 4V3M5 11h14M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z"
+      />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg
+      className="h-[17px] w-[17px]"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m5 12 4 4L19 6"
       />
     </svg>
   );
@@ -1495,7 +3314,7 @@ function EditIcon() {
 function TrashIcon() {
   return (
     <svg
-      className="h-3.5 w-3.5"
+      className="h-4 w-4"
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
@@ -1534,3 +3353,92 @@ function Spinner() {
     </svg>
   );
 }
+
+function AlertIcon() {
+  return (
+    <svg
+      className="h-4 w-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <circle
+        cx="12"
+        cy="12"
+        r="9"
+      />
+
+      <path
+        strokeLinecap="round"
+        d="M12 8v5M12 16h.01"
+      />
+    </svg>
+  );
+}
+
+function CheckCircleIcon() {
+  return (
+    <svg
+      className="h-4 w-4 shrink-0"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <circle
+        cx="12"
+        cy="12"
+        r="9"
+      />
+
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m8 12 2.5 2.5L16.5 9"
+      />
+    </svg>
+  );
+}
+
+function ImagePlaceholderIcon() {
+  return (
+    <svg
+      className="h-9 w-9"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.5}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M3 16.5l5.5-5.5 4 4L15 12.5l6 6M5 5h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z"
+      />
+    </svg>
+  );
+}
+
+function SearchEmptyIcon() {
+  return (
+    <svg
+      className="h-5 w-5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.8}
+    >
+      <circle
+        cx="10"
+        cy="10"
+        r="6"
+      />
+
+      <path
+        strokeLinecap="round"
+        d="m15 15 5 5M8 8l4 4m0-4-4 4"
+      />
+    </svg>
+  );
+}
+

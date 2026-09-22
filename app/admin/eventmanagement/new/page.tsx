@@ -1,43 +1,70 @@
 'use client';
 
-import Link from 'next/link';
-import Image from 'next/image';
-
-import {
+import type {
   ChangeEvent,
   FormEvent,
+  ReactNode,
+} from 'react';
+
+import {
   useEffect,
   useMemo,
   useState,
 } from 'react';
 
+import Image from 'next/image';
+import Link from 'next/link';
+
 import {
   useRouter,
 } from 'next/navigation';
+
+import {
+  AnimatePresence,
+  motion,
+} from 'framer-motion';
 
 import BookingTemplateSelector from '@/app/components/admin/booking-templates/BookingTemplateSelector';
 
 import {
   BookingFormTemplate,
   DEFAULT_BOOKING_TEMPLATE,
+  isBookingFormTemplate,
 } from '@/app/components/admin/booking-templates/types';
+
+/* ============================================================
+   TYPES
+============================================================ */
 
 type DaySchedule = {
   startTime: string;
   endTime: string;
+
   lunchEnabled: boolean;
   lunchStart: string;
   lunchEnd: string;
+
   slotDuration: string;
   slotGap: string;
   capacity: string;
+
   sameAsDay1: boolean;
 };
 
 type ThumbnailPreview = {
   name: string;
   url: string;
+  local: boolean;
 };
+
+type SubmissionState =
+  | 'idle'
+  | 'creating'
+  | 'success';
+
+/* ============================================================
+   CONSTANTS
+============================================================ */
 
 const GAP_OPTIONS = [
   0,
@@ -50,6 +77,132 @@ const GAP_OPTIONS = [
   30,
 ];
 
+const EASE = [
+  0.16,
+  1,
+  0.3,
+  1,
+] as const;
+
+const inputClass = `
+  h-10
+  w-full
+  min-w-0
+
+  rounded-lg
+
+  border
+  border-gray-200
+
+  bg-white
+
+  px-3
+
+  text-[11px]
+  font-medium
+
+  text-secondary
+
+  outline-none
+
+  transition-all
+  duration-150
+
+  placeholder:text-gray-400
+
+  hover:border-gray-300
+
+  focus:border-primary/45
+  focus:ring-2
+  focus:ring-primary/10
+
+  disabled:cursor-not-allowed
+  disabled:border-gray-100
+  disabled:bg-gray-50
+  disabled:text-gray-400
+
+  sm:text-[12px]
+`;
+
+const selectClass = `
+  ${inputClass}
+  cursor-pointer
+`;
+
+const secondaryButton = `
+  inline-flex
+  h-10
+
+  items-center
+  justify-center
+  gap-1.5
+
+  rounded-lg
+
+  border
+  border-gray-200
+
+  bg-white
+
+  px-3.5
+
+  text-[10px]
+  font-semibold
+
+  text-secondary
+
+  transition-all
+  duration-150
+
+  hover:border-gray-300
+  hover:bg-gray-50
+
+  focus:outline-none
+  focus:ring-2
+  focus:ring-primary/10
+
+  disabled:cursor-not-allowed
+  disabled:opacity-50
+`;
+
+const primaryButton = `
+  inline-flex
+  h-10
+
+  items-center
+  justify-center
+  gap-1.5
+
+  rounded-lg
+
+  bg-primary
+
+  px-4
+
+  text-[10px]
+  font-semibold
+
+  text-white
+
+  shadow-[0_4px_14px_rgba(26,158,143,0.18)]
+
+  transition-all
+  duration-150
+
+  hover:bg-primary-dark
+
+  focus:outline-none
+  focus:ring-2
+  focus:ring-primary/20
+
+  disabled:cursor-not-allowed
+  disabled:opacity-50
+`;
+
+/* ============================================================
+   DEFAULT DAY
+============================================================ */
+
 const createDaySchedule = (
   sameAsDay1 = false,
 ): DaySchedule => ({
@@ -57,17 +210,19 @@ const createDaySchedule = (
   endTime: '17:00',
 
   lunchEnabled: true,
-
   lunchStart: '13:00',
   lunchEnd: '14:00',
 
   slotDuration: '20',
   slotGap: '10',
-
   capacity: '20',
 
   sameAsDay1,
 });
+
+/* ============================================================
+   DATE
+============================================================ */
 
 function parseLocalDate(
   value: string,
@@ -76,10 +231,9 @@ function parseLocalDate(
     year,
     month,
     day,
-  ] =
-    value
-      .split('-')
-      .map(Number);
+  ] = value
+    .split('-')
+    .map(Number);
 
   return new Date(
     year,
@@ -133,7 +287,7 @@ function formatDate(
   value: string,
 ) {
   if (!value) {
-    return 'Select a start date';
+    return 'Date not selected';
   }
 
   return new Intl.DateTimeFormat(
@@ -150,6 +304,30 @@ function formatDate(
   );
 }
 
+function formatCompactDate(
+  value: string,
+) {
+  if (!value) {
+    return '—';
+  }
+
+  return new Intl.DateTimeFormat(
+    'en-IN',
+    {
+      day: 'numeric',
+      month: 'short',
+    },
+  ).format(
+    parseLocalDate(
+      value,
+    ),
+  );
+}
+
+/* ============================================================
+   TIME
+============================================================ */
+
 function timeToMinutes(
   value: string,
 ) {
@@ -160,10 +338,9 @@ function timeToMinutes(
   const [
     hours,
     minutes,
-  ] =
-    value
-      .split(':')
-      .map(Number);
+  ] = value
+    .split(':')
+    .map(Number);
 
   return (
     hours * 60 +
@@ -196,6 +373,10 @@ function formatTime(
     '0',
   )}`;
 }
+
+/* ============================================================
+   SCHEDULE HELPERS
+============================================================ */
 
 function copyDay1Schedule(
   day1: DaySchedule,
@@ -255,12 +436,16 @@ function generateSlots(
 
   if (
     schedule.lunchEnabled &&
-    (!lunchStart ||
+    (
+      !lunchStart ||
       !lunchEnd ||
       lunchEnd <=
         lunchStart ||
-      lunchStart < start ||
-      lunchEnd > end)
+      lunchStart <
+        start ||
+      lunchEnd >
+        end
+    )
   ) {
     return [];
   }
@@ -312,21 +497,32 @@ function generateSlots(
   return slots;
 }
 
-const inputClass =
-  'h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-secondary outline-none transition duration-150 placeholder:text-gray-400 hover:border-gray-300 focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400';
-
-const selectClass =
-  `${inputClass} cursor-pointer`;
-
-const labelClass =
-  'mb-1.5 block text-xs font-semibold text-secondary';
-
-const buttonBase =
-  'inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg font-semibold transition duration-150 focus:outline-none focus:ring-2 focus:ring-primary/25 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60';
+/* ============================================================
+   PAGE
+============================================================ */
 
 export default function CreateNewEventPage() {
   const router =
     useRouter();
+
+  /* ==========================================================
+     EVENT
+  ========================================================== */
+
+  const [
+    eventName,
+    setEventName,
+  ] = useState('');
+
+  const [
+    eventType,
+    setEventType,
+  ] = useState<
+    | 'conference'
+    | 'mantram'
+    | 'event'
+    | ''
+  >('');
 
   const [
     bookingFormTemplate,
@@ -337,22 +533,33 @@ export default function CreateNewEventPage() {
     );
 
   const [
+    venue,
+    setVenue,
+  ] = useState('');
+
+  const [
+    description,
+    setDescription,
+  ] = useState('');
+
+  const [
     numberOfDays,
     setNumberOfDays,
-  ] =
-    useState(1);
+  ] = useState(1);
 
   const [
     startDate,
     setStartDate,
-  ] =
-    useState('');
+  ] = useState('');
 
   const [
     formError,
     setFormError,
-  ] =
-    useState('');
+  ] = useState('');
+
+  /* ==========================================================
+     IMAGE
+  ========================================================== */
 
   const [
     thumbnailPreview,
@@ -363,39 +570,76 @@ export default function CreateNewEventPage() {
     );
 
   const [
+    selectedThumbnail,
+    setSelectedThumbnail,
+  ] =
+    useState<File | null>(
+      null,
+    );
+
+  /* ==========================================================
+     SUBMISSION
+  ========================================================== */
+
+  const [
     submissionState,
     setSubmissionState,
   ] =
-    useState<
-      | 'idle'
-      | 'creating'
-      | 'success'
-    >(
+    useState<SubmissionState>(
       'idle',
     );
+
+  /* ==========================================================
+     SCHEDULE
+  ========================================================== */
 
   const [
     daySchedules,
     setDaySchedules,
   ] =
-    useState<
-      DaySchedule[]
-    >(() =>
-      Array.from(
-        {
-          length:
-            10,
-        },
-        (
-          _,
-          index,
-        ) =>
-          createDaySchedule(
-            index >
-              0,
-          ),
-      ),
+    useState<DaySchedule[]>(
+      () =>
+        Array.from(
+          {
+            length: 10,
+          },
+          (
+            _,
+            index,
+          ) =>
+            createDaySchedule(
+              index > 0,
+            ),
+        ),
     );
+
+  const [
+    selectedDayIndex,
+    setSelectedDayIndex,
+  ] = useState(0);
+
+  /* ==========================================================
+     CLEANUP IMAGE URL
+  ========================================================== */
+
+  useEffect(() => {
+    return () => {
+      if (
+        thumbnailPreview
+          ?.local
+      ) {
+        URL.revokeObjectURL(
+          thumbnailPreview.url,
+        );
+      }
+    };
+  }, [
+    thumbnailPreview,
+  ]);
+
+  /* ==========================================================
+     COMPUTED DATES
+  ========================================================== */
 
   const eventDates =
     useMemo(
@@ -428,6 +672,10 @@ export default function CreateNewEventPage() {
         1
     ] ?? '';
 
+  /* ==========================================================
+     GENERATED SLOTS
+  ========================================================== */
+
   const generatedSlots =
     useMemo(
       () =>
@@ -450,37 +698,81 @@ export default function CreateNewEventPage() {
       ],
     );
 
-  useEffect(() => {
-    return () => {
-      if (
-        thumbnailPreview?.url
-      ) {
-        URL.revokeObjectURL(
-          thumbnailPreview.url,
-        );
-      }
-    };
-  }, [
-    thumbnailPreview,
-  ]);
+  const activeDayIndex =
+    Math.min(
+      selectedDayIndex,
+      Math.max(
+        numberOfDays -
+          1,
+        0,
+      ),
+    );
+
+  const activeSchedule =
+    daySchedules[
+      activeDayIndex
+    ];
+
+  const activeSlots =
+    generatedSlots[
+      activeDayIndex
+    ] ?? [];
+
+  const activeCapacity =
+    Number(
+      activeSchedule
+        ?.capacity ||
+        0,
+    );
+
+  const totalDayCapacity =
+    activeSlots.length *
+    activeCapacity;
+
+  /* ==========================================================
+     IMAGE
+  ========================================================== */
 
   function handleThumbnailChange(
-    event: ChangeEvent<HTMLInputElement>,
+    event:
+      ChangeEvent<HTMLInputElement>,
   ) {
     const file =
-      event.target.files?.[0];
+      event.target
+        .files?.[0];
 
     if (!file) {
       return;
     }
 
     if (
-      thumbnailPreview?.url
+      ![
+        'image/jpeg',
+        'image/png',
+        'image/webp',
+      ].includes(
+        file.type,
+      )
+    ) {
+      setFormError(
+        'Please select a JPG, PNG or WebP image.',
+      );
+
+      return;
+    }
+
+    if (
+      thumbnailPreview
+        ?.local
     ) {
       URL.revokeObjectURL(
         thumbnailPreview.url,
       );
     }
+
+    setSelectedThumbnail(
+      file,
+    );
 
     setThumbnailPreview({
       name:
@@ -490,21 +782,32 @@ export default function CreateNewEventPage() {
         URL.createObjectURL(
           file,
         ),
+
+      local:
+        true,
     });
 
     setFormError('');
   }
 
+  /* ==========================================================
+     UPDATE SCHEDULE
+  ========================================================== */
+
   function updateDaySchedule(
     index: number,
+
     field:
       keyof DaySchedule,
+
     value:
       | string
       | boolean,
   ) {
     setDaySchedules(
-      (current) => {
+      (
+        current,
+      ) => {
         const next =
           current.map(
             (
@@ -514,44 +817,38 @@ export default function CreateNewEventPage() {
             }),
           );
 
-        next[
-          index
-        ] = {
-          ...next[
-            index
-          ],
+        next[index] = {
+          ...next[index],
 
           [field]:
             value,
         };
 
         if (
-          index ===
-            0 &&
+          index === 0 &&
           field !==
             'sameAsDay1'
         ) {
           for (
             let dayIndex =
               1;
+
             dayIndex <
             next.length;
+
             dayIndex +=
               1
           ) {
             if (
               next[
                 dayIndex
-              ]
-                .sameAsDay1
+              ].sameAsDay1
             ) {
               next[
                 dayIndex
               ] =
                 copyDay1Schedule(
-                  next[
-                    0
-                  ],
+                  next[0],
                   true,
                 );
             }
@@ -565,6 +862,10 @@ export default function CreateNewEventPage() {
     setFormError('');
   }
 
+  /* ==========================================================
+     SAME AS DAY 1
+  ========================================================== */
+
   function toggleSameAsDay1(
     index: number,
     checked: boolean,
@@ -576,7 +877,9 @@ export default function CreateNewEventPage() {
     }
 
     setDaySchedules(
-      (current) =>
+      (
+        current,
+      ) =>
         current.map(
           (
             schedule,
@@ -593,15 +896,14 @@ export default function CreateNewEventPage() {
               checked
             ) {
               return copyDay1Schedule(
-                current[
-                  0
-                ],
+                current[0],
                 true,
               );
             }
 
             return {
               ...schedule,
+
               sameAsDay1:
                 false,
             };
@@ -614,14 +916,15 @@ export default function CreateNewEventPage() {
 
   function applyDay1ToAll() {
     setDaySchedules(
-      (current) =>
+      (
+        current,
+      ) =>
         current.map(
           (
             schedule,
             index,
           ) =>
-            index ===
-            0
+            index === 0
               ? {
                   ...schedule,
 
@@ -629,9 +932,7 @@ export default function CreateNewEventPage() {
                     false,
                 }
               : copyDay1Schedule(
-                  current[
-                    0
-                  ],
+                  current[0],
                   true,
                 ),
         ),
@@ -640,9 +941,38 @@ export default function CreateNewEventPage() {
     setFormError('');
   }
 
+  function handleDaysChange(
+    value: number,
+  ) {
+    setNumberOfDays(
+      value,
+    );
+
+    if (
+      selectedDayIndex >=
+      value
+    ) {
+      setSelectedDayIndex(
+        Math.max(
+          value - 1,
+          0,
+        ),
+      );
+    }
+
+    setFormError('');
+  }
+
+  /* ==========================================================
+     VALIDATION
+  ========================================================== */
+
   function validateSchedule(
-    schedule: DaySchedule,
-    index: number,
+    schedule:
+      DaySchedule,
+
+    index:
+      number,
   ) {
     const start =
       timeToMinutes(
@@ -714,10 +1044,8 @@ export default function CreateNewEventPage() {
     }
 
     if (
-      capacity <
-        1 ||
-      capacity >
-        20
+      capacity < 1 ||
+      capacity > 20
     ) {
       return `Day ${
         index + 1
@@ -738,16 +1066,57 @@ export default function CreateNewEventPage() {
     return '';
   }
 
+  /* ==========================================================
+     CREATE EVENT
+  ========================================================== */
+
   async function handleSubmit(
-    event: FormEvent<HTMLFormElement>,
+    event:
+      FormEvent<HTMLFormElement>,
   ) {
     event.preventDefault();
 
     setFormError('');
 
     if (
-      !startDate
+      !eventName.trim()
     ) {
+      setFormError(
+        'Please enter an event name.',
+      );
+
+      return;
+    }
+
+    if (!eventType) {
+      setFormError(
+        'Please select an event type.',
+      );
+
+      return;
+    }
+
+    if (
+      !venue.trim()
+    ) {
+      setFormError(
+        'Please enter the venue or location.',
+      );
+
+      return;
+    }
+
+    if (
+      !description.trim()
+    ) {
+      setFormError(
+        'Please enter an event description.',
+      );
+
+      return;
+    }
+
+    if (!startDate) {
       setFormError(
         'Please select a start date.',
       );
@@ -755,11 +1124,24 @@ export default function CreateNewEventPage() {
       return;
     }
 
+    if (
+      !isBookingFormTemplate(
+        bookingFormTemplate,
+      )
+    ) {
+      setFormError(
+        'Please select a valid registration form template.',
+      );
+
+      return;
+    }
+
     for (
-      let index =
-        0;
+      let index = 0;
+
       index <
       numberOfDays;
+
       index += 1
     ) {
       const error =
@@ -770,9 +1152,11 @@ export default function CreateNewEventPage() {
           index,
         );
 
-      if (
-        error
-      ) {
+      if (error) {
+        setSelectedDayIndex(
+          index,
+        );
+
         setFormError(
           error,
         );
@@ -787,13 +1171,31 @@ export default function CreateNewEventPage() {
 
     try {
       const formData =
-        new FormData(
-          event.currentTarget,
-        );
+        new FormData();
+
+      formData.set(
+        'eventName',
+        eventName.trim(),
+      );
+
+      formData.set(
+        'eventType',
+        eventType,
+      );
 
       formData.set(
         'bookingFormTemplate',
         bookingFormTemplate,
+      );
+
+      formData.set(
+        'venue',
+        venue.trim(),
+      );
+
+      formData.set(
+        'description',
+        description.trim(),
       );
 
       formData.set(
@@ -812,6 +1214,15 @@ export default function CreateNewEventPage() {
         'endDate',
         endDate,
       );
+
+      if (
+        selectedThumbnail
+      ) {
+        formData.set(
+          'thumbnail',
+          selectedThumbnail,
+        );
+      }
 
       const schedulesToSubmit =
         daySchedules
@@ -840,7 +1251,7 @@ export default function CreateNewEventPage() {
         ),
       );
 
-      const res =
+      const response =
         await fetch(
           '/api/events',
           {
@@ -849,14 +1260,17 @@ export default function CreateNewEventPage() {
 
             body:
               formData,
+
+            cache:
+              'no-store',
           },
         );
 
       const data =
-        await res.json();
+        await response.json();
 
       if (
-        !res.ok ||
+        !response.ok ||
         !data.success
       ) {
         throw new Error(
@@ -871,13 +1285,13 @@ export default function CreateNewEventPage() {
 
       window.setTimeout(
         () => {
-          router.push(
+          router.replace(
             '/admin/eventmanagement',
           );
 
           router.refresh();
         },
-        900,
+        650,
       );
     } catch (
       error: unknown
@@ -887,127 +1301,322 @@ export default function CreateNewEventPage() {
       );
 
       setFormError(
-        error instanceof
-          Error
+        error instanceof Error
           ? error.message
           : 'An error occurred while creating the event.',
       );
     }
   }
 
+  /* ==========================================================
+     PAGE
+  ========================================================== */
+
   return (
-    <form
+    <motion.form
+      initial={{
+        opacity: 0,
+        y: 4,
+      }}
+      animate={{
+        opacity: 1,
+        y: 0,
+      }}
+      transition={{
+        duration: 0.3,
+        ease: EASE,
+      }}
       onSubmit={
         handleSubmit
       }
-      className="mx-auto w-full max-w-[1600px] space-y-4 pb-6"
+      className="
+        mx-auto
+
+        w-full
+        min-w-0
+        max-w-[1600px]
+
+        space-y-3
+
+        pb-6
+      "
     >
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="font-heading text-2xl font-bold text-secondary sm:text-3xl">
-            Create New Event
-          </h1>
+      {/* ACTION BAR */}
 
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-gray-500">
-            Enter event details, choose the registration
-            form and configure booking slots.
-          </p>
-        </div>
+      <div
+        className="
+          sticky
+          top-2
+          z-30
 
-        <div className="flex shrink-0 items-center gap-3">
-          <Link
-            href="/admin/eventmanagement"
-            className={`${buttonBase} h-10 border border-gray-200 bg-white px-5 text-sm text-secondary hover:border-gray-300 hover:bg-gray-50`}
-          >
-            ← Back
-          </Link>
+          flex
+          items-center
+          justify-between
+          gap-3
 
-          <button
-            type="submit"
-            disabled={
-              submissionState !==
-              'idle'
-            }
-            className={`${buttonBase} h-10 bg-primary px-6 text-sm text-white shadow-sm hover:brightness-95 hover:shadow-md`}
-          >
-            {submissionState ===
-            'creating'
-              ? 'Creating...'
-              : submissionState ===
-                  'success'
-                ? 'Created'
-                : 'Confirm Event'}
-          </button>
-        </div>
-      </header>
+          rounded-xl
 
-      {formError && (
-        <div
-          role="alert"
-          className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 shadow-sm"
+          border
+          border-gray-200
+
+          bg-white/95
+
+          p-2
+
+          shadow-[0_4px_18px_rgba(27,75,107,0.055)]
+
+          backdrop-blur-xl
+        "
+      >
+        <Link
+          href="/admin/eventmanagement"
+          className={
+            secondaryButton
+          }
         >
-          {formError}
-        </div>
-      )}
+          <BackIcon />
 
-      <div className="grid items-start gap-5 2xl:grid-cols-[minmax(360px,0.78fr)_minmax(0,1.22fr)]">
-        <div className="space-y-5">
-          <section className="card space-y-5 p-4 sm:p-5 lg:p-6">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-primary">
-                Section 1
-              </p>
+          <span>
+            Back
+          </span>
+        </Link>
 
-              <h2 className="mt-1 text-lg font-bold text-secondary">
-                Event details
-              </h2>
-            </div>
+        <motion.button
+          type="submit"
+          whileTap={{
+            scale: 0.98,
+          }}
+          disabled={
+            submissionState !==
+            'idle'
+          }
+          className={
+            primaryButton
+          }
+        >
+          {submissionState ===
+          'creating' ? (
+            <>
+              <Spinner />
 
-            <div>
-              <label
-                htmlFor="eventName"
-                className={
-                  labelClass
-                }
-              >
-                Event/Conference Name/Mantram
+              Creating...
+            </>
+          ) : submissionState ===
+            'success' ? (
+            <>
+              <CheckIcon />
 
-                <span className="ml-1 text-red-500">
-                  *
-                </span>
-              </label>
+              Created
+            </>
+          ) : (
+            <>
+              <AddIcon />
 
-              <input
-                id="eventName"
-                name="eventName"
+              Create Event
+            </>
+          )}
+        </motion.button>
+      </div>
+
+      {/* ERROR */}
+
+      <AnimatePresence>
+        {formError && (
+          <motion.div
+            initial={{
+              opacity: 0,
+              y: -5,
+            }}
+            animate={{
+              opacity: 1,
+              y: 0,
+            }}
+            exit={{
+              opacity: 0,
+              y: -5,
+            }}
+            className="
+              flex
+              items-start
+              gap-2.5
+
+              rounded-lg
+
+              border
+              border-red-200
+
+              bg-red-50
+
+              px-3
+              py-2.5
+            "
+          >
+            <span
+              className="
+                mt-0.5
+                shrink-0
+
+                text-red-500
+              "
+            >
+              <AlertIcon />
+            </span>
+
+            <p
+              className="
+                min-w-0
+                flex-1
+
+                text-[10px]
+                font-medium
+
+                leading-4
+
+                text-red-700
+              "
+            >
+              {formError}
+            </p>
+
+            <button
+              type="button"
+              onClick={() =>
+                setFormError('')
+              }
+              className="
+                shrink-0
+
+                text-[9px]
+                font-semibold
+
+                text-red-600
+              "
+            >
+              Dismiss
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* MAIN LAYOUT */}
+
+      <div
+        className="
+          grid
+          min-w-0
+          items-start
+          gap-3
+
+          xl:grid-cols-[minmax(430px,0.92fr)_minmax(0,1.28fr)]
+        "
+      >
+        {/* ====================================================
+            EVENT DETAILS
+        ==================================================== */}
+
+        <motion.section
+          initial={{
+            opacity: 0,
+            y: 6,
+          }}
+          animate={{
+            opacity: 1,
+            y: 0,
+          }}
+          transition={{
+            delay: 0.03,
+            duration: 0.3,
+          }}
+          className="
+            min-w-0
+
+            overflow-hidden
+
+            rounded-xl
+
+            border
+            border-gray-200
+
+            bg-white
+
+            shadow-[0_3px_14px_rgba(27,75,107,0.025)]
+          "
+        >
+          <CardHeader
+            icon={
+              <EventIcon />
+            }
+            title="Event Details"
+          />
+
+          <div
+            className="
+              p-3
+
+              sm:p-3.5
+            "
+          >
+            <div
+              className="
+                grid
+                grid-cols-1
+                gap-x-3
+                gap-y-2.5
+
+                sm:grid-cols-2
+              "
+            >
+              <Field
+                label="Event Name"
                 required
-                className={
-                  inputClass
-                }
-                placeholder="Enter event name"
-              />
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label
-                  htmlFor="eventType"
-                  className={
-                    labelClass
+                className="sm:col-span-2"
+              >
+                <input
+                  name="eventName"
+                  required
+                  value={
+                    eventName
                   }
-                >
-                  Event Type
+                  onChange={(
+                    event,
+                  ) => {
+                    setEventName(
+                      event.target
+                        .value,
+                    );
 
-                  <span className="ml-1 text-red-500">
-                    *
-                  </span>
-                </label>
+                    setFormError('');
+                  }}
+                  placeholder="Enter event name"
+                  className={
+                    inputClass
+                  }
+                />
+              </Field>
 
+              <Field
+                label="Event Type"
+                required
+              >
                 <select
-                  id="eventType"
                   name="eventType"
                   required
-                  defaultValue=""
+                  value={
+                    eventType
+                  }
+                  onChange={(
+                    event,
+                  ) => {
+                    setEventType(
+                      event.target
+                        .value as
+                        | 'conference'
+                        | 'mantram'
+                        | 'event',
+                    );
+
+                    setFormError('');
+                  }}
                   className={
                     selectClass
                   }
@@ -1016,7 +1625,7 @@ export default function CreateNewEventPage() {
                     value=""
                     disabled
                   >
-                    Select event type
+                    Select type
                   </option>
 
                   <option value="conference">
@@ -1031,303 +1640,569 @@ export default function CreateNewEventPage() {
                     Event
                   </option>
                 </select>
-              </div>
+              </Field>
 
-              <div>
-                <label
-                  htmlFor="venue"
-                  className={
-                    labelClass
-                  }
-                >
-                  Venue/Location
-
-                  <span className="ml-1 text-red-500">
-                    *
-                  </span>
-                </label>
-
+              <Field
+                label="Venue / Location"
+                required
+              >
                 <input
-                  id="venue"
                   name="venue"
                   required
+                  value={
+                    venue
+                  }
+                  onChange={(
+                    event,
+                  ) => {
+                    setVenue(
+                      event.target
+                        .value,
+                    );
+
+                    setFormError('');
+                  }}
+                  placeholder="Enter venue"
                   className={
                     inputClass
                   }
-                  placeholder="Enter venue and city"
                 />
-              </div>
-            </div>
+              </Field>
 
-            <BookingTemplateSelector
-              value={
-                bookingFormTemplate
-              }
-              onChange={(
-                value,
-              ) => {
-                setBookingFormTemplate(
-                  value,
-                );
-
-                setFormError('');
-              }}
-            />
-
-            <div>
-              <label
-                htmlFor="description"
-                className={
-                  labelClass
-                }
-              >
-                Description
-
-                <span className="ml-1 text-red-500">
-                  *
-                </span>
-              </label>
-
-              <textarea
-                id="description"
-                name="description"
+              <Field
+                label="Description"
                 required
-                rows={4}
-                className={`${inputClass} h-auto min-h-24 resize-y py-2.5`}
-                placeholder="Describe the event"
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="thumbnail"
-                className={
-                  labelClass
-                }
+                hint={`${description.length} characters`}
+                className="sm:col-span-2"
               >
-                Event Thumbnail
-
-                <span className="ml-1 font-normal text-gray-400">
-                  (Optional)
-                </span>
-              </label>
-
-              <label
-                htmlFor="thumbnail"
-                className={`group block cursor-pointer overflow-hidden rounded-xl border transition duration-150 ${
-                  thumbnailPreview
-                    ? 'border-gray-200 bg-white hover:border-primary/40'
-                    : 'border-dashed border-primary/40 bg-primary/[0.03] hover:border-primary'
-                }`}
-              >
-                {thumbnailPreview ? (
-                  <div className="flex items-center gap-3 p-3">
-                    <div className="h-16 w-20 overflow-hidden rounded-lg border border-gray-200">
-                      <Image
-                        src={
-                          thumbnailPreview.url
-                        }
-                        alt="Preview"
-                        width={80}
-                        height={64}
-                        unoptimized
-                        className="h-full w-full object-cover"
-                      />
-                    </div>
-
-                    <p className="min-w-0 truncate text-sm font-semibold text-secondary">
-                      {
-                        thumbnailPreview.name
-                      }
-                    </p>
-                  </div>
-                ) : (
-                  <div className="p-4">
-                    <p className="text-sm font-semibold text-secondary">
-                      Choose an image
-                    </p>
-
-                    <p className="mt-1 text-xs text-gray-500">
-                      JPG, PNG or WebP
-                    </p>
-                  </div>
-                )}
-
-                <input
-                  id="thumbnail"
-                  name="thumbnail"
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  onChange={
-                    handleThumbnailChange
-                  }
-                  className="sr-only"
-                />
-              </label>
-            </div>
-          </section>
-
-          <section className="card space-y-5 p-4 sm:p-5 lg:p-6">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-primary">
-                Section 2
-              </p>
-
-              <h2 className="mt-1 text-lg font-bold text-secondary">
-                Event duration
-              </h2>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-3 2xl:grid-cols-1">
-              <div>
-                <label
-                  htmlFor="numberOfDays"
-                  className={
-                    labelClass
-                  }
-                >
-                  Number of Days
-                </label>
-
-                <select
-                  id="numberOfDays"
-                  name="numberOfDays"
-                  value={
-                    numberOfDays
-                  }
-                  onChange={(
-                    event,
-                  ) =>
-                    setNumberOfDays(
-                      Number(
-                        event.target
-                          .value,
-                      ),
-                    )
-                  }
-                  className={
-                    selectClass
-                  }
-                >
-                  {Array.from(
-                    {
-                      length:
-                        10,
-                    },
-                    (
-                      _,
-                      index,
-                    ) =>
-                      index +
-                      1,
-                  ).map(
-                    (
-                      days,
-                    ) => (
-                      <option
-                        key={
-                          days
-                        }
-                        value={
-                          days
-                        }
-                      >
-                        {
-                          days
-                        }{' '}
-                        {days ===
-                        1
-                          ? 'day'
-                          : 'days'}
-                      </option>
-                    ),
-                  )}
-                </select>
-              </div>
-
-              <div>
-                <label
-                  htmlFor="startDate"
-                  className={
-                    labelClass
-                  }
-                >
-                  Start Date
-                </label>
-
-                <input
-                  id="startDate"
-                  name="startDate"
-                  type="date"
+                <textarea
+                  name="description"
                   required
+                  rows={3}
                   value={
-                    startDate
+                    description
                   }
                   onChange={(
                     event,
-                  ) =>
-                    setStartDate(
+                  ) => {
+                    setDescription(
                       event.target
                         .value,
-                    )
-                  }
-                  className={`${inputClass} cursor-pointer`}
-                />
-              </div>
+                    );
 
-              <div>
-                <label
-                  htmlFor="endDate"
-                  className={
-                    labelClass
-                  }
+                    setFormError('');
+                  }}
+                  placeholder="Event description"
+                  className={`
+                    ${inputClass}
+
+                    h-[70px]
+
+                    resize-none
+
+                    py-2.5
+
+                    leading-[17px]
+                  `}
+                />
+              </Field>
+            </div>
+
+            {/* DURATION */}
+
+            <div
+              className="
+                mt-3
+
+                border-t
+                border-gray-100
+
+                pt-3
+              "
+            >
+              <SubHeading
+                icon={
+                  <CalendarIcon />
+                }
+                label="Event Duration"
+              />
+
+              <div
+                className="
+                  mt-2
+
+                  grid
+                  grid-cols-1
+                  gap-2.5
+
+                  min-[430px]:grid-cols-3
+                "
+              >
+                <Field label="Days">
+                  <select
+                    value={
+                      numberOfDays
+                    }
+                    onChange={(
+                      event,
+                    ) =>
+                      handleDaysChange(
+                        Number(
+                          event.target
+                            .value,
+                        ),
+                      )
+                    }
+                    className={
+                      selectClass
+                    }
+                  >
+                    {Array.from(
+                      {
+                        length: 10,
+                      },
+                      (
+                        _,
+                        index,
+                      ) =>
+                        index + 1,
+                    ).map(
+                      (
+                        days,
+                      ) => (
+                        <option
+                          key={
+                            days
+                          }
+                          value={
+                            days
+                          }
+                        >
+                          {days}{' '}
+                          {days ===
+                          1
+                            ? 'Day'
+                            : 'Days'}
+                        </option>
+                      ),
+                    )}
+                  </select>
+                </Field>
+
+                <Field
+                  label="Start Date"
+                  required
                 >
-                  End Date
-                </label>
+                  <input
+                    type="date"
+                    value={
+                      startDate
+                    }
+                    onChange={(
+                      event,
+                    ) => {
+                      setStartDate(
+                        event.target
+                          .value,
+                      );
 
-                <input
-                  id="endDate"
-                  name="endDate"
-                  type="date"
-                  value={
-                    endDate
-                  }
-                  readOnly
-                  className={`${inputClass} cursor-not-allowed bg-gray-50`}
-                />
+                      setFormError('');
+                    }}
+                    className={
+                      inputClass
+                    }
+                  />
+                </Field>
+
+                <Field label="End Date">
+                  <input
+                    type="date"
+                    value={
+                      endDate
+                    }
+                    readOnly
+                    className={`
+                      ${inputClass}
+                      bg-gray-50
+                    `}
+                  />
+                </Field>
               </div>
             </div>
 
-            {startDate && (
-              <div className="rounded-xl border border-primary/15 bg-primary/[0.04] px-4 py-3 text-sm text-secondary">
-                <span className="font-semibold">
-                  Event period:
-                </span>{' '}
+            {/* THUMBNAIL + TEMPLATE */}
 
-                {formatDate(
-                  startDate,
-                )}
+            <div
+              className="
+                mt-3
 
-                {numberOfDays >
-                  1 &&
-                  ` – ${formatDate(
-                    endDate,
-                  )}`}
+                border-t
+                border-gray-100
+
+                pt-3
+              "
+            >
+              <div
+                className="
+                  grid
+                  grid-cols-1
+                  gap-3
+
+                  md:grid-cols-[0.92fr_1.08fr]
+                  xl:grid-cols-1
+                  2xl:grid-cols-[0.92fr_1.08fr]
+                "
+              >
+                <div
+                  className="
+                    min-w-0
+                  "
+                >
+                  <SubHeading
+                    icon={
+                      <ImageIcon />
+                    }
+                    label="Thumbnail"
+                  />
+
+                  <label
+                    htmlFor="thumbnail"
+                    className="
+                      group
+                      relative
+
+                      mt-2
+                      block
+
+                      h-[118px]
+
+                      cursor-pointer
+
+                      overflow-hidden
+
+                      rounded-lg
+
+                      border
+                      border-gray-200
+
+                      bg-gray-50
+
+                      transition-all
+
+                      hover:border-primary/30
+                    "
+                  >
+                    {thumbnailPreview ? (
+                      <>
+                        <Image
+                          src={
+                            thumbnailPreview.url
+                          }
+                          alt="Event thumbnail"
+                          fill
+                          unoptimized
+                          sizes="480px"
+                          className="
+                            object-cover
+
+                            transition-transform
+                            duration-300
+
+                            group-hover:scale-[1.02]
+                          "
+                        />
+
+                        <div
+                          className="
+                            absolute
+                            inset-0
+
+                            bg-gradient-to-t
+
+                            from-black/45
+                            via-transparent
+                            to-transparent
+                          "
+                        />
+
+                        <div
+                          className="
+                            absolute
+                            inset-x-2
+                            bottom-2
+
+                            flex
+                            items-end
+                            justify-between
+                            gap-2
+                          "
+                        >
+                          <p
+                            className="
+                              min-w-0
+                              truncate
+
+                              text-[8px]
+                              font-medium
+
+                              text-white/90
+                            "
+                          >
+                            {
+                              thumbnailPreview.name
+                            }
+                          </p>
+
+                          <span
+                            className="
+                              inline-flex
+                              h-7
+                              shrink-0
+
+                              items-center
+                              gap-1
+
+                              rounded-md
+
+                              bg-white/95
+
+                              px-2
+
+                              text-[8px]
+                              font-semibold
+
+                              text-secondary
+                            "
+                          >
+                            <UploadIcon />
+
+                            Change
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <div
+                        className="
+                          flex
+                          h-full
+
+                          flex-col
+                          items-center
+                          justify-center
+
+                          text-center
+                        "
+                      >
+                        <span
+                          className="
+                            grid
+                            h-8
+                            w-8
+
+                            place-items-center
+
+                            rounded-lg
+
+                            bg-primary/[0.07]
+
+                            text-primary
+                          "
+                        >
+                          <UploadIcon />
+                        </span>
+
+                        <p
+                          className="
+                            mt-1.5
+
+                            text-[9px]
+                            font-semibold
+
+                            text-secondary
+                          "
+                        >
+                          Upload Image
+                        </p>
+
+                        <p
+                          className="
+                            mt-0.5
+
+                            text-[7px]
+
+                            text-gray-400
+                          "
+                        >
+                          JPG, PNG or WebP
+                        </p>
+                      </div>
+                    )}
+
+                    <input
+                      id="thumbnail"
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      onChange={
+                        handleThumbnailChange
+                      }
+                      className="sr-only"
+                    />
+                  </label>
+                </div>
+
+                {/* REGISTRATION FORM */}
+
+                <div
+                  className="
+                    min-w-0
+                  "
+                >
+                  <SubHeading
+                    icon={
+                      <FormIcon />
+                    }
+                    label="Registration Form"
+                  />
+
+                  <div
+                    className="
+                      mt-2
+                      min-w-0
+
+                      rounded-lg
+
+                      border
+                      border-gray-100
+
+                      bg-gray-50/40
+
+                      p-2
+                    "
+                  >
+                    <BookingTemplateSelector
+                      value={
+                        bookingFormTemplate
+                      }
+                      onChange={(
+                        value,
+                      ) => {
+                        setBookingFormTemplate(
+                          value,
+                        );
+
+                        setFormError('');
+                      }}
+                    />
+                  </div>
+                </div>
               </div>
-            )}
-          </section>
-        </div>
+            </div>
+          </div>
+        </motion.section>
 
-        <section className="card min-w-0 space-y-5 p-4 sm:p-5 lg:p-6">
-          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-primary">
-                Section 3
-              </p>
+        {/* ====================================================
+            SCHEDULE
+        ==================================================== */}
 
-              <h2 className="mt-1 text-lg font-bold text-secondary">
-                Daily schedule and booking slots
-              </h2>
+        <motion.section
+          initial={{
+            opacity: 0,
+            y: 6,
+          }}
+          animate={{
+            opacity: 1,
+            y: 0,
+          }}
+          transition={{
+            delay: 0.07,
+            duration: 0.3,
+          }}
+          className="
+            min-w-0
+
+            overflow-hidden
+
+            rounded-xl
+
+            border
+            border-gray-200
+
+            bg-white
+
+            shadow-[0_3px_14px_rgba(27,75,107,0.025)]
+          "
+        >
+          {/* HEADER */}
+
+          <div
+            className="
+              flex
+              items-center
+              justify-between
+              gap-3
+
+              border-b
+              border-gray-100
+
+              px-3
+              py-2.5
+            "
+          >
+            <div
+              className="
+                flex
+                min-w-0
+                items-center
+                gap-2
+              "
+            >
+              <span
+                className="
+                  grid
+                  h-7
+                  w-7
+                  shrink-0
+
+                  place-items-center
+
+                  rounded-md
+
+                  bg-primary/[0.07]
+
+                  text-primary
+                "
+              >
+                <ClockIcon />
+              </span>
+
+              <div
+                className="
+                  min-w-0
+                "
+              >
+                <h2
+                  className="
+                    text-[11px]
+                    font-semibold
+
+                    text-secondary
+                  "
+                >
+                  Daily Schedule
+                </h2>
+
+                <p
+                  className="
+                    mt-0.5
+
+                    text-[7px]
+
+                    text-gray-400
+                  "
+                >
+                  Booking slots and capacity
+                </p>
+              </div>
             </div>
 
             {numberOfDays >
@@ -1337,377 +2212,1667 @@ export default function CreateNewEventPage() {
                 onClick={
                   applyDay1ToAll
                 }
-                className={`${buttonBase} h-9 border border-primary/20 bg-primary/[0.06] px-3.5 text-xs text-primary hover:bg-primary/10`}
+                className="
+                  inline-flex
+                  h-8
+                  shrink-0
+
+                  items-center
+                  justify-center
+                  gap-1
+
+                  rounded-lg
+
+                  border
+                  border-primary/15
+
+                  bg-primary/[0.05]
+
+                  px-2.5
+
+                  text-[8px]
+                  font-semibold
+
+                  text-primary
+
+                  transition-colors
+
+                  hover:bg-primary/[0.09]
+                "
               >
-                Apply Day 1 to all
+                <CopyIcon />
+
+                <span
+                  className="
+                    hidden
+                    sm:inline
+                  "
+                >
+                  Apply Day 1 to All
+                </span>
+
+                <span
+                  className="
+                    sm:hidden
+                  "
+                >
+                  Copy Day 1
+                </span>
               </button>
             )}
           </div>
 
-          <div className="space-y-4">
-            {daySchedules
-              .slice(
-                0,
-                numberOfDays,
-              )
-              .map(
-                (
-                  schedule,
-                  index,
-                ) => {
-                  const slots =
-                    generatedSlots[
-                      index
-                    ];
+          {/* DAY SELECTOR */}
 
-                  return (
-                    <fieldset
-                      key={
+          <div
+            className="
+              border-b
+              border-gray-100
+
+              bg-gray-50/55
+
+              p-2
+            "
+          >
+            <div
+              className="
+                grid
+                grid-cols-2
+                gap-1.5
+
+                sm:grid-cols-4
+                2xl:grid-cols-5
+              "
+            >
+              {daySchedules
+                .slice(
+                  0,
+                  numberOfDays,
+                )
+                .map(
+                  (
+                    schedule,
+                    index,
+                  ) => {
+                    const selected =
+                      index ===
+                      activeDayIndex;
+
+                    const slots =
+                      generatedSlots[
                         index
-                      }
-                      className="rounded-xl border border-gray-200 bg-gray-50/60 p-4 sm:p-5"
-                    >
-                      <legend className="px-2">
-                        <span className="font-bold text-secondary">
-                          Day{' '}
-                          {index +
-                            1}
-                        </span>
+                      ]?.length ??
+                      0;
 
-                        <span className="ml-2 text-xs text-gray-500">
-                          {formatDate(
-                            eventDates[
-                              index
-                            ],
-                          )}
-                        </span>
-                      </legend>
+                    return (
+                      <button
+                        key={
+                          index
+                        }
+                        type="button"
+                        onClick={() =>
+                          setSelectedDayIndex(
+                            index,
+                          )
+                        }
+                        className={`
+                          relative
 
-                      {index >
-                        0 && (
-                        <label className="mb-4 flex cursor-pointer items-center gap-2 text-xs font-semibold text-secondary">
-                          <input
-                            type="checkbox"
-                            checked={
-                              schedule.sameAsDay1
-                            }
-                            onChange={(
-                              event,
-                            ) =>
-                              toggleSameAsDay1(
-                                index,
-                                event.target
-                                  .checked,
-                              )
-                            }
-                          />
+                          min-h-[48px]
 
-                          Same as Day 1
-                        </label>
-                      )}
+                          rounded-lg
 
-                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        <ScheduleField
-                          label="Start Time"
+                          border
+
+                          px-2.5
+                          py-2
+
+                          text-left
+
+                          transition-all
+                          duration-150
+
+                          ${
+                            selected
+                              ? `
+                                  border-primary/30
+                                  bg-white
+                                  shadow-[0_2px_8px_rgba(26,158,143,0.08)]
+                                `
+                              : `
+                                  border-transparent
+                                  bg-transparent
+
+                                  hover:border-gray-200
+                                  hover:bg-white
+                                `
+                          }
+                        `}
+                      >
+                        <div
+                          className="
+                            flex
+                            items-center
+                            justify-between
+                            gap-1
+                          "
                         >
-                          <input
-                            type="time"
-                            value={
-                              schedule.startTime
-                            }
-                            disabled={
-                              schedule.sameAsDay1
-                            }
-                            onChange={(
-                              event,
-                            ) =>
-                              updateDaySchedule(
-                                index,
-                                'startTime',
-                                event.target
-                                  .value,
-                              )
-                            }
-                            className={
-                              inputClass
-                            }
-                          />
-                        </ScheduleField>
+                          <span
+                            className={`
+                              text-[8px]
+                              font-bold
 
-                        <ScheduleField
-                          label="End Time"
-                        >
-                          <input
-                            type="time"
-                            value={
-                              schedule.endTime
-                            }
-                            disabled={
-                              schedule.sameAsDay1
-                            }
-                            onChange={(
-                              event,
-                            ) =>
-                              updateDaySchedule(
-                                index,
-                                'endTime',
-                                event.target
-                                  .value,
-                              )
-                            }
-                            className={
-                              inputClass
-                            }
-                          />
-                        </ScheduleField>
-
-                        <ScheduleField
-                          label="Slot Duration"
-                        >
-                          <input
-                            type="number"
-                            min={1}
-                            value={
-                              schedule.slotDuration
-                            }
-                            disabled={
-                              schedule.sameAsDay1
-                            }
-                            onChange={(
-                              event,
-                            ) =>
-                              updateDaySchedule(
-                                index,
-                                'slotDuration',
-                                event.target
-                                  .value,
-                              )
-                            }
-                            className={
-                              inputClass
-                            }
-                          />
-                        </ScheduleField>
-
-                        <ScheduleField
-                          label="Gap"
-                        >
-                          <select
-                            value={
-                              schedule.slotGap
-                            }
-                            disabled={
-                              schedule.sameAsDay1
-                            }
-                            onChange={(
-                              event,
-                            ) =>
-                              updateDaySchedule(
-                                index,
-                                'slotGap',
-                                event.target
-                                  .value,
-                              )
-                            }
-                            className={
-                              selectClass
-                            }
+                              ${
+                                selected
+                                  ? 'text-primary'
+                                  : 'text-secondary'
+                              }
+                            `}
                           >
-                            {GAP_OPTIONS.map(
-                              (
-                                gap,
-                              ) => (
-                                <option
-                                  key={
-                                    gap
-                                  }
-                                  value={
-                                    gap
-                                  }
-                                >
-                                  {gap ===
-                                  0
-                                    ? 'No gap'
-                                    : `${gap} min`}
-                                </option>
-                              ),
+                            Day{' '}
+                            {index +
+                              1}
+                          </span>
+
+                          {index >
+                            0 &&
+                            schedule.sameAsDay1 && (
+                              <LockSmallIcon />
                             )}
-                          </select>
-                        </ScheduleField>
-
-                        <ScheduleField
-                          label="Capacity"
-                        >
-                          <input
-                            type="number"
-                            min={1}
-                            max={20}
-                            value={
-                              schedule.capacity
-                            }
-                            disabled={
-                              schedule.sameAsDay1
-                            }
-                            onChange={(
-                              event,
-                            ) =>
-                              updateDaySchedule(
-                                index,
-                                'capacity',
-                                event.target
-                                  .value,
-                              )
-                            }
-                            className={
-                              inputClass
-                            }
-                          />
-                        </ScheduleField>
-
-                        <div className="rounded-xl border border-gray-200 bg-white p-3">
-                          <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-secondary">
-                            <input
-                              type="checkbox"
-                              checked={
-                                schedule.lunchEnabled
-                              }
-                              disabled={
-                                schedule.sameAsDay1
-                              }
-                              onChange={(
-                                event,
-                              ) =>
-                                updateDaySchedule(
-                                  index,
-                                  'lunchEnabled',
-                                  event.target
-                                    .checked,
-                                )
-                              }
-                            />
-
-                            Lunch Break
-                          </label>
                         </div>
+
+                        <div
+                          className="
+                            mt-1
+
+                            flex
+                            flex-wrap
+                            items-center
+                            gap-x-1.5
+                            gap-y-0.5
+                          "
+                        >
+                          <span
+                            className="
+                              text-[7px]
+
+                              text-gray-400
+                            "
+                          >
+                            {eventDates[
+                              index
+                            ]
+                              ? formatCompactDate(
+                                  eventDates[
+                                    index
+                                  ],
+                                )
+                              : 'No date'}
+                          </span>
+
+                          <span
+                            className="
+                              h-1
+                              w-1
+
+                              rounded-full
+
+                              bg-gray-300
+                            "
+                          />
+
+                          <span
+                            className="
+                              text-[7px]
+                              font-medium
+
+                              text-gray-500
+                            "
+                          >
+                            {slots}{' '}
+                            {slots ===
+                            1
+                              ? 'slot'
+                              : 'slots'}
+                          </span>
+                        </div>
+
+                        {selected && (
+                          <motion.span
+                            layoutId="active-new-event-day"
+                            className="
+                              absolute
+                              inset-x-2
+                              bottom-0
+
+                              h-[2px]
+
+                              rounded-full
+
+                              bg-primary
+                            "
+                          />
+                        )}
+                      </button>
+                    );
+                  },
+                )}
+            </div>
+          </div>
+
+          {/* ACTIVE DAY */}
+
+          <div
+            className="
+              p-3
+
+              sm:p-3.5
+            "
+          >
+            <AnimatePresence
+              mode="wait"
+            >
+              <motion.div
+                key={
+                  activeDayIndex
+                }
+                initial={{
+                  opacity: 0,
+                  x: 5,
+                }}
+                animate={{
+                  opacity: 1,
+                  x: 0,
+                }}
+                exit={{
+                  opacity: 0,
+                  x: -5,
+                }}
+                transition={{
+                  duration: 0.16,
+                }}
+              >
+                <div
+                  className="
+                    flex
+                    flex-col
+                    gap-2
+
+                    sm:flex-row
+                    sm:items-center
+                    sm:justify-between
+                  "
+                >
+                  <div
+                    className="
+                      min-w-0
+                    "
+                  >
+                    <div
+                      className="
+                        flex
+                        flex-wrap
+                        items-center
+                        gap-2
+                      "
+                    >
+                      <h3
+                        className="
+                          text-[13px]
+                          font-semibold
+
+                          text-secondary
+                        "
+                      >
+                        Day{' '}
+                        {activeDayIndex +
+                          1}
+                      </h3>
+
+                      <span
+                        className="
+                          text-[8px]
+
+                          text-gray-400
+                        "
+                      >
+                        {formatDate(
+                          eventDates[
+                            activeDayIndex
+                          ] ||
+                            '',
+                        )}
+                      </span>
+
+                      {activeDayIndex >
+                        0 &&
+                        activeSchedule.sameAsDay1 && (
+                          <span
+                            className="
+                              inline-flex
+
+                              items-center
+                              gap-1
+
+                              rounded-full
+
+                              bg-primary/[0.07]
+
+                              px-2
+                              py-0.5
+
+                              text-[7px]
+                              font-semibold
+
+                              text-primary
+                            "
+                          >
+                            <LockSmallIcon />
+
+                            Synced
+                          </span>
+                        )}
+                    </div>
+                  </div>
+
+                  {activeDayIndex >
+                    0 && (
+                    <div
+                      className="
+                        flex
+                        items-center
+                        justify-between
+                        gap-3
+
+                        rounded-lg
+
+                        border
+                        border-gray-200
+
+                        bg-gray-50/60
+
+                        px-3
+                        py-2
+                      "
+                    >
+                      <div>
+                        <p
+                          className="
+                            text-[8px]
+                            font-semibold
+
+                            text-secondary
+                          "
+                        >
+                          Same as Day 1
+                        </p>
+
+                        <p
+                          className="
+                            text-[7px]
+
+                            text-gray-400
+                          "
+                        >
+                          Sync settings
+                        </p>
                       </div>
 
-                      {schedule.lunchEnabled && (
-                        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                          <ScheduleField
-                            label="Lunch Start"
-                          >
-                            <input
-                              type="time"
-                              value={
-                                schedule.lunchStart
-                              }
-                              disabled={
-                                schedule.sameAsDay1
-                              }
-                              onChange={(
-                                event,
-                              ) =>
-                                updateDaySchedule(
-                                  index,
-                                  'lunchStart',
-                                  event.target
-                                    .value,
-                                )
-                              }
-                              className={
-                                inputClass
-                              }
-                            />
-                          </ScheduleField>
+                      <Switch
+                        checked={
+                          activeSchedule.sameAsDay1
+                        }
+                        onChange={(
+                          checked,
+                        ) =>
+                          toggleSameAsDay1(
+                            activeDayIndex,
+                            checked,
+                          )
+                        }
+                      />
+                    </div>
+                  )}
+                </div>
 
-                          <ScheduleField
-                            label="Lunch End"
+                {/* MAIN FIELDS */}
+
+                <div
+                  className="
+                    mt-3
+
+                    grid
+                    grid-cols-1
+                    gap-2.5
+
+                    min-[430px]:grid-cols-2
+                    lg:grid-cols-3
+                    2xl:grid-cols-5
+                  "
+                >
+                  <ScheduleField
+                    label="Start Time"
+                  >
+                    <input
+                      type="time"
+                      value={
+                        activeSchedule.startTime
+                      }
+                      disabled={
+                        activeSchedule.sameAsDay1
+                      }
+                      onChange={(
+                        event,
+                      ) =>
+                        updateDaySchedule(
+                          activeDayIndex,
+                          'startTime',
+                          event.target
+                            .value,
+                        )
+                      }
+                      className={
+                        inputClass
+                      }
+                    />
+                  </ScheduleField>
+
+                  <ScheduleField
+                    label="End Time"
+                  >
+                    <input
+                      type="time"
+                      value={
+                        activeSchedule.endTime
+                      }
+                      disabled={
+                        activeSchedule.sameAsDay1
+                      }
+                      onChange={(
+                        event,
+                      ) =>
+                        updateDaySchedule(
+                          activeDayIndex,
+                          'endTime',
+                          event.target
+                            .value,
+                        )
+                      }
+                      className={
+                        inputClass
+                      }
+                    />
+                  </ScheduleField>
+
+                  <ScheduleField
+                    label="Slot Duration"
+                    suffix="min"
+                  >
+                    <input
+                      type="number"
+                      min={1}
+                      value={
+                        activeSchedule.slotDuration
+                      }
+                      disabled={
+                        activeSchedule.sameAsDay1
+                      }
+                      onChange={(
+                        event,
+                      ) =>
+                        updateDaySchedule(
+                          activeDayIndex,
+                          'slotDuration',
+                          event.target
+                            .value,
+                        )
+                      }
+                      className={
+                        inputClass
+                      }
+                    />
+                  </ScheduleField>
+
+                  <ScheduleField
+                    label="Slot Gap"
+                  >
+                    <select
+                      value={
+                        activeSchedule.slotGap
+                      }
+                      disabled={
+                        activeSchedule.sameAsDay1
+                      }
+                      onChange={(
+                        event,
+                      ) =>
+                        updateDaySchedule(
+                          activeDayIndex,
+                          'slotGap',
+                          event.target
+                            .value,
+                        )
+                      }
+                      className={
+                        selectClass
+                      }
+                    >
+                      {GAP_OPTIONS.map(
+                        (
+                          gap,
+                        ) => (
+                          <option
+                            key={
+                              gap
+                            }
+                            value={
+                              gap
+                            }
                           >
-                            <input
-                              type="time"
-                              value={
-                                schedule.lunchEnd
-                              }
-                              disabled={
-                                schedule.sameAsDay1
-                              }
-                              onChange={(
-                                event,
-                              ) =>
-                                updateDaySchedule(
-                                  index,
-                                  'lunchEnd',
-                                  event.target
-                                    .value,
-                                )
-                              }
-                              className={
-                                inputClass
-                              }
-                            />
-                          </ScheduleField>
-                        </div>
+                            {gap ===
+                            0
+                              ? 'No gap'
+                              : `${gap} min`}
+                          </option>
+                        ),
                       )}
+                    </select>
+                  </ScheduleField>
 
-                      <div className="mt-4 rounded-xl border border-primary/10 bg-white p-3">
-                        <p className="text-xs font-semibold text-secondary">
+                  <ScheduleField
+                    label="Capacity"
+                    suffix="per slot"
+                  >
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={
+                        activeSchedule.capacity
+                      }
+                      disabled={
+                        activeSchedule.sameAsDay1
+                      }
+                      onChange={(
+                        event,
+                      ) =>
+                        updateDaySchedule(
+                          activeDayIndex,
+                          'capacity',
+                          event.target
+                            .value,
+                        )
+                      }
+                      className={
+                        inputClass
+                      }
+                    />
+                  </ScheduleField>
+                </div>
+
+                {/* LUNCH */}
+
+                <div
+                  className="
+                    mt-3
+
+                    border-t
+                    border-gray-100
+
+                    pt-3
+                  "
+                >
+                  <div
+                    className="
+                      grid
+                      grid-cols-1
+                      items-end
+                      gap-2.5
+
+                      min-[430px]:grid-cols-2
+
+                      lg:grid-cols-[170px_minmax(0,1fr)_minmax(0,1fr)]
+                    "
+                  >
+                    <ScheduleField
+                      label="Lunch Break"
+                    >
+                      <div
+                        className={`
+                          flex
+                          h-10
+
+                          items-center
+                          justify-between
+                          gap-2
+
+                          rounded-lg
+
+                          border
+
+                          px-2.5
+
+                          transition-colors
+
+                          ${
+                            activeSchedule.lunchEnabled
+                              ? `
+                                  border-primary/20
+                                  bg-primary/[0.035]
+                                `
+                              : `
+                                  border-gray-200
+                                  bg-gray-50
+                                `
+                          }
+                        `}
+                      >
+                        <div
+                          className="
+                            flex
+                            min-w-0
+                            items-center
+                            gap-1.5
+                          "
+                        >
+                          <LunchIcon />
+
+                          <span
+                            className="
+                              truncate
+
+                              text-[8px]
+                              font-medium
+
+                              text-secondary
+                            "
+                          >
+                            {activeSchedule.lunchEnabled
+                              ? 'Enabled'
+                              : 'Disabled'}
+                          </span>
+                        </div>
+
+                        <Switch
+                          checked={
+                            activeSchedule.lunchEnabled
+                          }
+                          disabled={
+                            activeSchedule.sameAsDay1
+                          }
+                          onChange={(
+                            checked,
+                          ) =>
+                            updateDaySchedule(
+                              activeDayIndex,
+                              'lunchEnabled',
+                              checked,
+                            )
+                          }
+                        />
+                      </div>
+                    </ScheduleField>
+
+                    {activeSchedule.lunchEnabled && (
+                      <>
+                        <ScheduleField
+                          label="Lunch Starts"
+                        >
+                          <input
+                            type="time"
+                            value={
+                              activeSchedule.lunchStart
+                            }
+                            disabled={
+                              activeSchedule.sameAsDay1
+                            }
+                            onChange={(
+                              event,
+                            ) =>
+                              updateDaySchedule(
+                                activeDayIndex,
+                                'lunchStart',
+                                event.target
+                                  .value,
+                              )
+                            }
+                            className={
+                              inputClass
+                            }
+                          />
+                        </ScheduleField>
+
+                        <ScheduleField
+                          label="Lunch Ends"
+                        >
+                          <input
+                            type="time"
+                            value={
+                              activeSchedule.lunchEnd
+                            }
+                            disabled={
+                              activeSchedule.sameAsDay1
+                            }
+                            onChange={(
+                              event,
+                            ) =>
+                              updateDaySchedule(
+                                activeDayIndex,
+                                'lunchEnd',
+                                event.target
+                                  .value,
+                              )
+                            }
+                            className={
+                              inputClass
+                            }
+                          />
+                        </ScheduleField>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* GENERATED SLOTS */}
+
+                <div
+                  className="
+                    mt-3
+
+                    border-t
+                    border-gray-100
+
+                    pt-3
+                  "
+                >
+                  <div
+                    className="
+                      flex
+                      flex-col
+                      gap-2
+
+                      sm:flex-row
+                      sm:items-center
+                      sm:justify-between
+                    "
+                  >
+                    <div
+                      className="
+                        flex
+                        items-center
+                        gap-2
+                      "
+                    >
+                      <span
+                        className="
+                          grid
+                          h-7
+                          w-7
+                          shrink-0
+
+                          place-items-center
+
+                          rounded-md
+
+                          bg-primary/[0.07]
+
+                          text-primary
+                        "
+                      >
+                        <SlotsIcon />
+                      </span>
+
+                      <div>
+                        <p
+                          className="
+                            text-[9px]
+                            font-semibold
+
+                            text-secondary
+                          "
+                        >
                           Generated Slots
                         </p>
 
-                        <p className="mt-1 text-xs text-gray-500">
-                          {slots.length}{' '}
-                          slot
-                          {slots.length ===
-                          1
-                            ? ''
-                            : 's'}
-                        </p>
+                        <p
+                          className="
+                            mt-0.5
 
-                        <div className="mt-2 flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
-                          {slots.map(
-                            (
-                              slot,
-                            ) => (
-                              <span
-                                key={
-                                  slot
-                                }
-                                className="rounded-md bg-primary/[0.07] px-2 py-1 text-[10px] font-medium text-primary"
-                              >
-                                {
-                                  slot
-                                }
-                              </span>
-                            ),
-                          )}
-                        </div>
+                            text-[7px]
+
+                            text-gray-400
+                          "
+                        >
+                          Live preview from current settings
+                        </p>
                       </div>
-                    </fieldset>
-                  );
-                },
-              )}
+                    </div>
+
+                    <div
+                      className="
+                        flex
+                        flex-wrap
+                        items-center
+                        gap-1.5
+                      "
+                    >
+                      <span
+                        className="
+                          rounded-md
+
+                          bg-primary/[0.07]
+
+                          px-2
+                          py-1
+
+                          text-[8px]
+                          font-semibold
+
+                          text-primary
+                        "
+                      >
+                        {activeSlots.length}{' '}
+                        slots
+                      </span>
+
+                      {activeCapacity >
+                        0 && (
+                        <span
+                          className="
+                            rounded-md
+
+                            bg-secondary/[0.06]
+
+                            px-2
+                            py-1
+
+                            text-[8px]
+                            font-semibold
+
+                            text-secondary
+                          "
+                        >
+                          {
+                            totalDayCapacity
+                          }{' '}
+                          total capacity
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {activeSlots.length >
+                  0 ? (
+                    <div
+                      className="
+                        mt-2.5
+
+                        flex
+                        flex-wrap
+                        gap-1.5
+                      "
+                    >
+                      {activeSlots.map(
+                        (
+                          slot,
+                          index,
+                        ) => (
+                          <motion.span
+                            key={`${slot}-${index}`}
+                            initial={{
+                              opacity: 0,
+                              y: 3,
+                            }}
+                            animate={{
+                              opacity: 1,
+                              y: 0,
+                            }}
+                            transition={{
+                              delay:
+                                Math.min(
+                                  index *
+                                    0.015,
+                                  0.15,
+                                ),
+                            }}
+                            className="
+                              inline-flex
+                              min-h-[28px]
+
+                              items-center
+
+                              rounded-md
+
+                              border
+                              border-gray-200
+
+                              bg-gray-50/80
+
+                              px-2.5
+
+                              text-[8px]
+                              font-medium
+
+                              text-gray-600
+
+                              transition-colors
+
+                              hover:border-primary/20
+                              hover:bg-primary/[0.03]
+                            "
+                          >
+                            {slot}
+                          </motion.span>
+                        ),
+                      )}
+                    </div>
+                  ) : (
+                    <div
+                      className="
+                        mt-2.5
+
+                        rounded-lg
+
+                        border
+                        border-dashed
+                        border-red-200
+
+                        bg-red-50/50
+
+                        px-3
+                        py-3
+
+                        text-center
+                      "
+                    >
+                      <p
+                        className="
+                          text-[9px]
+                          font-medium
+
+                          text-red-600
+                        "
+                      >
+                        Current schedule cannot generate booking slots.
+                      </p>
+
+                      <p
+                        className="
+                          mt-0.5
+
+                          text-[7px]
+
+                          text-red-400
+                        "
+                      >
+                        Check event time, lunch break and slot duration.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            </AnimatePresence>
           </div>
-        </section>
+        </motion.section>
       </div>
-    </form>
+    </motion.form>
+  );
+}
+
+/* ============================================================
+   SMALL COMPONENTS
+============================================================ */
+
+function CardHeader({
+  icon,
+  title,
+}: {
+  icon: ReactNode;
+  title: string;
+}) {
+  return (
+    <div
+      className="
+        flex
+        h-[44px]
+
+        items-center
+        gap-2
+
+        border-b
+        border-gray-100
+
+        px-3
+      "
+    >
+      <span
+        className="
+          grid
+          h-7
+          w-7
+          shrink-0
+
+          place-items-center
+
+          rounded-md
+
+          bg-primary/[0.07]
+
+          text-primary
+        "
+      >
+        {icon}
+      </span>
+
+      <h2
+        className="
+          text-[11px]
+          font-semibold
+
+          text-secondary
+        "
+      >
+        {title}
+      </h2>
+    </div>
+  );
+}
+
+function SubHeading({
+  icon,
+  label,
+}: {
+  icon: ReactNode;
+  label: string;
+}) {
+  return (
+    <div
+      className="
+        flex
+        items-center
+        gap-1.5
+      "
+    >
+      <span
+        className="
+          text-primary
+        "
+      >
+        {icon}
+      </span>
+
+      <p
+        className="
+          text-[9px]
+          font-semibold
+
+          text-secondary
+        "
+      >
+        {label}
+      </p>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  children,
+  required = false,
+  hint,
+  className = '',
+}: {
+  label: string;
+  children: ReactNode;
+  required?: boolean;
+  hint?: string;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`
+        min-w-0
+        ${className}
+      `}
+    >
+      <div
+        className="
+          mb-1
+
+          flex
+          items-center
+          justify-between
+          gap-2
+        "
+      >
+        <label
+          className="
+            text-[8px]
+            font-semibold
+
+            text-secondary
+
+            sm:text-[9px]
+          "
+        >
+          {label}
+
+          {required && (
+            <span
+              className="
+                ml-0.5
+                text-red-500
+              "
+            >
+              *
+            </span>
+          )}
+        </label>
+
+        {hint && (
+          <span
+            className="
+              shrink-0
+
+              text-[7px]
+
+              text-gray-400
+            "
+          >
+            {hint}
+          </span>
+        )}
+      </div>
+
+      {children}
+    </div>
   );
 }
 
 function ScheduleField({
   label,
   children,
+  suffix,
 }: {
   label: string;
-  children:
-    React.ReactNode;
+  children: ReactNode;
+  suffix?: string;
 }) {
   return (
-    <div>
-      <label className="mb-1.5 block text-xs font-semibold text-secondary">
-        {label}
-      </label>
+    <div
+      className="
+        min-w-0
+      "
+    >
+      <div
+        className="
+          mb-1
+
+          flex
+          items-center
+          justify-between
+          gap-1
+        "
+      >
+        <label
+          className="
+            text-[8px]
+            font-semibold
+
+            text-secondary
+          "
+        >
+          {label}
+        </label>
+
+        {suffix && (
+          <span
+            className="
+              text-[7px]
+
+              text-gray-400
+            "
+          >
+            {suffix}
+          </span>
+        )}
+      </div>
 
       {children}
     </div>
+  );
+}
+
+/* ============================================================
+   SWITCH
+============================================================ */
+
+function Switch({
+  checked,
+  disabled = false,
+  onChange,
+}: {
+  checked: boolean;
+
+  disabled?: boolean;
+
+  onChange:
+    (
+      checked:
+        boolean,
+    ) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={
+        checked
+      }
+      disabled={
+        disabled
+      }
+      onClick={() =>
+        onChange(
+          !checked,
+        )
+      }
+      className={`
+        relative
+
+        inline-flex
+        h-[22px]
+        w-10
+        shrink-0
+
+        items-center
+
+        rounded-full
+
+        border
+
+        transition-all
+        duration-200
+
+        focus:outline-none
+        focus-visible:ring-2
+        focus-visible:ring-primary/25
+        focus-visible:ring-offset-2
+
+        ${
+          checked
+            ? `
+                border-primary
+                bg-primary
+              `
+            : `
+                border-gray-300
+                bg-gray-200
+              `
+        }
+
+        ${
+          disabled
+            ? `
+                cursor-not-allowed
+                opacity-40
+              `
+            : `
+                cursor-pointer
+              `
+        }
+      `}
+    >
+      <span
+        className={`
+          absolute
+          left-[2px]
+
+          h-[18px]
+          w-[18px]
+
+          rounded-full
+
+          bg-white
+
+          shadow-[0_1px_4px_rgba(0,0,0,0.22)]
+
+          transition-transform
+          duration-200
+
+          ${
+            checked
+              ? 'translate-x-[18px]'
+              : 'translate-x-0'
+          }
+        `}
+      />
+    </button>
+  );
+}
+
+/* ============================================================
+   ICONS
+============================================================ */
+
+function BackIcon() {
+  return (
+    <svg
+      className="h-3.5 w-3.5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.9}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m15 18-6-6 6-6"
+      />
+    </svg>
+  );
+}
+
+function AddIcon() {
+  return (
+    <svg
+      className="h-3.5 w-3.5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        d="M12 5v14M5 12h14"
+      />
+    </svg>
+  );
+}
+
+function EventIcon() {
+  return (
+    <svg
+      className="h-3.5 w-3.5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.8}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M5 5h14v14H5V5Zm3 4h8M8 13h6"
+      />
+    </svg>
+  );
+}
+
+function FormIcon() {
+  return (
+    <svg
+      className="h-3.5 w-3.5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.8}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M6 3h9l4 4v14H6V3Z"
+      />
+
+      <path
+        strokeLinecap="round"
+        d="M15 3v5h5M9 12h6M9 16h6"
+      />
+    </svg>
+  );
+}
+
+function ImageIcon() {
+  return (
+    <svg
+      className="h-3.5 w-3.5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.8}
+    >
+      <rect
+        x="4"
+        y="5"
+        width="16"
+        height="14"
+        rx="2"
+      />
+
+      <circle
+        cx="9"
+        cy="10"
+        r="1.5"
+      />
+
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m5 17 4-4 3 3 2-2 5 5"
+      />
+    </svg>
+  );
+}
+
+function CalendarIcon() {
+  return (
+    <svg
+      className="h-3.5 w-3.5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.8}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M8 3v4m8-4v4M4 9h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1Z"
+      />
+    </svg>
+  );
+}
+
+function ClockIcon() {
+  return (
+    <svg
+      className="h-3.5 w-3.5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.8}
+    >
+      <circle
+        cx="12"
+        cy="12"
+        r="8.5"
+      />
+
+      <path
+        strokeLinecap="round"
+        d="M12 7.5V12l3 2"
+      />
+    </svg>
+  );
+}
+
+function SlotsIcon() {
+  return (
+    <svg
+      className="h-3.5 w-3.5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.8}
+    >
+      <path
+        strokeLinecap="round"
+        d="M5 7h14M5 12h14M5 17h14"
+      />
+    </svg>
+  );
+}
+
+function UploadIcon() {
+  return (
+    <svg
+      className="h-3.5 w-3.5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.9}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 16V4m0 0-4 4m4-4 4 4M5 20h14"
+      />
+    </svg>
+  );
+}
+
+function CopyIcon() {
+  return (
+    <svg
+      className="h-3 w-3"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.8}
+    >
+      <rect
+        x="8"
+        y="8"
+        width="11"
+        height="11"
+        rx="1"
+      />
+
+      <path
+        strokeLinecap="round"
+        d="M16 8V5H5v11h3"
+      />
+    </svg>
+  );
+}
+
+function LunchIcon() {
+  return (
+    <svg
+      className="h-3.5 w-3.5 text-primary"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.8}
+    >
+      <path
+        strokeLinecap="round"
+        d="M6 4v7a3 3 0 0 0 6 0V4M9 4v16M16 4v16M16 4c3 1 3 7 0 8"
+      />
+    </svg>
+  );
+}
+
+function LockSmallIcon() {
+  return (
+    <svg
+      className="h-2.5 w-2.5 text-primary"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <rect
+        x="6"
+        y="10"
+        width="12"
+        height="10"
+        rx="2"
+      />
+
+      <path
+        strokeLinecap="round"
+        d="M8.5 10V7.5a3.5 3.5 0 0 1 7 0V10"
+      />
+    </svg>
+  );
+}
+
+function AlertIcon() {
+  return (
+    <svg
+      className="h-3.5 w-3.5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <circle
+        cx="12"
+        cy="12"
+        r="9"
+      />
+
+      <path
+        strokeLinecap="round"
+        d="M12 8v5M12 16h.01"
+      />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg
+      className="h-3.5 w-3.5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2.2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m5 12 4 4L19 6"
+      />
+    </svg>
+  );
+}
+
+function Spinner() {
+  return (
+    <svg
+      className="
+        h-3.5
+        w-3.5
+
+        animate-spin
+      "
+      viewBox="0 0 24 24"
+      fill="none"
+    >
+      <circle
+        className="opacity-20"
+        cx="12"
+        cy="12"
+        r="9"
+        stroke="currentColor"
+        strokeWidth="3"
+      />
+
+      <path
+        className="opacity-75"
+        fill="currentColor"
+        d="M12 3a9 9 0 0 1 9 9h-3a6 6 0 0 0-6-6V3Z"
+      />
+    </svg>
   );
 }

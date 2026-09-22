@@ -31,6 +31,32 @@ type GenericRecord =
     unknown
   >;
 
+type AttendanceStatus =
+  | 'NOT_PRESENT'
+  | 'PRESENT';
+
+type FeedbackStatus =
+  | 'SUBMITTED'
+  | 'SKIPPED'
+  | 'NONE';
+
+type BookingFeedback = {
+  status:
+    FeedbackStatus;
+
+  rating:
+    number | null;
+
+  message:
+    string;
+
+  suggestedFeature:
+    string;
+
+  submittedAt:
+    string | null;
+};
+
 type BookingData = {
   _id: string;
 
@@ -48,15 +74,37 @@ type BookingData = {
   dayScheduleId:
     GenericRecord | null;
 
-  createdAt: string;
+  attendanceStatus?:
+    AttendanceStatus;
 
-  updatedAt: string;
+  checkedInAt?:
+    string | null;
+
+  checkedInBy?:
+    string;
+
+  checkInMethod?:
+    'QR' | 'MANUAL';
+
+  createdAt:
+    string;
+
+  updatedAt:
+    string;
 };
 
 type BookingResponse = {
-  success: boolean;
-  booking?: BookingData;
-  message?: string;
+  success:
+    boolean;
+
+  booking?:
+    BookingData;
+
+  feedback?:
+    BookingFeedback;
+
+  message?:
+    string;
 };
 
 /* ============================================================
@@ -70,22 +118,57 @@ const EASE = [
   1,
 ] as const;
 
-const FIELD_PRIORITY =
-  [
+const FIELD_PRIORITY = [
+  'title',
+  'fullName',
+  'email',
+  'mobile',
+  'designation',
+  'specialty',
+  'hospital',
+  'hospitalName',
+  'institution',
+  'institutionName',
+  'country',
+  'state',
+  'city',
+  'location',
+];
+
+const HIDDEN_DETAIL_KEYS =
+  new Set([
+    'eventId',
+    'eventName',
+    'template',
+    'countryCode',
+    'phoneCountry',
+    'countryIso2',
+  ]);
+
+const PROFILE_DETAIL_KEYS =
+  new Set([
     'fullName',
     'email',
     'mobile',
-    'designation',
-    'specialty',
-    'hospital',
-    'hospitalName',
-    'institution',
-    'institutionName',
-    'country',
-    'state',
-    'city',
-    'location',
-  ];
+  ]);
+
+const EMPTY_FEEDBACK:
+  BookingFeedback = {
+  status:
+    'NONE',
+
+  rating:
+    null,
+
+  message:
+    '',
+
+  suggestedFeature:
+    '',
+
+  submittedAt:
+    null,
+};
 
 /* ============================================================
    PAGE
@@ -118,6 +201,14 @@ export default function BookingDetailsPage() {
   ] =
     useState<BookingData | null>(
       null,
+    );
+
+  const [
+    feedback,
+    setFeedback,
+  ] =
+    useState<BookingFeedback>(
+      EMPTY_FEEDBACK,
     );
 
   const [
@@ -216,6 +307,11 @@ export default function BookingDetailsPage() {
           data.booking,
         );
 
+        setFeedback(
+          data.feedback ||
+            EMPTY_FEEDBACK,
+        );
+
         setDraft(
           normalizeDetails(
             data.booking
@@ -301,9 +397,53 @@ export default function BookingDetailsPage() {
           booking.details ??
             {},
         ),
+      ).filter(
+        ([
+          key,
+          value,
+        ]) => {
+          /*
+           * Hide technical values.
+           */
+          if (
+            HIDDEN_DETAIL_KEYS.has(
+              key,
+            )
+          ) {
+            return false;
+          }
+
+          /*
+           * Name / email / mobile are already
+           * shown in the top attendee header.
+           *
+           * When editing we show them again
+           * because they need input controls.
+           */
+          if (
+            !isEditing &&
+            PROFILE_DETAIL_KEYS.has(
+              key,
+            )
+          ) {
+            return false;
+          }
+
+          if (isEditing) {
+            return true;
+          }
+
+          return (
+            displayValue(
+              value,
+            ) !==
+            '—'
+          );
+        },
       );
     }, [
       booking,
+      isEditing,
     ]);
 
   /* ============================================================
@@ -404,6 +544,11 @@ export default function BookingDetailsPage() {
         data.booking,
       );
 
+      setFeedback(
+        data.feedback ||
+          EMPTY_FEEDBACK,
+      );
+
       setDraft(
         normalizeDetails(
           data.booking
@@ -497,7 +642,7 @@ export default function BookingDetailsPage() {
   }
 
   /* ============================================================
-     EDIT HELPERS
+     EDIT
   ============================================================ */
 
   function changeField(
@@ -546,7 +691,7 @@ export default function BookingDetailsPage() {
   }
 
   /* ============================================================
-     ERROR / NOT FOUND
+     ERROR
   ============================================================ */
 
   if (!booking) {
@@ -554,15 +699,16 @@ export default function BookingDetailsPage() {
       <div
         className="
           flex
-          min-h-[60vh]
+          min-h-[58vh]
           items-center
           justify-center
+          px-4
         "
       >
         <div
           className="
             w-full
-            max-w-[440px]
+            max-w-[420px]
 
             rounded-xl
 
@@ -581,9 +727,11 @@ export default function BookingDetailsPage() {
           <span
             className="
               mx-auto
+
               grid
               h-11
               w-11
+
               place-items-center
 
               rounded-lg
@@ -599,8 +747,10 @@ export default function BookingDetailsPage() {
           <h1
             className="
               mt-4
+
               text-[17px]
               font-semibold
+
               text-secondary
             "
           >
@@ -610,9 +760,11 @@ export default function BookingDetailsPage() {
           <p
             className="
               mt-2
-              !text-[13px]
-              !leading-5
-              !text-gray-500
+
+              text-[13px]
+              leading-5
+
+              text-gray-500
             "
           >
             {error ||
@@ -627,9 +779,28 @@ export default function BookingDetailsPage() {
               )
             }
             className="
-              btn
-              btn-primary
               mt-5
+
+              inline-flex
+              h-10
+
+              items-center
+              justify-center
+
+              rounded-lg
+
+              bg-primary
+
+              px-4
+
+              text-[12px]
+              font-semibold
+
+              text-white
+
+              transition
+
+              hover:bg-primary-dark
             "
           >
             Back to Bookings
@@ -668,15 +839,18 @@ export default function BookingDetailsPage() {
     );
 
   const attendeeMobile =
-    displayValue(
-      booking.details
-        .mobile,
+    displayMobile(
+      booking.details,
     );
 
   const bookingDate =
     toText(
       schedule.date,
     );
+
+  const attendance =
+    booking.attendanceStatus ||
+    'NOT_PRESENT';
 
   /* ============================================================
      RENDER
@@ -694,7 +868,7 @@ export default function BookingDetailsPage() {
           y: 0,
         }}
         transition={{
-          duration: 0.35,
+          duration: 0.3,
           ease: EASE,
         }}
         className="
@@ -702,9 +876,7 @@ export default function BookingDetailsPage() {
           min-w-0
         "
       >
-        {/* ====================================================
-            BREADCRUMB
-        ==================================================== */}
+        {/* BACK */}
 
         <button
           type="button"
@@ -715,7 +887,7 @@ export default function BookingDetailsPage() {
           }
           className="
             inline-flex
-            cursor-pointer
+
             items-center
             gap-1.5
 
@@ -734,9 +906,7 @@ export default function BookingDetailsPage() {
           All Bookings
         </button>
 
-        {/* ====================================================
-            PAGE HEADER
-        ==================================================== */}
+        {/* HEADER */}
 
         <div
           className="
@@ -744,6 +914,7 @@ export default function BookingDetailsPage() {
 
             flex
             flex-col
+
             gap-4
 
             lg:flex-row
@@ -760,7 +931,9 @@ export default function BookingDetailsPage() {
               className="
                 flex
                 flex-wrap
+
                 items-center
+
                 gap-2
               "
             >
@@ -776,7 +949,6 @@ export default function BookingDetailsPage() {
                   text-secondary
 
                   sm:text-[24px]
-                  lg:text-[26px]
                 "
               >
                 {isEditing
@@ -784,44 +956,38 @@ export default function BookingDetailsPage() {
                   : 'Booking Details'}
               </h1>
 
-              {isEditing && (
-                <span
-                  className="
-                    badge
-                    badge--warning
-                  "
-                >
-                  Editing
-                </span>
-              )}
+              <AttendanceBadge
+                status={
+                  attendance
+                }
+              />
             </div>
 
             <div
               className="
                 mt-1
+
                 flex
                 flex-wrap
+
                 items-center
+
                 gap-x-2
                 gap-y-1
 
-                text-[13px]
+                text-[12px]
+
                 text-gray-500
               "
             >
-              <span>
-                Booking ID
-              </span>
-
               <span
                 className="
                   font-semibold
+
                   text-secondary
                 "
               >
-                {
-                  booking.bookingId
-                }
+                {booking.bookingId}
               </span>
 
               <span
@@ -832,11 +998,12 @@ export default function BookingDetailsPage() {
                 •
               </span>
 
-              <BookingStatus
-                date={
-                  bookingDate
-                }
-              />
+              <span>
+                Created{' '}
+                {formatDate(
+                  booking.createdAt,
+                )}
+              </span>
             </div>
           </div>
 
@@ -845,11 +1012,11 @@ export default function BookingDetailsPage() {
           <div
             className="
               flex
-              flex-col
-              gap-2
+              flex-wrap
 
-              min-[430px]:flex-row
-              min-[430px]:items-center
+              items-center
+
+              gap-2
             "
           >
             {isEditing ? (
@@ -863,16 +1030,31 @@ export default function BookingDetailsPage() {
                     cancelEdit
                   }
                   className="
-                    btn
+                    inline-flex
                     h-10
 
+                    items-center
+                    justify-center
+
+                    rounded-lg
+
+                    border
                     border-gray-200
 
                     bg-white
 
+                    px-4
+
+                    text-[12px]
+                    font-semibold
+
                     text-gray-600
 
+                    transition
+
                     hover:bg-gray-50
+
+                    disabled:opacity-50
                   "
                 >
                   Cancel
@@ -888,9 +1070,31 @@ export default function BookingDetailsPage() {
                     saveChanges
                   }
                   className="
-                    btn
-                    btn-primary
+                    inline-flex
                     h-10
+
+                    items-center
+                    justify-center
+
+                    gap-2
+
+                    rounded-lg
+
+                    bg-primary
+
+                    px-4
+
+                    text-[12px]
+                    font-semibold
+
+                    text-white
+
+                    transition
+
+                    hover:bg-primary-dark
+
+                    disabled:cursor-not-allowed
+                    disabled:opacity-45
                   "
                 >
                   {saving ? (
@@ -917,14 +1121,33 @@ export default function BookingDetailsPage() {
                   )
                 }
                 className="
-                  btn
-                  btn-primary
+                  inline-flex
                   h-10
+
+                  items-center
+                  justify-center
+
+                  gap-2
+
+                  rounded-lg
+
+                  bg-primary
+
+                  px-4
+
+                  text-[12px]
+                  font-semibold
+
+                  text-white
+
+                  transition
+
+                  hover:bg-primary-dark
                 "
               >
                 <EditIcon />
 
-                Edit Booking
+                Edit
               </button>
             )}
 
@@ -936,14 +1159,29 @@ export default function BookingDetailsPage() {
                 )
               }
               className="
-                btn
+                inline-flex
                 h-10
 
+                items-center
+                justify-center
+
+                gap-2
+
+                rounded-lg
+
+                border
                 border-red-200
 
                 bg-white
 
+                px-4
+
+                text-[12px]
+                font-semibold
+
                 text-red-600
+
+                transition
 
                 hover:bg-red-50
               "
@@ -955,9 +1193,7 @@ export default function BookingDetailsPage() {
           </div>
         </div>
 
-        {/* ====================================================
-            ALERTS
-        ==================================================== */}
+        {/* ALERTS */}
 
         <AnimatePresence>
           {success && (
@@ -984,15 +1220,11 @@ export default function BookingDetailsPage() {
           )}
         </AnimatePresence>
 
-        {/* ====================================================
-            ATTENDEE OVERVIEW
-        ==================================================== */}
+        {/* COMPACT OVERVIEW */}
 
         <section
           className="
-            mt-5
-
-            overflow-hidden
+            mt-4
 
             rounded-xl
 
@@ -1001,29 +1233,32 @@ export default function BookingDetailsPage() {
 
             bg-white
 
+            p-4
+
             shadow-sm
+
+            sm:p-5
           "
         >
           <div
             className="
               flex
               flex-col
-              gap-5
 
-              p-4
+              gap-4
 
-              sm:p-5
-
-              lg:flex-row
-              lg:items-center
-              lg:justify-between
+              xl:flex-row
+              xl:items-center
+              xl:justify-between
             "
           >
             <div
               className="
                 flex
                 min-w-0
+
                 items-center
+
                 gap-3.5
               "
             >
@@ -1041,26 +1276,30 @@ export default function BookingDetailsPage() {
                 <p
                   className="
                     truncate
-                    !font-heading
-                    !text-[17px]
-                    !font-semibold
-                    !text-secondary
+
+                    font-heading
+
+                    text-[17px]
+                    font-semibold
+
+                    text-secondary
                   "
                 >
-                  {
-                    attendeeName
-                  }
+                  {attendeeName}
                 </p>
 
                 <div
                   className="
                     mt-1.5
+
                     flex
                     flex-col
+
                     gap-1
 
                     sm:flex-row
                     sm:flex-wrap
+
                     sm:gap-x-4
                   "
                 >
@@ -1088,24 +1327,17 @@ export default function BookingDetailsPage() {
             <div
               className="
                 grid
+                w-full
+
                 grid-cols-2
-                gap-px
 
-                overflow-hidden
+                gap-2
 
-                rounded-lg
-
-                border
-                border-gray-200
-
-                bg-gray-200
-
-                sm:grid-cols-4
-
-                lg:min-w-[520px]
+                xl:max-w-[690px]
+                xl:grid-cols-4
               "
             >
-              <SummaryMetric
+              <SummaryItem
                 label="Event"
                 value={
                   displayValue(
@@ -1114,7 +1346,7 @@ export default function BookingDetailsPage() {
                 }
               />
 
-              <SummaryMetric
+              <SummaryItem
                 label="Date"
                 value={
                   formatDate(
@@ -1123,7 +1355,7 @@ export default function BookingDetailsPage() {
                 }
               />
 
-              <SummaryMetric
+              <SummaryItem
                 label="Time"
                 value={
                   formatTimeRange(
@@ -1132,11 +1364,11 @@ export default function BookingDetailsPage() {
                 }
               />
 
-              <SummaryMetric
-                label="Created"
+              <SummaryItem
+                label="Venue"
                 value={
-                  formatDate(
-                    booking.createdAt,
+                  displayValue(
+                    event.venue,
                   )
                 }
               />
@@ -1144,541 +1376,166 @@ export default function BookingDetailsPage() {
           </div>
         </section>
 
-        {/* ====================================================
-            MAIN GRID
-        ==================================================== */}
+        {/* CONTENT */}
 
         <div
           className="
-            mt-5
+            mt-4
 
             grid
             grid-cols-1
-            gap-5
 
-            xl:grid-cols-[minmax(0,1.6fr)_minmax(300px,0.7fr)]
+            gap-4
+
+            xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,0.75fr)]
           "
         >
-          {/* LEFT */}
+          {/* ATTENDEE */}
 
-          <div
-            className="
-              min-w-0
-              space-y-5
-            "
+          <CompactCard
+            icon={
+              <UserIcon />
+            }
+            title="Attendee Details"
           >
-            {/* REGISTRATION */}
-
-            <SectionCard
-              icon={
-                <UserIcon />
-              }
-              title="Registration Information"
-              description={
-                isEditing
-                  ? 'Update attendee information stored with this booking.'
-                  : 'Information submitted during registration.'
-              }
-            >
-              {detailEntries.length >
-              0 ? (
-                <div
-                  className="
-                    grid
-                    grid-cols-1
-                    gap-x-5
-                    gap-y-4
-
-                    sm:grid-cols-2
-                  "
-                >
-                  {detailEntries.map(
-                    ([
-                      key,
-                      value,
-                    ]) =>
-                      isEditing ? (
-                        <EditableField
-                          key={
-                            key
-                          }
-                          fieldKey={
-                            key
-                          }
-                          label={
-                            formatFieldName(
-                              key,
-                            )
-                          }
-                          value={
-                            draft[
-                              key
-                            ] ??
-                            ''
-                          }
-                          onChange={(
-                            next,
-                          ) =>
-                            changeField(
-                              key,
-                              next,
-                            )
-                          }
-                        />
-                      ) : (
-                        <ReadOnlyField
-                          key={
-                            key
-                          }
-                          label={
-                            formatFieldName(
-                              key,
-                            )
-                          }
-                          value={
-                            displayValue(
-                              value,
-                            )
-                          }
-                        />
-                      ),
-                  )}
-                </div>
-              ) : (
-                <EmptyInformation />
-              )}
-            </SectionCard>
-
-            {/* EVENT */}
-
-            <SectionCard
-              icon={
-                <EventIcon />
-              }
-              title="Event Information"
-              description="Conference information linked to this booking."
-            >
+            {detailEntries.length >
+            0 ? (
               <div
                 className="
                   grid
                   grid-cols-1
-                  gap-x-5
+
+                  gap-x-4
                   gap-y-4
 
                   sm:grid-cols-2
+
                   lg:grid-cols-3
                 "
               >
-                <ReadOnlyField
-                  label="Event Name"
-                  value={
-                    displayValue(
-                      event.eventName,
-                    )
-                  }
-                  wide
-                />
-
-                <ReadOnlyField
-                  label="Event Type"
-                  value={
-                    displayValue(
-                      event.eventType,
-                    )
-                  }
-                />
-
-                <ReadOnlyField
-                  label="Status"
-                  value={
-                    displayValue(
-                      event.status,
-                    )
-                  }
-                />
-
-                <ReadOnlyField
-                  label="Venue"
-                  value={
-                    displayValue(
-                      event.venue,
-                    )
-                  }
-                  wide
-                />
-
-                <ReadOnlyField
-                  label="Start Date"
-                  value={
-                    formatDate(
-                      toText(
-                        event.startDate,
-                      ),
-                    )
-                  }
-                />
-
-                <ReadOnlyField
-                  label="End Date"
-                  value={
-                    formatDate(
-                      toText(
-                        event.endDate,
-                      ),
-                    )
-                  }
-                />
+                {detailEntries.map(
+                  ([
+                    key,
+                    value,
+                  ]) =>
+                    isEditing ? (
+                      <EditableField
+                        key={
+                          key
+                        }
+                        fieldKey={
+                          key
+                        }
+                        label={
+                          formatFieldName(
+                            key,
+                          )
+                        }
+                        value={
+                          draft[
+                            key
+                          ] ??
+                          ''
+                        }
+                        onChange={(
+                          next,
+                        ) =>
+                          changeField(
+                            key,
+                            next,
+                          )
+                        }
+                      />
+                    ) : (
+                      <ReadOnlyField
+                        key={
+                          key
+                        }
+                        label={
+                          formatFieldName(
+                            key,
+                          )
+                        }
+                        value={
+                          displayValue(
+                            value,
+                          )
+                        }
+                      />
+                    ),
+                )}
               </div>
-            </SectionCard>
-
-            {/* SCHEDULE */}
-
-            <SectionCard
-              icon={
-                <CalendarIcon />
-              }
-              title="Schedule Information"
-              description="Selected event day and schedule configuration."
-            >
+            ) : (
               <div
                 className="
-                  grid
-                  grid-cols-2
-                  gap-x-5
-                  gap-y-4
+                  rounded-lg
 
-                  md:grid-cols-3
+                  bg-gray-50
+
+                  px-4
+                  py-6
+
+                  text-center
+
+                  text-[12px]
+
+                  text-gray-500
                 "
               >
-                <ReadOnlyField
-                  label="Day"
-                  value={
-                    schedule.dayNumber
-                      ? `Day ${displayValue(
-                          schedule.dayNumber,
-                        )}`
-                      : '—'
-                  }
-                />
-
-                <ReadOnlyField
-                  label="Date"
-                  value={
-                    formatDate(
-                      toText(
-                        schedule.date,
-                      ),
-                    )
-                  }
-                />
-
-                <ReadOnlyField
-                  label="Schedule"
-                  value={
-                    joinTime(
-                      toText(
-                        schedule.startTime,
-                      ),
-                      toText(
-                        schedule.endTime,
-                      ),
-                    )
-                  }
-                />
-
-                <ReadOnlyField
-                  label="Slot Duration"
-                  value={
-                    withUnit(
-                      schedule.slotDuration,
-                      'min',
-                    )
-                  }
-                />
-
-                <ReadOnlyField
-                  label="Slot Gap"
-                  value={
-                    withUnit(
-                      schedule.slotGap,
-                      'min',
-                    )
-                  }
-                />
-
-                <ReadOnlyField
-                  label="Capacity"
-                  value={
-                    displayValue(
-                      schedule.capacity,
-                    )
-                  }
-                />
+                No additional attendee information.
               </div>
-            </SectionCard>
-          </div>
+            )}
+          </CompactCard>
 
           {/* RIGHT */}
 
           <div
             className="
-              min-w-0
-              space-y-5
+              space-y-4
             "
           >
-            {/* SLOT */}
-
-            <SectionCard
+            <CompactCard
               icon={
-                <ClockIcon />
+                <AttendanceIcon />
               }
-              title="Booked Slot"
-              description="Time reserved for this booking."
+              title="Attendance"
             >
-              <div
-                className="
-                  rounded-lg
+              <AttendancePanel
+                status={
+                  attendance
+                }
+                checkedInAt={
+                  booking.checkedInAt ||
+                  null
+                }
+                checkedInBy={
+                  booking.checkedInBy ||
+                  ''
+                }
+                checkInMethod={
+                  booking.checkInMethod ||
+                  ''
+                }
+              />
+            </CompactCard>
 
-                  border
-                  border-primary/15
-
-                  bg-primary/[0.05]
-
-                  p-4
-                "
-              >
-                <p
-                  className="
-                    !text-[11px]
-                    !font-medium
-                    !text-gray-500
-                  "
-                >
-                  Reserved Time
-                </p>
-
-                <p
-                  className="
-                    mt-1
-                    !font-heading
-                    !text-[20px]
-                    !font-semibold
-                    !tracking-[-0.02em]
-                    !text-secondary
-                  "
-                >
-                  {
-                    formatTimeRange(
-                      slot,
-                    )
-                  }
-                </p>
-
-                <p
-                  className="
-                    mt-1
-                    !text-[12px]
-                    !text-gray-500
-                  "
-                >
-                  {
-                    formatDate(
-                      bookingDate,
-                    )
-                  }
-                </p>
-              </div>
-
-              <div
-                className="
-                  mt-4
-                  grid
-                  grid-cols-2
-                  gap-4
-                "
-              >
-                <ReadOnlyField
-                  label="Capacity"
-                  value={
-                    displayValue(
-                      slot.capacity,
-                    )
-                  }
-                />
-
-                <ReadOnlyField
-                  label="Booked"
-                  value={
-                    displayValue(
-                      slot.bookedCount,
-                    )
-                  }
-                />
-              </div>
-            </SectionCard>
-
-            {/* BOOKING RECORD */}
-
-            <SectionCard
+            <CompactCard
               icon={
-                <InfoIcon />
+                <FeedbackIcon />
               }
-              title="Booking Record"
-              description="System information for this booking."
+              title="Feedback"
             >
-              <div
-                className="
-                  divide-y
-                  divide-gray-100
-                "
-              >
-                <RecordRow
-                  label="Booking ID"
-                  value={
-                    booking.bookingId
-                  }
-                />
-
-                <RecordRow
-                  label="Created"
-                  value={
-                    formatDateTime(
-                      booking.createdAt,
-                    )
-                  }
-                />
-
-                <RecordRow
-                  label="Last Updated"
-                  value={
-                    formatDateTime(
-                      booking.updatedAt,
-                    )
-                  }
-                />
-              </div>
-            </SectionCard>
-
-            {/* REFERENCES */}
-
-            <SectionCard
-              icon={
-                <LinkIcon />
-              }
-              title="System References"
-              description="Linked database record identifiers."
-            >
-              <div
-                className="
-                  space-y-3
-                "
-              >
-                <ReferenceBox
-                  label="Booking Document"
-                  value={
-                    booking._id
-                  }
-                />
-
-                <ReferenceBox
-                  label="Event"
-                  value={
-                    toText(
-                      event._id,
-                    )
-                  }
-                />
-
-                <ReferenceBox
-                  label="Day Schedule"
-                  value={
-                    toText(
-                      schedule._id,
-                    )
-                  }
-                />
-
-                <ReferenceBox
-                  label="Slot"
-                  value={
-                    toText(
-                      slot._id,
-                    )
-                  }
-                />
-              </div>
-            </SectionCard>
-
-            {/* EDIT NOTE */}
-
-            {isEditing && (
-              <div
-                className="
-                  rounded-xl
-
-                  border
-                  border-amber-200
-
-                  bg-amber-50
-
-                  p-4
-                "
-              >
-                <div
-                  className="
-                    flex
-                    items-start
-                    gap-2.5
-                  "
-                >
-                  <span
-                    className="
-                      mt-0.5
-                      shrink-0
-                      text-amber-600
-                    "
-                  >
-                    <LockIcon />
-                  </span>
-
-                  <div>
-                    <p
-                      className="
-                        !text-[13px]
-                        !font-semibold
-                        !text-amber-800
-                      "
-                    >
-                      Scheduling fields
-                      are locked
-                    </p>
-
-                    <p
-                      className="
-                        mt-1
-                        !text-[12px]
-                        !leading-5
-                        !text-amber-700
-                      "
-                    >
-                      Event, schedule,
-                      slot and booking ID
-                      are system-linked
-                      values. Edit the
-                      attendee registration
-                      fields only.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
+              <FeedbackPanel
+                feedback={
+                  feedback
+                }
+              />
+            </CompactCard>
           </div>
         </div>
       </motion.div>
 
-      {/* ======================================================
-          DELETE MODAL
-      ====================================================== */}
+      {/* DELETE MODAL */}
 
       <AnimatePresence>
         {deleteOpen && (
@@ -1691,15 +1548,6 @@ export default function BookingDetailsPage() {
             }}
             exit={{
               opacity: 0,
-            }}
-            onClick={() => {
-              if (
-                !deleting
-              ) {
-                setDeleteOpen(
-                  false,
-                );
-              }
             }}
             className="
               fixed
@@ -1715,12 +1563,21 @@ export default function BookingDetailsPage() {
 
               backdrop-blur-[2px]
             "
+            onClick={() => {
+              if (
+                !deleting
+              ) {
+                setDeleteOpen(
+                  false,
+                );
+              }
+            }}
           >
             <motion.div
               initial={{
                 opacity: 0,
                 y: 8,
-                scale: 0.97,
+                scale: 0.98,
               }}
               animate={{
                 opacity: 1,
@@ -1742,7 +1599,7 @@ export default function BookingDetailsPage() {
               }
               className="
                 w-full
-                max-w-[430px]
+                max-w-[420px]
 
                 rounded-2xl
 
@@ -1770,6 +1627,7 @@ export default function BookingDetailsPage() {
                     grid
                     h-10
                     w-10
+
                     shrink-0
                     place-items-center
 
@@ -1788,6 +1646,7 @@ export default function BookingDetailsPage() {
                     className="
                       text-[16px]
                       font-semibold
+
                       text-secondary
                     "
                   >
@@ -1797,21 +1656,21 @@ export default function BookingDetailsPage() {
                   <p
                     className="
                       mt-1
-                      !text-[13px]
-                      !leading-5
-                      !text-gray-500
+
+                      text-[12px]
+                      leading-5
+
+                      text-gray-500
                     "
                   >
-                    This booking will be
-                    permanently removed
-                    and cannot be restored.
+                    This permanently removes the booking and releases one slot capacity.
                   </p>
                 </div>
               </div>
 
               <div
                 className="
-                  mt-5
+                  mt-4
 
                   rounded-lg
 
@@ -1826,26 +1685,25 @@ export default function BookingDetailsPage() {
               >
                 <p
                   className="
-                    !text-[12px]
-                    !text-gray-500
+                    text-[11px]
+
+                    text-gray-500
                   "
                 >
-                  {
-                    booking.bookingId
-                  }
+                  {booking.bookingId}
                 </p>
 
                 <p
                   className="
                     mt-1
-                    !text-[13px]
-                    !font-semibold
-                    !text-secondary
+
+                    text-[13px]
+                    font-semibold
+
+                    text-secondary
                   "
                 >
-                  {
-                    attendeeName
-                  }
+                  {attendeeName}
                 </p>
               </div>
 
@@ -1855,6 +1713,7 @@ export default function BookingDetailsPage() {
 
                   flex
                   flex-col-reverse
+
                   gap-2
 
                   sm:flex-row
@@ -1872,14 +1731,29 @@ export default function BookingDetailsPage() {
                     )
                   }
                   className="
-                    btn
+                    inline-flex
                     h-10
 
+                    items-center
+                    justify-center
+
+                    rounded-lg
+
+                    border
                     border-gray-200
 
                     bg-white
 
+                    px-4
+
+                    text-[12px]
+                    font-semibold
+
                     text-gray-600
+
+                    hover:bg-gray-50
+
+                    disabled:opacity-50
                   "
                 >
                   Cancel
@@ -1894,16 +1768,30 @@ export default function BookingDetailsPage() {
                     deleteBooking
                   }
                   className="
-                    btn
+                    inline-flex
                     h-10
 
-                    border-transparent
+                    items-center
+                    justify-center
 
-                    bg-[var(--color-danger-vivid)]
+                    gap-2
+
+                    rounded-lg
+
+                    bg-red-600
+
+                    px-4
+
+                    text-[12px]
+                    font-semibold
 
                     text-white
 
-                    hover:brightness-95
+                    transition
+
+                    hover:bg-red-700
+
+                    disabled:opacity-50
                   "
                 >
                   {deleting ? (
@@ -1930,19 +1818,22 @@ export default function BookingDetailsPage() {
 }
 
 /* ============================================================
-   SECTION CARD
+   CARD
 ============================================================ */
 
-function SectionCard({
+function CompactCard({
   icon,
   title,
-  description,
   children,
 }: {
-  icon: ReactNode;
-  title: string;
-  description: string;
-  children: ReactNode;
+  icon:
+    ReactNode;
+
+  title:
+    string;
+
+  children:
+    ReactNode;
 }) {
   return (
     <section
@@ -1962,14 +1853,16 @@ function SectionCard({
       <div
         className="
           flex
+
           items-center
-          gap-3
+
+          gap-2.5
 
           border-b
-          border-gray-200
+          border-gray-100
 
           px-4
-          py-3.5
+          py-3
 
           sm:px-5
         "
@@ -1977,9 +1870,11 @@ function SectionCard({
         <span
           className="
             grid
-            h-9
-            w-9
+            h-8
+            w-8
+
             shrink-0
+
             place-items-center
 
             rounded-lg
@@ -1992,36 +1887,22 @@ function SectionCard({
           {icon}
         </span>
 
-        <div
+        <h2
           className="
-            min-w-0
+            text-[13px]
+            font-semibold
+
+            text-secondary
           "
         >
-          <h2
-            className="
-              text-[14px]
-              font-semibold
-              text-secondary
-            "
-          >
-            {title}
-          </h2>
-
-          <p
-            className="
-              mt-0.5
-              !text-[12px]
-              !text-gray-500
-            "
-          >
-            {description}
-          </p>
-        </div>
+          {title}
+        </h2>
       </div>
 
       <div
         className="
           p-4
+
           sm:p-5
         "
       >
@@ -2032,63 +1913,118 @@ function SectionCard({
 }
 
 /* ============================================================
+   SUMMARY
+============================================================ */
+
+function SummaryItem({
+  label,
+  value,
+}: {
+  label:
+    string;
+
+  value:
+    string;
+}) {
+  return (
+    <div
+      className="
+        min-w-0
+
+        rounded-lg
+
+        border
+        border-gray-100
+
+        bg-gray-50
+
+        px-3
+        py-2.5
+      "
+    >
+      <p
+        className="
+          text-[10px]
+          font-medium
+
+          text-gray-400
+        "
+      >
+        {label}
+      </p>
+
+      <p
+        title={
+          value
+        }
+        className="
+          mt-1
+
+          truncate
+
+          text-[12px]
+          font-semibold
+
+          text-secondary
+        "
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+/* ============================================================
    READ FIELD
 ============================================================ */
 
 function ReadOnlyField({
   label,
   value,
-  wide = false,
 }: {
-  label: string;
-  value: string;
-  wide?: boolean;
+  label:
+    string;
+
+  value:
+    string;
 }) {
   return (
     <div
-      className={`
+      className="
         min-w-0
-
-        ${
-          wide
-            ? 'sm:col-span-2'
-            : ''
-        }
-      `}
+      "
     >
       <p
-        className="form-label"
+        className="
+          text-[10px]
+          font-semibold
+
+          uppercase
+
+          tracking-[0.045em]
+
+          text-gray-400
+        "
       >
         {label}
       </p>
 
-      <div
+      <p
         className="
-          min-h-[39px]
+          mt-1
 
-          rounded-lg
+          break-words
 
-          border
-          border-gray-100
+          text-[13px]
+          font-medium
 
-          bg-gray-50
+          leading-5
 
-          px-3
-          py-2.5
+          text-gray-700
         "
       >
-        <p
-          className="
-            break-words
-            !text-[13px]
-            !font-medium
-            !leading-[18px]
-            !text-gray-700
-          "
-        >
-          {value}
-        </p>
-      </div>
+        {value}
+      </p>
     </div>
   );
 }
@@ -2103,12 +2039,20 @@ function EditableField({
   value,
   onChange,
 }: {
-  fieldKey: string;
-  label: string;
-  value: string;
-  onChange: (
-    value: string,
-  ) => void;
+  fieldKey:
+    string;
+
+  label:
+    string;
+
+  value:
+    string;
+
+  onChange:
+    (
+      value:
+        string,
+    ) => void;
 }) {
   const type =
     getInputType(
@@ -2122,26 +2066,39 @@ function EditableField({
 
   return (
     <label
-      className={`
-        block
-        min-w-0
+      className={
+        longField
+          ? `
+              block
+              min-w-0
 
-        ${
-          longField
-            ? 'sm:col-span-2'
-            : ''
-        }
-      `}
+              sm:col-span-2
+              lg:col-span-3
+            `
+          : `
+              block
+              min-w-0
+            `
+      }
     >
       <span
-        className="form-label"
+        className="
+          text-[10px]
+          font-semibold
+
+          uppercase
+
+          tracking-[0.045em]
+
+          text-gray-400
+        "
       >
         {label}
       </span>
 
       {longField ? (
         <textarea
-          rows={4}
+          rows={3}
           value={
             value
           }
@@ -2153,8 +2110,35 @@ function EditableField({
             )
           }
           className="
-            form-textarea
+            mt-1.5
+
+            min-h-[88px]
+            w-full
+
             resize-y
+
+            rounded-lg
+
+            border
+            border-gray-200
+
+            bg-white
+
+            px-3
+            py-2.5
+
+            text-[13px]
+
+            text-secondary
+
+            outline-none
+
+            transition
+
+            focus:border-primary/40
+
+            focus:ring-2
+            focus:ring-primary/10
           "
         />
       ) : (
@@ -2172,7 +2156,34 @@ function EditableField({
               event.target.value,
             )
           }
-          className="form-input"
+          className="
+            mt-1.5
+
+            h-10
+            w-full
+
+            rounded-lg
+
+            border
+            border-gray-200
+
+            bg-white
+
+            px-3
+
+            text-[13px]
+
+            text-secondary
+
+            outline-none
+
+            transition
+
+            focus:border-primary/40
+
+            focus:ring-2
+            focus:ring-primary/10
+          "
         />
       )}
     </label>
@@ -2180,75 +2191,755 @@ function EditableField({
 }
 
 /* ============================================================
-   SUMMARY
+   ATTENDANCE
 ============================================================ */
 
-function SummaryMetric({
+function AttendancePanel({
+  status,
+  checkedInAt,
+  checkedInBy,
+  checkInMethod,
+}: {
+  status:
+    AttendanceStatus;
+
+  checkedInAt:
+    string | null;
+
+  checkedInBy:
+    string;
+
+  checkInMethod:
+    string;
+}) {
+  const present =
+    status ===
+    'PRESENT';
+
+  return (
+    <div>
+      <div
+        className={
+          present
+            ? `
+                flex
+
+                items-center
+
+                gap-3
+
+                rounded-lg
+
+                border
+                border-emerald-100
+
+                bg-emerald-50
+
+                px-3.5
+                py-3
+              `
+            : `
+                flex
+
+                items-center
+
+                gap-3
+
+                rounded-lg
+
+                border
+                border-gray-200
+
+                bg-gray-50
+
+                px-3.5
+                py-3
+              `
+        }
+      >
+        <span
+          className={
+            present
+              ? `
+                  grid
+                  h-9
+                  w-9
+
+                  shrink-0
+
+                  place-items-center
+
+                  rounded-full
+
+                  bg-emerald-100
+
+                  text-emerald-700
+                `
+              : `
+                  grid
+                  h-9
+                  w-9
+
+                  shrink-0
+
+                  place-items-center
+
+                  rounded-full
+
+                  bg-gray-200
+
+                  text-gray-500
+                `
+          }
+        >
+          {present ? (
+            <CheckIcon />
+          ) : (
+            <AttendanceIcon />
+          )}
+        </span>
+
+        <div>
+          <p
+            className={
+              present
+                ? `
+                    text-[13px]
+                    font-semibold
+
+                    text-emerald-800
+                  `
+                : `
+                    text-[13px]
+                    font-semibold
+
+                    text-gray-700
+                  `
+            }
+          >
+            {present
+              ? 'Present'
+              : 'Not Present'}
+          </p>
+
+          <p
+            className="
+              mt-0.5
+
+              text-[11px]
+
+              text-gray-500
+            "
+          >
+            {present
+              ? 'Check-in recorded for this attendee.'
+              : 'No check-in has been recorded.'}
+          </p>
+        </div>
+      </div>
+
+      {present && (
+        <div
+          className="
+            mt-3
+
+            divide-y
+            divide-gray-100
+          "
+        >
+          <MiniRow
+            label="Checked in"
+            value={
+              formatDateTime(
+                checkedInAt ||
+                  '',
+              )
+            }
+          />
+
+          <MiniRow
+            label="Method"
+            value={
+              checkInMethod ||
+              '—'
+            }
+          />
+
+          {checkedInBy && (
+            <MiniRow
+              label="Checked in by"
+              value={
+                checkedInBy
+              }
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   FEEDBACK
+============================================================ */
+
+function FeedbackPanel({
+  feedback,
+}: {
+  feedback:
+    BookingFeedback;
+}) {
+  if (
+    feedback.status ===
+    'NONE'
+  ) {
+    return (
+      <div
+        className="
+          rounded-lg
+
+          border
+          border-dashed
+          border-gray-200
+
+          bg-gray-50
+
+          px-4
+          py-5
+
+          text-center
+        "
+      >
+        <span
+          className="
+            mx-auto
+
+            grid
+            h-9
+            w-9
+
+            place-items-center
+
+            rounded-full
+
+            bg-white
+
+            text-gray-400
+
+            shadow-sm
+          "
+        >
+          <FeedbackIcon />
+        </span>
+
+        <p
+          className="
+            mt-2
+
+            text-[12px]
+            font-semibold
+
+            text-secondary
+          "
+        >
+          No feedback submitted
+        </p>
+      </div>
+    );
+  }
+
+  if (
+    feedback.status ===
+    'SKIPPED'
+  ) {
+    return (
+      <div
+        className="
+          rounded-lg
+
+          border
+          border-gray-200
+
+          bg-gray-50
+
+          px-4
+          py-4
+        "
+      >
+        <p
+          className="
+            text-[12px]
+            font-semibold
+
+            text-secondary
+          "
+        >
+          Feedback skipped
+        </p>
+
+        {feedback.submittedAt && (
+          <p
+            className="
+              mt-1
+
+              text-[10px]
+
+              text-gray-400
+            "
+          >
+            {formatDateTime(
+              feedback.submittedAt,
+            )}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div
+        className="
+          flex
+          flex-wrap
+
+          items-center
+          justify-between
+
+          gap-3
+        "
+      >
+        <div>
+          <div
+            className="
+              flex
+              items-center
+
+              gap-1
+            "
+          >
+            {[
+              1,
+              2,
+              3,
+              4,
+              5,
+            ].map(
+              (
+                value,
+              ) => (
+                <StarIcon
+                  key={
+                    value
+                  }
+                  active={
+                    Boolean(
+                      feedback.rating &&
+                        value <=
+                          feedback.rating,
+                    )
+                  }
+                />
+              ),
+            )}
+          </div>
+
+          <p
+            className="
+              mt-1
+
+              text-[11px]
+              font-semibold
+
+              text-secondary
+            "
+          >
+            {feedback.rating
+              ? `${feedback.rating}/5 · ${ratingText(
+                  feedback.rating,
+                )}`
+              : 'Feedback submitted'}
+          </p>
+        </div>
+
+        {feedback.submittedAt && (
+          <span
+            className="
+              text-[10px]
+
+              text-gray-400
+            "
+          >
+            {formatDate(
+              feedback.submittedAt,
+            )}
+          </span>
+        )}
+      </div>
+
+      {feedback.message && (
+        <div
+          className="
+            mt-4
+          "
+        >
+          <p
+            className="
+              text-[10px]
+              font-semibold
+
+              uppercase
+
+              tracking-[0.045em]
+
+              text-gray-400
+            "
+          >
+            Comment
+          </p>
+
+          <p
+            className="
+              mt-1.5
+
+              whitespace-pre-wrap
+
+              rounded-lg
+
+              bg-gray-50
+
+              px-3
+              py-2.5
+
+              text-[12px]
+              leading-5
+
+              text-gray-700
+            "
+          >
+            {feedback.message}
+          </p>
+        </div>
+      )}
+
+      {feedback.suggestedFeature && (
+        <div
+          className="
+            mt-3
+          "
+        >
+          <p
+            className="
+              text-[10px]
+              font-semibold
+
+              uppercase
+
+              tracking-[0.045em]
+
+              text-gray-400
+            "
+          >
+            Suggested Feature
+          </p>
+
+          <p
+            className="
+              mt-1.5
+
+              rounded-lg
+
+              border
+              border-primary/10
+
+              bg-primary/[0.04]
+
+              px-3
+              py-2.5
+
+              text-[12px]
+              leading-5
+
+              text-gray-700
+            "
+          >
+            {feedback.suggestedFeature}
+          </p>
+        </div>
+      )}
+
+      {!feedback.message &&
+        !feedback.suggestedFeature && (
+          <p
+            className="
+              mt-3
+
+              text-[11px]
+              leading-5
+
+              text-gray-500
+            "
+          >
+            A rating was submitted without a written comment.
+          </p>
+        )}
+    </div>
+  );
+}
+
+/* ============================================================
+   SMALL ROW
+============================================================ */
+
+function MiniRow({
   label,
   value,
 }: {
-  label: string;
-  value: string;
+  label:
+    string;
+
+  value:
+    string;
 }) {
   return (
     <div
       className="
-        min-w-0
-        bg-white
-        px-3
-        py-3
+        flex
+
+        items-start
+        justify-between
+
+        gap-4
+
+        py-2.5
+
+        first:pt-0
+
+        last:pb-0
       "
     >
-      <p
+      <span
         className="
-          !text-[11px]
-          !font-medium
-          !text-gray-400
+          text-[11px]
+
+          text-gray-500
         "
       >
         {label}
-      </p>
+      </span>
 
-      <p
+      <span
         className="
-          mt-1
-          truncate
-          !text-[12px]
-          !font-semibold
-          !text-secondary
+          max-w-[62%]
+
+          break-words
+
+          text-right
+
+          text-[11px]
+          font-semibold
+
+          text-secondary
         "
-        title={
-          value
-        }
       >
         {value}
-      </p>
+      </span>
     </div>
   );
 }
+
+/* ============================================================
+   ATTENDANCE BADGE
+============================================================ */
+
+function AttendanceBadge({
+  status,
+}: {
+  status:
+    AttendanceStatus;
+}) {
+  const present =
+    status ===
+    'PRESENT';
+
+  return (
+    <span
+      className={
+        present
+          ? `
+              inline-flex
+
+              items-center
+
+              gap-1.5
+
+              rounded-full
+
+              bg-emerald-50
+
+              px-2.5
+              py-1
+
+              text-[10px]
+              font-semibold
+
+              text-emerald-700
+
+              ring-1
+              ring-inset
+              ring-emerald-100
+            `
+          : `
+              inline-flex
+
+              items-center
+
+              gap-1.5
+
+              rounded-full
+
+              bg-gray-100
+
+              px-2.5
+              py-1
+
+              text-[10px]
+              font-semibold
+
+              text-gray-600
+
+              ring-1
+              ring-inset
+              ring-gray-200
+            `
+      }
+    >
+      <span
+        className={
+          present
+            ? `
+                h-1.5
+                w-1.5
+
+                rounded-full
+
+                bg-emerald-500
+              `
+            : `
+                h-1.5
+                w-1.5
+
+                rounded-full
+
+                bg-gray-400
+              `
+        }
+      />
+
+      {present
+        ? 'Present'
+        : 'Not Present'}
+    </span>
+  );
+}
+
+/* ============================================================
+   AVATAR
+============================================================ */
+
+function AvatarLarge({
+  name,
+}: {
+  name:
+    string;
+}) {
+  const initials =
+    name
+      .split(' ')
+      .filter(
+        Boolean,
+      )
+      .slice(
+        0,
+        2,
+      )
+      .map(
+        (
+          item,
+        ) =>
+          item[0]
+            ?.toUpperCase(),
+      )
+      .join('') ||
+    'NA';
+
+  return (
+    <div
+      className="
+        grid
+        h-12
+        w-12
+
+        shrink-0
+        place-items-center
+
+        rounded-xl
+
+        bg-primary
+
+        font-heading
+
+        text-[14px]
+        font-semibold
+
+        text-white
+
+        shadow-sm
+
+        sm:h-14
+        sm:w-14
+
+        sm:text-[15px]
+      "
+    >
+      {initials}
+    </div>
+  );
+}
+
+/* ============================================================
+   INLINE INFO
+============================================================ */
 
 function InlineInfo({
   icon,
   value,
 }: {
-  icon: ReactNode;
-  value: string;
+  icon:
+    ReactNode;
+
+  value:
+    string;
 }) {
   return (
     <span
       className="
         inline-flex
         min-w-0
+
         items-center
+
         gap-1.5
 
         text-[12px]
+
         text-gray-500
       "
     >
       <span
         className="
           shrink-0
+
           text-gray-400
         "
       >
@@ -2267,204 +2958,7 @@ function InlineInfo({
 }
 
 /* ============================================================
-   RECORDS
-============================================================ */
-
-function RecordRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div
-      className="
-        flex
-        items-start
-        justify-between
-        gap-4
-
-        py-3
-
-        first:pt-0
-        last:pb-0
-      "
-    >
-      <span
-        className="
-          text-[12px]
-          text-gray-500
-        "
-      >
-        {label}
-      </span>
-
-      <span
-        className="
-          max-w-[60%]
-          break-words
-          text-right
-          text-[12px]
-          font-medium
-          text-secondary
-        "
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function ReferenceBox({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div
-      className="
-        rounded-lg
-
-        border
-        border-gray-100
-
-        bg-gray-50
-
-        px-3
-        py-2.5
-      "
-    >
-      <p
-        className="
-          !text-[11px]
-          !font-medium
-          !text-gray-400
-        "
-      >
-        {label}
-      </p>
-
-      <p
-        className="
-          mt-1
-          break-all
-          font-mono
-          !text-[11px]
-          !leading-4
-          !text-gray-700
-        "
-      >
-        {value ||
-          '—'}
-      </p>
-    </div>
-  );
-}
-
-/* ============================================================
-   STATUS
-============================================================ */
-
-function BookingStatus({
-  date,
-}: {
-  date: string;
-}) {
-  const parsed =
-    date
-      ? new Date(
-          date,
-        )
-      : null;
-
-  const upcoming =
-    parsed &&
-    !Number.isNaN(
-      parsed.getTime(),
-    )
-      ? parsed.getTime() >=
-        startOfToday()
-      : true;
-
-  return (
-    <span
-      className={`
-        badge
-
-        ${
-          upcoming
-            ? 'badge--success'
-            : 'badge--info'
-        }
-      `}
-    >
-      {upcoming
-        ? 'Confirmed'
-        : 'Completed'}
-    </span>
-  );
-}
-
-/* ============================================================
-   AVATAR
-============================================================ */
-
-function AvatarLarge({
-  name,
-}: {
-  name: string;
-}) {
-  const initials =
-    name
-      .split(' ')
-      .filter(Boolean)
-      .slice(0, 2)
-      .map(
-        (
-          item,
-        ) =>
-          item[0]
-            ?.toUpperCase(),
-      )
-      .join('') ||
-    'NA';
-
-  return (
-    <div
-      className="
-        grid
-        h-12
-        w-12
-        shrink-0
-        place-items-center
-
-        rounded-xl
-
-        bg-primary
-
-        font-heading
-        text-[14px]
-        font-semibold
-
-        text-white
-
-        shadow-sm
-
-        sm:h-14
-        sm:w-14
-        sm:text-[15px]
-      "
-    >
-      {initials}
-    </div>
-  );
-}
-
-/* ============================================================
-   ALERT BANNER
+   ALERT
 ============================================================ */
 
 function FeedbackBanner({
@@ -2472,9 +2966,14 @@ function FeedbackBanner({
   success = false,
   onClose,
 }: {
-  text: string;
-  success?: boolean;
-  onClose: () => void;
+  text:
+    string;
+
+  success?:
+    boolean;
+
+  onClose:
+    () => void;
 }) {
   return (
     <motion.div
@@ -2489,51 +2988,70 @@ function FeedbackBanner({
       exit={{
         opacity: 0,
       }}
-      className={`
-        mt-4
+      className={
+        success
+          ? `
+              mt-4
 
-        flex
-        items-start
-        justify-between
-        gap-4
+              flex
+              items-start
+              justify-between
 
-        rounded-lg
+              gap-4
 
-        border
+              rounded-lg
 
-        px-4
-        py-3
+              border
+              border-primary/20
 
-        ${
-          success
-            ? `
-                border-primary/20
-                bg-primary/[0.05]
-              `
-            : `
-                border-red-200
-                bg-red-50
-              `
-        }
-      `}
+              bg-primary/[0.05]
+
+              px-4
+              py-3
+            `
+          : `
+              mt-4
+
+              flex
+              items-start
+              justify-between
+
+              gap-4
+
+              rounded-lg
+
+              border
+              border-red-200
+
+              bg-red-50
+
+              px-4
+              py-3
+            `
+      }
     >
       <div
         className="
           flex
           items-start
+
           gap-2.5
         "
       >
         <span
-          className={`
-            mt-0.5
+          className={
+            success
+              ? `
+                  mt-0.5
 
-            ${
-              success
-                ? 'text-primary'
-                : 'text-red-500'
-            }
-          `}
+                  text-primary
+                `
+              : `
+                  mt-0.5
+
+                  text-red-500
+                `
+          }
         >
           {success ? (
             <CheckIcon />
@@ -2543,16 +3061,21 @@ function FeedbackBanner({
         </span>
 
         <p
-          className={`
-            !text-[13px]
-            !leading-5
+          className={
+            success
+              ? `
+                  text-[12px]
+                  leading-5
 
-            ${
-              success
-                ? '!text-primary-dark'
-                : '!text-red-700'
-            }
-          `}
+                  text-primary-dark
+                `
+              : `
+                  text-[12px]
+                  leading-5
+
+                  text-red-700
+                `
+          }
         >
           {text}
         </p>
@@ -2563,47 +3086,15 @@ function FeedbackBanner({
         onClick={
           onClose
         }
-        className={`
-          cursor-pointer
-
-          ${
-            success
-              ? 'text-primary'
-              : 'text-red-500'
-          }
-        `}
+        className={
+          success
+            ? 'text-primary'
+            : 'text-red-500'
+        }
       >
         <CloseIcon />
       </button>
     </motion.div>
-  );
-}
-
-/* ============================================================
-   EMPTY INFO
-============================================================ */
-
-function EmptyInformation() {
-  return (
-    <div
-      className="
-        rounded-lg
-        bg-gray-50
-        px-4
-        py-8
-        text-center
-      "
-    >
-      <p
-        className="
-          !text-[13px]
-          !text-gray-500
-        "
-      >
-        No registration
-        information is available.
-      </p>
-    </div>
   );
 }
 
@@ -2616,6 +3107,7 @@ function BookingDetailSkeleton() {
     <div
       className="
         w-full
+
         animate-pulse
       "
     >
@@ -2623,7 +3115,9 @@ function BookingDetailSkeleton() {
         className="
           h-4
           w-24
+
           rounded
+
           bg-gray-200
         "
       />
@@ -2634,6 +3128,7 @@ function BookingDetailSkeleton() {
 
           flex
           flex-col
+
           gap-4
 
           sm:flex-row
@@ -2646,7 +3141,9 @@ function BookingDetailSkeleton() {
             className="
               h-7
               w-48
+
               rounded
+
               bg-gray-200
             "
           />
@@ -2654,10 +3151,13 @@ function BookingDetailSkeleton() {
           <div
             className="
               mt-2
+
               h-4
-              w-64
+              w-56
               max-w-full
+
               rounded
+
               bg-gray-100
             "
           />
@@ -2666,14 +3166,17 @@ function BookingDetailSkeleton() {
         <div
           className="
             flex
+
             gap-2
           "
         >
           <div
             className="
               h-10
-              w-28
+              w-24
+
               rounded-lg
+
               bg-gray-100
             "
           />
@@ -2682,18 +3185,20 @@ function BookingDetailSkeleton() {
             className="
               h-10
               w-24
+
               rounded-lg
+
               bg-gray-100
             "
           />
         </div>
       </div>
 
-      {/* OVERVIEW */}
-
       <div
         className="
-          mt-5
+          mt-4
+
+          h-28
 
           rounded-xl
 
@@ -2701,260 +3206,72 @@ function BookingDetailSkeleton() {
           border-gray-200
 
           bg-white
-
-          p-5
         "
-      >
-        <div
-          className="
-            flex
-            flex-col
-            gap-5
-
-            lg:flex-row
-            lg:items-center
-            lg:justify-between
-          "
-        >
-          <div
-            className="
-              flex
-              items-center
-              gap-3
-            "
-          >
-            <div
-              className="
-                h-14
-                w-14
-                rounded-xl
-                bg-gray-100
-              "
-            />
-
-            <div>
-              <div
-                className="
-                  h-5
-                  w-40
-                  rounded
-                  bg-gray-100
-                "
-              />
-
-              <div
-                className="
-                  mt-2
-                  h-3
-                  w-56
-                  rounded
-                  bg-gray-100
-                "
-              />
-            </div>
-          </div>
-
-          <div
-            className="
-              grid
-              grid-cols-2
-              gap-2
-
-              sm:grid-cols-4
-
-              lg:w-[520px]
-            "
-          >
-            {Array.from({
-              length: 4,
-            }).map(
-              (
-                _,
-                index,
-              ) => (
-                <div
-                  key={
-                    index
-                  }
-                  className="
-                    h-14
-                    rounded-lg
-                    bg-gray-100
-                  "
-                />
-              ),
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* GRID */}
+      />
 
       <div
         className="
-          mt-5
+          mt-4
 
           grid
           grid-cols-1
-          gap-5
 
-          xl:grid-cols-[1.6fr_0.7fr]
+          gap-4
+
+          xl:grid-cols-[1.45fr_0.75fr]
         "
       >
         <div
           className="
-            space-y-5
-          "
-        >
-          <SkeletonSection
-            rows={6}
-          />
+            h-72
 
-          <SkeletonSection
-            rows={4}
-          />
+            rounded-xl
 
-          <SkeletonSection
-            rows={4}
-          />
-        </div>
+            border
+            border-gray-200
 
-        <div
-          className="
-            space-y-5
-          "
-        >
-          <SkeletonSection
-            rows={3}
-          />
-
-          <SkeletonSection
-            rows={3}
-          />
-
-          <SkeletonSection
-            rows={4}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SkeletonSection({
-  rows,
-}: {
-  rows: number;
-}) {
-  return (
-    <div
-      className="
-        overflow-hidden
-
-        rounded-xl
-
-        border
-        border-gray-200
-
-        bg-white
-      "
-    >
-      <div
-        className="
-          flex
-          items-center
-          gap-3
-
-          border-b
-          border-gray-200
-
-          px-5
-          py-4
-        "
-      >
-        <div
-          className="
-            h-9
-            w-9
-            rounded-lg
-            bg-gray-100
+            bg-white
           "
         />
 
-        <div>
+        <div
+          className="
+            space-y-4
+          "
+        >
           <div
             className="
-              h-4
-              w-36
-              rounded
-              bg-gray-100
+              h-44
+
+              rounded-xl
+
+              border
+              border-gray-200
+
+              bg-white
             "
           />
 
           <div
             className="
-              mt-2
-              h-3
-              w-52
-              max-w-full
-              rounded
-              bg-gray-100
+              h-52
+
+              rounded-xl
+
+              border
+              border-gray-200
+
+              bg-white
             "
           />
         </div>
-      </div>
-
-      <div
-        className="
-          grid
-          grid-cols-1
-          gap-4
-
-          p-5
-
-          sm:grid-cols-2
-        "
-      >
-        {Array.from({
-          length:
-            rows,
-        }).map(
-          (
-            _,
-            index,
-          ) => (
-            <div
-              key={
-                index
-              }
-            >
-              <div
-                className="
-                  h-3
-                  w-20
-                  rounded
-                  bg-gray-100
-                "
-              />
-
-              <div
-                className="
-                  mt-2
-                  h-10
-                  rounded-lg
-                  bg-gray-100
-                "
-              />
-            </div>
-          ),
-        )}
       </div>
     </div>
   );
 }
 
 /* ============================================================
-   HELPERS
+   DETAILS HELPERS
 ============================================================ */
 
 function normalizeDetails(
@@ -3149,6 +3466,36 @@ function displayValue(
   );
 }
 
+function displayMobile(
+  details:
+    GenericRecord,
+) {
+  const mobile =
+    toText(
+      details.mobile,
+    ).trim();
+
+  const countryCode =
+    toText(
+      details.countryCode,
+    ).trim();
+
+  if (!mobile) {
+    return '—';
+  }
+
+  if (
+    countryCode &&
+    !mobile.startsWith(
+      countryCode,
+    )
+  ) {
+    return `${countryCode} ${mobile}`;
+  }
+
+  return mobile;
+}
+
 function toText(
   value:
     unknown,
@@ -3167,8 +3514,13 @@ function toText(
   );
 }
 
+/* ============================================================
+   DATE
+============================================================ */
+
 function formatDate(
-  value?: string,
+  value?:
+    string,
 ) {
   if (!value) {
     return '—';
@@ -3192,8 +3544,10 @@ function formatDate(
     {
       day:
         '2-digit',
+
       month:
         'short',
+
       year:
         'numeric',
     },
@@ -3203,7 +3557,8 @@ function formatDate(
 }
 
 function formatDateTime(
-  value?: string,
+  value?:
+    string,
 ) {
   if (!value) {
     return '—';
@@ -3227,12 +3582,16 @@ function formatDateTime(
     {
       day:
         '2-digit',
+
       month:
         'short',
+
       year:
         'numeric',
+
       hour:
         '2-digit',
+
       minute:
         '2-digit',
     },
@@ -3241,71 +3600,122 @@ function formatDateTime(
   );
 }
 
-function joinTime(
-  start: string,
-  end: string,
-) {
-  if (
-    !start ||
-    !end
-  ) {
-    return '—';
-  }
-
-  return `${start} - ${end}`;
-}
+/* ============================================================
+   TIME
+============================================================ */
 
 function formatTimeRange(
   slot:
     GenericRecord,
 ) {
-  return joinTime(
-    toText(
-      slot.startTime,
-    ),
-    toText(
-      slot.endTime,
-    ),
-  );
-}
+  const start =
+    formatTime(
+      toText(
+        slot.startTime,
+      ),
+    );
 
-function withUnit(
-  value:
-    unknown,
-  unit: string,
-) {
+  const end =
+    formatTime(
+      toText(
+        slot.endTime,
+      ),
+    );
+
   if (
-    value ===
-      undefined ||
-    value ===
-      null ||
-    value ===
-      ''
+    start ===
+      '—' ||
+    end ===
+      '—'
   ) {
     return '—';
   }
 
-  return `${String(
-    value,
-  )} ${unit}`;
+  return `${start} – ${end}`;
 }
 
-function startOfToday() {
-  const date =
-    new Date();
+function formatTime(
+  value:
+    string,
+) {
+  const match =
+    /^(\d{1,2}):(\d{2})/.exec(
+      value,
+    );
 
-  date.setHours(
-    0,
-    0,
-    0,
-    0,
-  );
+  if (!match) {
+    return value ||
+      '—';
+  }
 
-  return date.getTime();
+  const hours =
+    Number(
+      match[1],
+    );
+
+  const minutes =
+    match[2];
+
+  if (
+    Number.isNaN(
+      hours,
+    ) ||
+    hours < 0 ||
+    hours > 23
+  ) {
+    return value;
+  }
+
+  const suffix =
+    hours >= 12
+      ? 'PM'
+      : 'AM';
+
+  const normalized =
+    hours % 12 ||
+    12;
+
+  return `${normalized}:${minutes} ${suffix}`;
 }
+
+/* ============================================================
+   RATING
+============================================================ */
+
+function ratingText(
+  rating:
+    number,
+) {
+  switch (
+    rating
+  ) {
+    case 1:
+      return 'Needs improvement';
+
+    case 2:
+      return 'Fair';
+
+    case 3:
+      return 'Good';
+
+    case 4:
+      return 'Very good';
+
+    case 5:
+      return 'Excellent';
+
+    default:
+      return '';
+  }
+}
+
+/* ============================================================
+   INPUT TYPE
+============================================================ */
 
 function getInputType(
-  key: string,
+  key:
+    string,
 ):
   | 'text'
   | 'email'
@@ -3351,7 +3761,8 @@ function getInputType(
 }
 
 function isLongField(
-  key: string,
+  key:
+    string,
 ) {
   const lower =
     key.toLowerCase();
@@ -3421,107 +3832,6 @@ function UserIcon() {
   );
 }
 
-function EventIcon() {
-  return (
-    <svg
-      className="h-4 w-4"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth={1.9}
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M5 7h14v12H5zM8 3v4m8-4v4M5 10h14"
-      />
-    </svg>
-  );
-}
-
-function CalendarIcon() {
-  return (
-    <svg
-      className="h-4 w-4"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth={1.9}
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M7 3v3m10-3v3M4.5 9h15M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1Z"
-      />
-    </svg>
-  );
-}
-
-function ClockIcon() {
-  return (
-    <svg
-      className="h-4 w-4"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth={1.9}
-    >
-      <circle
-        cx="12"
-        cy="12"
-        r="8.5"
-      />
-
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M12 7.5V12l3 2"
-      />
-    </svg>
-  );
-}
-
-function InfoIcon() {
-  return (
-    <svg
-      className="h-4 w-4"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth={1.9}
-    >
-      <circle
-        cx="12"
-        cy="12"
-        r="9"
-      />
-
-      <path
-        strokeLinecap="round"
-        d="M12 11v5M12 8h.01"
-      />
-    </svg>
-  );
-}
-
-function LinkIcon() {
-  return (
-    <svg
-      className="h-4 w-4"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth={1.9}
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="m10 14 4-4M8.5 16.5l-1 1a3.5 3.5 0 0 1-5-5l3-3a3.5 3.5 0 0 1 5 0M15.5 7.5l1-1a3.5 3.5 0 0 1 5 5l-3 3a3.5 3.5 0 0 1-5 0"
-      />
-    </svg>
-  );
-}
-
 function MailIcon() {
   return (
     <svg
@@ -3561,6 +3871,52 @@ function PhoneIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
         d="M7 3.5 10 7 8.5 9.5c1.5 3 3 4.5 6 6L17 14l3.5 3c-1 2.5-3 3.5-5 2.8-6-2-9.3-5.3-11.3-11.3C3.5 6.5 4.5 4.5 7 3.5Z"
+      />
+    </svg>
+  );
+}
+
+function AttendanceIcon() {
+  return (
+    <svg
+      className="h-4 w-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.9}
+    >
+      <circle
+        cx="12"
+        cy="8"
+        r="3.2"
+      />
+
+      <path
+        strokeLinecap="round"
+        d="M6 20c.7-3.5 2.8-5.4 6-5.4s5.3 1.9 6 5.4"
+      />
+    </svg>
+  );
+}
+
+function FeedbackIcon() {
+  return (
+    <svg
+      className="h-4 w-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.9}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M5 5.5h14v10H9l-4 3v-13Z"
+      />
+
+      <path
+        strokeLinecap="round"
+        d="M8.5 9h7M8.5 12h4.5"
       />
     </svg>
   );
@@ -3630,31 +3986,6 @@ function TrashIcon() {
   );
 }
 
-function LockIcon() {
-  return (
-    <svg
-      className="h-4 w-4"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth={1.9}
-    >
-      <rect
-        x="5"
-        y="10"
-        width="14"
-        height="10"
-        rx="2"
-      />
-
-      <path
-        strokeLinecap="round"
-        d="M8 10V7a4 4 0 0 1 8 0v3"
-      />
-    </svg>
-  );
-}
-
 function AlertIcon() {
   return (
     <svg
@@ -3719,6 +4050,7 @@ function SpinnerIcon() {
       className="
         h-4
         w-4
+
         animate-spin
       "
       fill="none"
@@ -3738,6 +4070,39 @@ function SpinnerIcon() {
         stroke="currentColor"
         strokeWidth="3"
         strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function StarIcon({
+  active,
+}: {
+  active:
+    boolean;
+}) {
+  return (
+    <svg
+      className={
+        active
+          ? `
+              h-4
+              w-4
+
+              text-amber-400
+            `
+          : `
+              h-4
+              w-4
+
+              text-gray-200
+            `
+      }
+      viewBox="0 0 24 24"
+      fill="currentColor"
+    >
+      <path
+        d="m12 2.7 2.86 5.8 6.4.93-4.63 4.51 1.09 6.37L12 17.3l-5.72 3.01 1.09-6.37-4.63-4.51 6.4-.93L12 2.7Z"
       />
     </svg>
   );

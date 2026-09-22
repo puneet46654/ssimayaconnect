@@ -1,4 +1,4 @@
-import { randomInt } from 'node:crypto';
+﻿import { randomInt } from 'node:crypto';
 
 import mongoose from 'mongoose';
 
@@ -29,6 +29,79 @@ type BookingDetailsInput =
     string,
     unknown
   >;
+
+const RESEND_API_URL =
+  'https://api.resend.com/emails';
+
+async function sendBookingEmail(input: {
+  bookingId: string;
+  eventName: string;
+  date: Date | string;
+  startTime: string;
+  endTime: string;
+  details: BookingDetailsInput;
+}) {
+  const apiKey =
+    process.env.RESEND_API_KEY?.trim();
+  const recipient =
+    typeof input.details.email === 'string'
+      ? input.details.email.trim().toLowerCase()
+      : '';
+  const from =
+    process.env.RESEND_FROM_EMAIL?.trim() ||
+    'SSI Maya Connect <onboarding@resend.dev>';
+
+  if (!apiKey || !recipient) {
+    console.error(
+      'Booking email skipped: Resend key or recipient is missing.',
+    );
+    return false;
+  }
+
+  const name =
+    typeof input.details.fullName === 'string'
+      ? input.details.fullName
+      : 'Doctor';
+  const date = new Date(input.date).toLocaleDateString(
+    'en-IN',
+    { dateStyle: 'long' },
+  );
+
+  const response = await fetch(
+    RESEND_API_URL,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`, 
+        'Content-Type': 'application/json',
+        'Idempotency-Key': `booking-confirmation/${input.bookingId}`,
+      },
+      body: JSON.stringify({
+        from,
+        to: [recipient],
+        subject: `Booking Confirmed - ${input.eventName}`,
+        html: `
+          <h2>Booking Confirmed</h2>
+          <p>Dear ${name}, your booking has been confirmed.</p>
+          <p><strong>Booking ID:</strong> ${input.bookingId}</p>
+          <p><strong>Event:</strong> ${input.eventName}</p>
+          <p><strong>Date:</strong> ${date}</p>
+          <p><strong>Time:</strong> ${input.startTime} - ${input.endTime}</p>
+        `,
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const message =
+      await response.text().catch(() => '');
+    throw new Error(
+      `Resend returned ${response.status}: ${message}`,
+    );
+  }
+
+  return true;
+}
 
 /* ============================================================
    RESPONSE HELPER
@@ -393,6 +466,7 @@ export async function POST(
       })
         .select({
           _id: 1,
+          date: 1,
         })
         .lean();
 
@@ -431,6 +505,8 @@ export async function POST(
           _id: 1,
           capacity: 1,
           bookedCount: 1,
+          startTime: 1,
+          endTime: 1,
         })
         .lean();
 
@@ -598,6 +674,23 @@ export async function POST(
     reservedSlotId =
       null;
 
+    let emailSent = false;
+    try {
+      emailSent = await sendBookingEmail({
+        bookingId: booking.bookingId,
+        eventName: event.eventName,
+        date: schedule.date,
+        startTime: reservedSlot.startTime,
+        endTime: reservedSlot.endTime,
+        details,
+      });
+    } catch (error) {
+      console.error(
+        `Confirmation email failed for booking ${booking.bookingId}:`,
+        error,
+      );
+    }
+
     return NextResponse.json(
       {
         success:
@@ -605,6 +698,8 @@ export async function POST(
 
         existing:
           false,
+
+        emailSent,
 
         booking: {
           id:

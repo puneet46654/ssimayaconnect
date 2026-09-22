@@ -477,45 +477,7 @@ export default function AdminDashboard() {
               Quick Actions
             </h2>
 
-            <p
-              className="
-                mt-0.5
-
-                text-[9px]
-                leading-4
-
-                text-gray-400
-
-                sm:text-[10px]
-              "
-            >
-              Jump directly to
-              commonly used
-              administrative tools.
-            </p>
-          </div>
-
-          <div
-            className="
-              hidden
-
-              h-8
-              w-8
-
-              shrink-0
-
-              place-items-center
-
-              rounded-lg
-
-              bg-primary/[0.06]
-
-              text-primary
-
-              sm:grid
-            "
-          >
-            <BoltIcon />
+         
           </div>
         </div>
 
