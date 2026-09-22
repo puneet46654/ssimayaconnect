@@ -520,7 +520,7 @@ export default function EventsPage() {
     router.push(
       `/events/${encodeURIComponent(
         eventId,
-      )}/book/feedback`,
+      )}/book/feedback?scope=event`,
     );
   }
 
@@ -1253,7 +1253,7 @@ export default function EventsPage() {
                 <div
                   className="
                     grid
-                    grid-cols-1
+                    grid-cols-2
                     gap-3
 
                     min-[520px]:grid-cols-2
@@ -2975,6 +2975,11 @@ function FeedbackEventPicker({
   onClose:
     () => void;
 }) {
+  const [
+    search,
+    setSearch,
+  ] = useState('');
+
   const sortedEvents =
     useMemo(
       () =>
@@ -3016,6 +3021,16 @@ function FeedbackEventPicker({
       [
         events,
       ],
+    );
+  const visibleEvents =
+    sortedEvents.filter(
+      (event) =>
+        !search.trim() ||
+        event.eventName
+          .toLowerCase()
+          .includes(
+            search.trim().toLowerCase(),
+          ),
     );
 
   return (
@@ -3224,14 +3239,40 @@ function FeedbackEventPicker({
             sm:py-4
           "
         >
-          {sortedEvents.length >
+          <input
+            type="search"
+            value={search}
+            onChange={(event) =>
+              setSearch(event.target.value)
+            }
+            placeholder="Search by event name"
+            aria-label="Search by event name"
+            className="
+              mb-3
+              h-10
+              w-full
+              rounded-lg
+              border
+              border-gray-200
+              px-3
+              text-[12px]
+              text-secondary
+              outline-none
+              placeholder:text-gray-400
+              focus:border-primary/40
+              focus:ring-2
+              focus:ring-primary/10
+            "
+          />
+
+          {visibleEvents.length >
           0 ? (
             <div
               className="
                 space-y-2
               "
             >
-              {sortedEvents.map(
+              {visibleEvents.map(
                 (
                   event,
                 ) => (

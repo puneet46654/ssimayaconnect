@@ -15,7 +15,7 @@ export async function trackActivity(
     metadata?: Record<string, unknown>;
     path?: string;
   } = {},
-) {
+): Promise<boolean> {
   try {
     const response = await fetch(
       '/api/activity',
@@ -42,10 +42,14 @@ export async function trackActivity(
         `Activity request failed with status ${response.status}.`,
       );
     }
+
+    return true;
   } catch (error) {
     console.error(
       'Unable to record user activity:',
       error,
     );
+
+    return false;
   }
 }

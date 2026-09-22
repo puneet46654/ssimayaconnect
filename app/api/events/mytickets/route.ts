@@ -127,7 +127,7 @@ export async function GET(
             'eventId',
 
           select:
-            'eventName venue imageUrl startDate endDate status',
+            'eventName venue imageUrl updatedAt startDate endDate status',
         },
       )
       .populate(
@@ -222,10 +222,16 @@ export async function GET(
 
 
             imageUrl:
-              String(
-                event.imageUrl ||
-                '',
-              ),
+              event.imageUrl
+                ? `/api/events/${String(
+                    event._id ||
+                    booking.eventId ||
+                    '',
+                  )}/image?v=${new Date(
+                    event.updatedAt ||
+                    Date.now(),
+                  ).getTime()}`
+                : '',
 
 
             date:
@@ -277,6 +283,15 @@ export async function GET(
             qrData:
               JSON.stringify(
                 {
+                  type:
+                    'SSI_MAYA_CONNECT_ATTENDANCE',
+
+                  doctorId:
+                    String(
+                      booking._id ||
+                      '',
+                    ),
+
                   bookingId:
                     booking.bookingId,
 
@@ -296,6 +311,38 @@ export async function GET(
                   dayScheduleId:
                     String(
                       booking.dayScheduleId ||
+                      '',
+                    ),
+
+                  eventName:
+                    String(
+                      event.eventName ||
+                      'Event',
+                    ),
+
+                  name:
+                    String(
+                      booking.details
+                        ?.fullName ||
+                      'Attendee',
+                    ),
+
+                  date:
+                    String(
+                      schedule.date ||
+                      event.startDate ||
+                      '',
+                    ),
+
+                  startTime:
+                    String(
+                      slot.startTime ||
+                      '',
+                    ),
+
+                  endTime:
+                    String(
+                      slot.endTime ||
                       '',
                     ),
                 },

@@ -1,9 +1,12 @@
 'use client';
 
 import Image from 'next/image';
+import Link from 'next/link';
+import type { ReactNode } from 'react';
 
 import {
   useEffect,
+  useRef,
   useState,
 } from 'react';
 
@@ -165,6 +168,9 @@ export default function MyTicketsPage() {
   ] =
     useState(false);
 
+  const loadedMobileRef =
+    useRef('');
+
 
 
 
@@ -193,14 +199,15 @@ export default function MyTicketsPage() {
       cachedMobile
     ) {
 
-      setMobile(
-        cachedMobile,
-      );
+      window.setTimeout(() => {
+        setMobile(
+          cachedMobile,
+        );
 
-
-      setSavedMobile(
-        cachedMobile,
-      );
+        setSavedMobile(
+          cachedMobile,
+        );
+      }, 0);
 
     }
 
@@ -212,11 +219,18 @@ export default function MyTicketsPage() {
 
       try {
 
-        setTickets(
+        const parsed =
           JSON.parse(
             cachedTickets,
-          ),
-        );
+          );
+
+        window.setTimeout(() => {
+          setTickets(parsed);
+
+          setLoaded(
+            true,
+          );
+        }, 0);
 
       } catch {}
 
@@ -331,6 +345,9 @@ export default function MyTicketsPage() {
         clean,
       );
 
+      loadedMobileRef.current =
+        clean;
+
 
       setLoaded(
         true,
@@ -368,7 +385,9 @@ export default function MyTicketsPage() {
 
 
     if (
-      savedMobile
+      savedMobile &&
+      loadedMobileRef.current !==
+        savedMobile
     ) {
 
       void loadTickets(
@@ -378,7 +397,9 @@ export default function MyTicketsPage() {
     }
 
 
-  }, []);
+  }, [
+    savedMobile,
+  ]);
 
 
 
@@ -396,7 +417,9 @@ export default function MyTicketsPage() {
 
         bg-[#F7F9FA]
 
-        pb-8
+        pb-[76px]
+
+        md:pb-0
       "
     >
 
@@ -408,14 +431,18 @@ export default function MyTicketsPage() {
         className="
           sticky
           top-0
-          z-40
+          z-50
+
+          hidden
 
           border-b
-          border-gray-200
+          border-gray-200/80
 
           bg-white/95
 
           backdrop-blur-xl
+
+          md:block
         "
       >
 
@@ -423,21 +450,26 @@ export default function MyTicketsPage() {
           className="
             mx-auto
 
-            flex
+            grid
 
-            h-[62px]
+            h-[66px]
 
-            max-w-[900px]
+            w-full
+            max-w-[1500px]
 
             items-center
+            gap-6
 
-            justify-between
+            grid-cols-[auto_1fr_auto]
 
-            px-4
+            px-6
+
+            lg:px-10
           "
         >
 
-          <div
+          <Link
+            href="/"
             className="
               flex
 
@@ -466,36 +498,146 @@ export default function MyTicketsPage() {
               SSI Maya Connect
             </span>
 
-          </div>
+          </Link>
 
-
-          <span
+          <Link
+            href="/events"
             className="
-              text-[12px]
+              inline-flex
+              shrink-0
+              h-8
+              w-fit
+              justify-self-center
 
-              text-gray-500
+              items-center
+              justify-center
+              gap-1.5
+
+              rounded-lg
+
+              border
+              border-primary/20
+
+              bg-white
+
+              px-2.5
+
+              text-[10px]
+              font-semibold
+
+              text-secondary
+
+              shadow-[0_2px_8px_rgba(27,75,107,0.04)]
+
+              transition-all
+
+              hover:border-primary/35
+              hover:bg-primary/[0.04]
+              hover:text-primary
+
+              focus:outline-none
+              focus-visible:ring-2
+              focus-visible:ring-primary/15
             "
           >
-            My Tickets
-          </span>
+            Browse Events
 
+            <svg
+              className="h-3 w-3"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={1.8}
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M5 12h14m-6-6 6 6-6 6"
+              />
+            </svg>
+          </Link>
 
         </div>
 
       </header>
 
+      <header
+        className="
+          sticky
+          top-0
+          z-50
 
+          border-b
+          border-gray-200/80
+
+          bg-[#F7F9FA]/95
+
+          px-4
+          py-3
+
+          backdrop-blur-xl
+
+          md:hidden
+        "
+      >
+        <div
+          className="
+            mx-auto
+            flex
+            max-w-[520px]
+            items-center
+            justify-between
+            gap-3
+          "
+        >
+          <Link
+            href="/"
+            className="
+              flex
+              min-w-0
+              items-center
+              gap-2
+            "
+          >
+            <Image
+              src="/logos/ssilogo.png"
+              alt="SSI"
+              width={24}
+              height={24}
+              priority
+            />
+            <span
+              className="
+                truncate
+                text-[13px]
+                font-semibold
+                text-secondary
+              "
+            >
+              SSI Maya Connect
+            </span>
+          </Link>
+
+        </div>
+      </header>
 
 
       <div
         className="
           mx-auto
 
-          max-w-[900px]
+          w-full
+          max-w-[1500px]
 
           px-4
 
-          pt-6
+          py-5
+
+          md:px-6
+          md:py-8
+
+          lg:px-10
         "
       >
 
@@ -542,6 +684,34 @@ export default function MyTicketsPage() {
           >
             Access your registered event tickets.
           </p>
+
+          {savedMobile && (
+            <button
+              type="button"
+              onClick={() => {
+                setSavedMobile('');
+                setMobile('');
+                setTickets([]);
+                setLoaded(false);
+                setError('');
+                localStorage.removeItem(
+                  CACHE_KEY,
+                );
+                localStorage.removeItem(
+                  TICKET_CACHE,
+                );
+              }}
+              className="
+                mt-3
+                text-[11px]
+                font-semibold
+                text-primary
+                hover:text-primary-dark
+              "
+            >
+              Use a different mobile number
+            </button>
+          )}
 
 
         </motion.div>
@@ -774,7 +944,13 @@ export default function MyTicketsPage() {
           className="
             mt-6
 
-            space-y-4
+            grid
+            grid-cols-1
+            gap-4
+
+            md:grid-cols-2
+
+            xl:grid-cols-3
           "
         >
 
@@ -963,6 +1139,37 @@ export default function MyTicketsPage() {
         }
 
       </AnimatePresence>
+
+      <nav
+        className="
+          fixed
+          inset-x-0
+          bottom-0
+          z-40
+          grid
+          grid-cols-2
+          border-t
+          border-gray-200/80
+          bg-white/95
+          pb-[max(8px,env(safe-area-inset-bottom))]
+          pt-1.5
+          shadow-[0_-4px_18px_rgba(27,75,107,0.045)]
+          backdrop-blur-xl
+          md:hidden
+        "
+      >
+        <MobileNavItem
+          href="/events"
+          label="Events"
+          icon={<HomeIcon />}
+        />
+        <MobileNavItem
+          href="/events/mytickets"
+          label="My Tickets"
+          active
+          icon={<TicketIcon />}
+        />
+      </nav>
 
 
     </main>
@@ -1275,5 +1482,79 @@ function StatusBadge({
 
     </span>
 
+  );
+
+}
+
+function MobileNavItem({
+  href,
+  label,
+  icon,
+  active = false,
+}: {
+  href: string;
+  label: string;
+  icon: ReactNode;
+  active?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`
+        flex
+        min-h-[54px]
+        flex-col
+        items-center
+        justify-center
+        gap-1
+        text-[9px]
+        font-medium
+        transition-colors
+        ${active ? 'text-primary' : 'text-gray-400'}
+      `}
+    >
+      {icon}
+      <span>{label}</span>
+    </Link>
+  );
+}
+
+function HomeIcon() {
+  return (
+    <svg
+      className="h-[18px] w-[18px]"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.8}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1V10Z"
+      />
+    </svg>
+  );
+}
+
+function TicketIcon() {
+  return (
+    <svg
+      className="h-[18px] w-[18px]"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.8}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M5 5h14v4a3 3 0 0 0 0 6v4H5v-4a3 3 0 0 0 0-6V5Z"
+      />
+      <path
+        strokeLinecap="round"
+        d="M12 7v10"
+      />
+    </svg>
   );
 }

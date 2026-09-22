@@ -208,6 +208,56 @@ export async function POST(
       );
     }
 
+    if (
+      action === 'feedback_submitted'
+    ) {
+      const feedbackScope =
+        metadata?.feedbackScope ===
+        'application'
+          ? 'application'
+          : 'event';
+      const duplicate =
+        session.activities.some(
+          (item) => {
+            if (
+              item.action !==
+                'feedback_submitted' ||
+              (item.eventId || undefined) !==
+                (eventId || undefined)
+            ) {
+              return false;
+            }
+
+            const itemMetadata =
+              isRecord(item.metadata)
+                ? item.metadata
+                : {};
+
+            return (
+              (itemMetadata.feedbackScope ===
+                'application'
+                ? 'application'
+                : 'event') ===
+              feedbackScope
+            );
+          },
+        );
+
+      if (duplicate) {
+        return applyCookie(
+          NextResponse.json(
+            {
+              success: false,
+              error:
+                'Feedback has already been submitted for this experience.',
+            },
+            { status: 409 },
+          ),
+          sessionId,
+        );
+      }
+    }
+
     session.lastSeenAt = now;
     session.currentEventId = eventId;
     session.activities.push(activity);

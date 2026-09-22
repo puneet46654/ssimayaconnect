@@ -927,6 +927,9 @@ export default function BookingConfirmationPage() {
 
     const state =
       sessionStorage.getItem(
+        `ssi-feedback-state:application:${eventId}`,
+      ) ||
+      sessionStorage.getItem(
         `ssi-feedback-state:${eventId}`,
       );
 
@@ -941,7 +944,7 @@ export default function BookingConfirmationPage() {
       window.setTimeout(
         () => {
           window.location.assign(
-            `/events/${eventId}/book/feedback`,
+            `/events/${eventId}/book/feedback?scope=application`,
           );
         },
         3000,

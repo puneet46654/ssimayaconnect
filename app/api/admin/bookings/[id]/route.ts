@@ -769,11 +769,54 @@ async function getBookingFeedback(
               item.eventId,
             );
 
+          const metadata =
+            isRecord(
+              item.metadata,
+            )
+              ? item.metadata
+              : {};
+          const itemBookingId =
+            stringValue(
+              metadata.bookingId,
+            );
+          const itemBookingMongoId =
+            stringValue(
+              metadata.bookingMongoId,
+            );
+          const feedbackScope =
+            stringValue(
+              metadata.feedbackScope,
+            );
+
+          if (
+            feedbackScope ===
+            'application'
+          ) {
+            return false;
+          }
+
+          const hasBookingReference =
+            Boolean(
+              itemBookingId ||
+                itemBookingMongoId,
+            );
+          const matchesBooking =
+            (!itemBookingId ||
+              itemBookingId ===
+                bookingId) &&
+            (!itemBookingMongoId ||
+              !bookingMongoId ||
+              itemBookingMongoId ===
+                bookingMongoId);
+
           return (
             !eventId ||
             !itemEventId ||
             itemEventId ===
               eventId
+          ) && (
+            !hasBookingReference ||
+            matchesBooking
           );
         },
       )

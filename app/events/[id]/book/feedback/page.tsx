@@ -2,6 +2,8 @@
 
 import {
   useParams,
+  useRouter,
+  useSearchParams,
 } from 'next/navigation';
 
 import {
@@ -86,6 +88,19 @@ export default function FeedbackPage() {
 
   const eventId =
     params.id;
+  const router =
+    useRouter();
+  const searchParams =
+    useSearchParams();
+  const feedbackScope =
+    searchParams.get('scope') ===
+    'application'
+      ? 'application'
+      : 'event';
+  const feedbackStorageKey =
+    `ssi-feedback:${feedbackScope}:${eventId}`;
+  const feedbackStateKey =
+    `ssi-feedback-state:${feedbackScope}:${eventId}`;
 
   const [
     rating,
@@ -122,6 +137,10 @@ export default function FeedbackPage() {
     setDraftLoaded,
   ] =
     useState(false);
+  const [
+    submitError,
+    setSubmitError,
+  ] = useState('');
 
   useEffect(() => {
     if (!eventId) {
@@ -131,7 +150,7 @@ export default function FeedbackPage() {
     try {
       const raw =
         sessionStorage.getItem(
-          `ssi-feedback:${eventId}`,
+          feedbackStorageKey,
         );
 
       if (!raw) {
@@ -164,7 +183,10 @@ export default function FeedbackPage() {
         setDraftLoaded(true);
       }, 0);
     }
-  }, [eventId]);
+  }, [
+    eventId,
+    feedbackStorageKey,
+  ]);
 
   useEffect(() => {
     if (
@@ -177,7 +199,7 @@ export default function FeedbackPage() {
 
     try {
       sessionStorage.setItem(
-        `ssi-feedback:${eventId}`,
+        feedbackStorageKey,
         JSON.stringify({
           eventId,
           rating,
@@ -194,6 +216,7 @@ export default function FeedbackPage() {
   }, [
     eventId,
     draftLoaded,
+    feedbackStorageKey,
     message,
     rating,
     submitted,
@@ -204,30 +227,48 @@ export default function FeedbackPage() {
      NAVIGATION
   ============================================================ */
 
-  function goBackAfterSubmission() {
-    if (!eventId) {
-      return;
-    }
+  function goToEvents() {
+    router.push('/events');
+  }
 
-    window.location.assign(
-      `/events/${eventId}/book/confirm`,
+  function goBackAfterSubmission() {
+    router.push(
+      feedbackScope === 'application'
+        ? `/events/${eventId}/book/confirm`
+        : '/events',
     );
   }
 
-  function goToEvents() {
-    window.location.assign(
-      '/events',
-    );
+  function goBack() {
+    if (feedbackScope === 'application') {
+      router.push(
+        `/events/${eventId}/book/confirm?feedback=skipped`,
+      );
+      return;
+    }
+
+    router.push('/events');
   }
 
   /* ============================================================
      SUBMIT
   ============================================================ */
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (!eventId) {
       return;
     }
+
+    setSubmitError('');
+
+    const bookingId =
+      sessionStorage.getItem(
+        `ssi-server-booking-id:${eventId}`,
+      ) || '';
+    const bookingMongoId =
+      sessionStorage.getItem(
+        `ssi-server-booking-mongo-id:${eventId}`,
+      ) || '';
 
     const feedback:
       FeedbackData = {
@@ -247,28 +288,43 @@ export default function FeedbackPage() {
 
     try {
       sessionStorage.setItem(
-        `ssi-feedback:${eventId}`,
+        feedbackStorageKey,
         JSON.stringify(
           feedback,
         ),
       );
 
       sessionStorage.setItem(
-        `ssi-feedback-state:${eventId}`,
+        feedbackStateKey,
         'submitted',
       );
 
-      void trackActivity(
+      const recorded =
+        await trackActivity(
         'feedback_submitted',
         {
           eventId,
           metadata: {
+            feedbackScope,
+            bookingId,
+            bookingMongoId,
             rating,
+            message: message.trim(),
             suggestedFeature:
               suggestedFeature.trim(),
           },
         },
       );
+
+      if (!recorded) {
+        sessionStorage.removeItem(
+          feedbackStateKey,
+        );
+        setSubmitError(
+          'Feedback was already submitted for this experience, or could not be saved.',
+        );
+        return;
+      }
     } catch (error) {
       console.error(
         'Unable to save feedback:',
@@ -285,21 +341,35 @@ export default function FeedbackPage() {
      MAYBE LATER
   ============================================================ */
 
-  function handleMaybeLater() {
+  async function handleMaybeLater() {
     if (!eventId) {
       return;
     }
 
+    const bookingId =
+      sessionStorage.getItem(
+        `ssi-server-booking-id:${eventId}`,
+      ) || '';
+    const bookingMongoId =
+      sessionStorage.getItem(
+        `ssi-server-booking-mongo-id:${eventId}`,
+      ) || '';
+
     try {
       sessionStorage.setItem(
-        `ssi-feedback-state:${eventId}`,
+        feedbackStateKey,
         'dismissed',
       );
 
-      void trackActivity(
+      await trackActivity(
         'feedback_skipped',
         {
           eventId,
+          metadata: {
+            feedbackScope,
+            bookingId,
+            bookingMongoId,
+          },
         },
       );
     } catch (error) {
@@ -309,8 +379,10 @@ export default function FeedbackPage() {
       );
     }
 
-    window.location.assign(
-      `/events/${eventId}/book/confirm?feedback=skipped`,
+    router.push(
+      feedbackScope === 'application'
+        ? `/events/${eventId}/book/confirm?feedback=skipped`
+        : '/events',
     );
   }
 
@@ -601,6 +673,61 @@ export default function FeedbackPage() {
         lg:py-12
       "
     >
+      <header
+        className="
+          relative
+          z-20
+          mx-auto
+          mb-5
+          flex
+          w-full
+          max-w-[920px]
+          items-center
+          justify-between
+        "
+      >
+        <button
+          type="button"
+          onClick={() =>
+            goBack()
+          }
+          className="
+            inline-flex
+            h-9
+            items-center
+            gap-1.5
+            rounded-lg
+            border
+            border-gray-200
+            bg-white
+            px-3
+            text-[11px]
+            font-semibold
+            text-secondary
+            shadow-sm
+            transition-colors
+            hover:border-primary/30
+            hover:text-primary
+          "
+        >
+          <span aria-hidden="true">←</span>
+          Back
+        </button>
+
+        <button
+          type="button"
+          onClick={goToEvents}
+          className="
+            text-[12px]
+            font-semibold
+            text-secondary
+            hover:text-primary
+          "
+        >
+          SSI Maya Connect
+        </button>
+      </header>
+
       <div
         className="
           pointer-events-none
@@ -742,7 +869,9 @@ export default function FeedbackPage() {
               sm:text-[28px]
             "
           >
-            How was your experience?
+            {feedbackScope === 'application'
+              ? 'How was your SSI Maya Connect experience?'
+              : 'How was your event experience?'}
           </motion.h1>
 
           <motion.p
@@ -767,9 +896,9 @@ export default function FeedbackPage() {
               text-gray-500
             "
           >
-            Your feedback is optional and helps us create
-            a better experience for everyone using SSI Maya
-            Connect.
+            {feedbackScope === 'application'
+              ? 'Your feedback helps us make booking and using SSI Maya Connect smoother.'
+              : 'Tell us how the event experience felt and help us improve future programmes.'}
           </motion.p>
 
           {/* RATING */}
@@ -1203,6 +1332,20 @@ export default function FeedbackPage() {
             >
               Submit Feedback
             </motion.button>
+
+            {submitError && (
+              <p
+                role="alert"
+                className="
+                  text-center
+                  text-[11px]
+                  font-medium
+                  text-red-600
+                "
+              >
+                {submitError}
+              </p>
+            )}
 
             <motion.button
               type="button"
