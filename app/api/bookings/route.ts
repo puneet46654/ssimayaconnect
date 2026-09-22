@@ -542,6 +542,9 @@ export async function POST(
         slotId:
           slotId,
 
+        dayScheduleId:
+          dayScheduleId,
+
         $or: [
           {
             'details.email':

@@ -193,20 +193,17 @@ export default function EventBookingPage() {
             await fetch(
               `/api/events/${encodeURIComponent(
                 eventId,
-              )}?refresh=${Date.now()}`,
+              )}`,
               {
                 method:
                   'GET',
 
                 cache:
-                  'no-store',
+                  'default',
 
                 headers: {
                   Accept:
                     'application/json',
-
-                  'Cache-Control':
-                    'no-cache',
                 },
               },
             );

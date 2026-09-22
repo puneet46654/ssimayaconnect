@@ -34,6 +34,10 @@ type AttendanceQrPayload = {
 
   eventId?: string;
 
+  slotId?: string;
+
+  dayScheduleId?: string;
+
   eventName?: string;
 };
 
@@ -634,6 +638,30 @@ export async function POST(
             400,
         },
       );
+    }
+
+    if (
+      qr?.slotId &&
+      mongoose.Types.ObjectId.isValid(
+        qr.slotId,
+      )
+    ) {
+      query.slotId =
+        new mongoose.Types.ObjectId(
+          qr.slotId,
+        );
+    }
+
+    if (
+      qr?.dayScheduleId &&
+      mongoose.Types.ObjectId.isValid(
+        qr.dayScheduleId,
+      )
+    ) {
+      query.dayScheduleId =
+        new mongoose.Types.ObjectId(
+          qr.dayScheduleId,
+        );
     }
 
     /* ========================================================

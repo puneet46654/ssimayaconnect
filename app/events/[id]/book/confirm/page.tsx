@@ -1101,6 +1101,16 @@ export default function BookingConfirmationPage() {
 
         eventId,
 
+        slotId:
+          slotSelection
+            ?.slotId ||
+          '',
+
+        dayScheduleId:
+          slotSelection
+            ?.dayScheduleId ||
+          '',
+
         eventName:
           bookingDetails
             ?.eventName ||
@@ -2809,4 +2819,3 @@ function DownloadIcon() {
     </svg>
   );
 }
-

@@ -10,7 +10,9 @@ import { useRouter } from 'next/navigation';
 
 import {
   useCallback,
+  useDeferredValue,
   useEffect,
+  memo,
   useMemo,
   useState,
 } from 'react';
@@ -128,6 +130,9 @@ export default function EventsPage() {
     setSearch,
   ] = useState('');
 
+  const deferredSearch =
+    useDeferredValue(search);
+
   const [
     showFilters,
     setShowFilters,
@@ -198,7 +203,7 @@ export default function EventsPage() {
                   'GET',
 
                 cache:
-                  'no-store',
+                  'default',
               },
             );
 
@@ -222,6 +227,24 @@ export default function EventsPage() {
               ? data.events
               : [],
           );
+
+          try {
+            window.sessionStorage.setItem(
+              'ssi-events-cache',
+              JSON.stringify(
+                Array.isArray(
+                  data.events,
+                )
+                  ? data.events
+                  : [],
+              ),
+            );
+          } catch (error) {
+            console.error(
+              'Unable to cache events:',
+              error,
+            );
+          }
         } catch (
           error
         ) {
@@ -247,11 +270,41 @@ export default function EventsPage() {
     );
 
   useEffect(() => {
-    const loadEvents = async () => {
-      await fetchEvents();
-    };
+    let hasCachedEvents =
+      false;
 
-    void loadEvents();
+    try {
+      const cached =
+        window.sessionStorage.getItem(
+          'ssi-events-cache',
+        );
+
+      if (cached) {
+        const parsed =
+          JSON.parse(cached);
+
+        if (
+          Array.isArray(parsed)
+        ) {
+          window.setTimeout(() => {
+            setEvents(parsed as IEvent[]);
+            setLoading(false);
+          }, 0);
+          hasCachedEvents = true;
+        }
+      }
+    } catch (error) {
+      console.error(
+        'Unable to restore cached events:',
+        error,
+      );
+    }
+
+    window.setTimeout(() => {
+      void fetchEvents(
+        !hasCachedEvents,
+      );
+    }, 0);
   }, [
     fetchEvents,
   ]);
@@ -282,7 +335,7 @@ export default function EventsPage() {
   const filteredEvents =
     useMemo(() => {
       const query =
-        search
+        deferredSearch
           .trim()
           .toLowerCase();
 
@@ -330,7 +383,7 @@ export default function EventsPage() {
       );
     }, [
       events,
-      search,
+      deferredSearch,
       statusFilter,
       typeFilter,
     ]);
@@ -2285,7 +2338,7 @@ function SectionHeading({
    OPEN EVENT CARD
 ============================================================ */
 
-function OpenEventCard({
+const OpenEventCard = memo(function OpenEventCard({
   event,
   index,
 }: {
@@ -2374,6 +2427,11 @@ function OpenEventCard({
               }
               fill
               unoptimized
+              loading={
+                index < 2
+                  ? 'eager'
+                  : 'lazy'
+              }
               sizes="
                 (max-width: 520px) 100vw,
                 (max-width: 768px) 50vw,
@@ -2588,7 +2646,7 @@ function OpenEventCard({
       </Link>
     </motion.div>
   );
-}
+});
 
 /* ============================================================
    UPCOMING GRID
@@ -2647,7 +2705,7 @@ function UpcomingGrid({
    UPCOMING CARD
 ============================================================ */
 
-function UpcomingEventCard({
+const UpcomingEventCard = memo(function UpcomingEventCard({
   event,
   index,
   completed,
@@ -2750,6 +2808,7 @@ function UpcomingEventCard({
               }
               fill
               unoptimized
+              loading="lazy"
               sizes="90px"
               className="
                 object-cover
@@ -2878,7 +2937,7 @@ function UpcomingEventCard({
       </Link>
     </motion.div>
   );
-}
+});
 
 /* ============================================================
    FEEDBACK EVENT PICKER

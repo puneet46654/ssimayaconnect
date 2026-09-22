@@ -286,6 +286,18 @@ export async function GET(
                       booking.eventId ||
                       '',
                     ),
+
+                  slotId:
+                    String(
+                      booking.slotId ||
+                      '',
+                    ),
+
+                  dayScheduleId:
+                    String(
+                      booking.dayScheduleId ||
+                      '',
+                    ),
                 },
               ),
 

@@ -183,18 +183,13 @@ export default function EventDetailsPage() {
             await fetch(
               `/api/events/${encodeURIComponent(
                 eventId,
-              )}?refresh=${Date.now()}`,
+              )}`,
               {
                 method:
                   'GET',
 
                 cache:
-                  'no-store',
-
-                headers: {
-                  'Cache-Control':
-                    'no-cache',
-                },
+                  'default',
               },
             );
 
