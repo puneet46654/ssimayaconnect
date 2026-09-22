@@ -539,6 +539,9 @@ export async function POST(
         eventId:
           eventId,
 
+        slotId:
+          slotId,
+
         $or: [
           {
             'details.email':
