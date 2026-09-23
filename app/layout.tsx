@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import { RealtimeProvider } from "@/components/realtime/RealtimeProvider";
 
@@ -29,6 +30,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full flex flex-col">
         <RealtimeProvider>{children}</RealtimeProvider>
+
+        <SpeedInsights />
       </body>
     </html>
   );
