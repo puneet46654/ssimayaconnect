@@ -1291,8 +1291,25 @@ export default function CreateNewEventPage() {
           },
         );
 
-      const data =
-        await response.json();
+      const responseText =
+        await response.text();
+
+      let data: {
+        success?: boolean;
+        error?: string;
+      } = {};
+
+      try {
+        data = responseText
+          ? JSON.parse(responseText)
+          : {};
+      } catch {
+        data = {
+          error:
+            responseText ||
+            'The server rejected the event request.',
+        };
+      }
 
       if (
         !response.ok ||

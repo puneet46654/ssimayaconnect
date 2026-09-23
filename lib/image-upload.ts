@@ -16,7 +16,9 @@ export async function prepareImageForUpload(file: File, maxBytes = 800 * 1024) {
     const canvas = document.createElement('canvas');
     let scale = 1;
     let quality = 0.8;
-    let targetType: string = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+    // JPEG compression is effective for PNG/WebP files too. Keeping PNG here
+    // can leave large images unchanged because canvas ignores JPEG quality for PNG.
+    const targetType = 'image/jpeg';
 
     const maxDimension = 1600;
 
@@ -46,7 +48,7 @@ export async function prepareImageForUpload(file: File, maxBytes = 800 * 1024) {
             }
 
             resolve(
-              new File([blob], file.name, {
+              new File([blob], `${file.name.replace(/\.[^/.]+$/, '')}.jpg`, {
                 type: currentType,
                 lastModified: Date.now(),
               }),
@@ -72,19 +74,19 @@ export async function prepareImageForUpload(file: File, maxBytes = 800 * 1024) {
       }
     }
 
-    if (image.width > maxDimension || image.height > maxDimension) {
-      const reduced = await convert(
-        Math.min(1, maxDimension / Math.max(image.width, image.height)),
-        0.65,
-        targetType,
-      );
+    const reduced = await convert(
+      Math.min(0.35, maxDimension / Math.max(image.width, image.height)),
+      0.45,
+      targetType,
+    );
 
-      if (reduced.size <= maxBytes) {
-        return reduced;
-      }
+    if (reduced.size <= maxBytes) {
+      return reduced;
     }
 
-    return file;
+    throw new Error(
+      'The selected image is too large. Please choose a smaller image.',
+    );
   } finally {
     URL.revokeObjectURL(sourceUrl);
   }
