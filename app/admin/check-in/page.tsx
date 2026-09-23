@@ -690,13 +690,13 @@ export default function CheckInPage() {
         ) {
           setScanMessage({
             type:
-              'warning',
+              'success',
 
             title:
-              'Already checked in',
+              'Ticket verified',
 
             message:
-              'Attendance for this booking has already been recorded.',
+              'This ticket is valid. Attendance was already recorded.',
 
             bookingId:
               data.booking
