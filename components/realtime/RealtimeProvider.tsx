@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
 } from 'react';
+import Ably from 'ably';
 import { io, type Socket } from 'socket.io-client';
 
 import type { RealtimeChange } from '@/lib/realtime';
@@ -30,18 +31,11 @@ export function RealtimeProvider({
   );
 
   useEffect(() => {
-    let knownEvents: Map<
-      string,
-      string
-    > | null = null;
-    let pollInFlight = false;
+    const useAbly =
+      process.env.NEXT_PUBLIC_ENABLE_REALTIME === 'true';
 
-    const shouldUseSocket =
-      process.env.NEXT_PUBLIC_ENABLE_REALTIME === 'true' ||
-      (process.env.NODE_ENV === 'development' &&
-        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'));
-
-    const socket: Socket | null = shouldUseSocket
+    const socket: Socket | null = !useAbly &&
+      process.env.NODE_ENV === 'development'
       ? io({
           autoConnect: true,
           transports: ['websocket'],
@@ -49,6 +43,14 @@ export function RealtimeProvider({
           timeout: 2500,
         })
       : null;
+    const ably = useAbly
+      ? new Ably.Realtime({
+          authUrl: '/api/realtime/token',
+          authMethod: 'POST',
+          transports: ['web_socket'],
+        })
+      : null;
+    const channel = ably?.channels.get('ssimaya-events');
 
     const handleChange = (change: RealtimeChange) => {
       listenersRef.current.forEach((listener) =>
@@ -56,116 +58,17 @@ export function RealtimeProvider({
       );
     };
 
-    const notify = (change: RealtimeChange) => {
-      listenersRef.current.forEach((listener) =>
-        listener(change),
-      );
-    };
-
-    const pollChanges = async () => {
-      if (
-        pollInFlight ||
-        document.visibilityState !== 'visible'
-      ) {
-        return;
-      }
-
-      pollInFlight = true;
-
-      try {
-        const response = await fetch(
-          '/api/realtime',
-          {
-            cache: 'no-store',
-            headers: {
-              'Cache-Control': 'no-cache',
-            },
-          },
-        );
-
-        if (!response.ok) {
-          return;
-        }
-
-        const data = await response.json() as {
-          success?: boolean;
-          events?: Array<{
-            id: string;
-            updatedAt: string;
-            status: string;
-          }>;
-        };
-
-        if (!data.success || !Array.isArray(data.events)) {
-          return;
-        }
-
-        const nextEvents = new Map(
-          data.events.map((event) => [
-            event.id,
-            `${event.updatedAt}:${event.status}`,
-          ]),
-        );
-
-        if (knownEvents) {
-          nextEvents.forEach((version, id) => {
-            const previousVersion = knownEvents?.get(id);
-
-            if (!previousVersion) {
-              notify({
-                resource: 'events',
-                action: 'created',
-                id,
-              });
-            } else if (previousVersion !== version) {
-              notify({
-                resource: 'events',
-                action: 'updated',
-                id,
-              });
-            }
-          });
-
-          knownEvents.forEach((_version, id) => {
-            if (!nextEvents.has(id)) {
-              notify({
-                resource: 'events',
-                action: 'deleted',
-                id,
-              });
-            }
-          });
-        }
-
-        knownEvents = nextEvents;
-      } catch (error) {
-        console.error(
-          'Realtime fallback poll failed:',
-          error,
-        );
-      } finally {
-        pollInFlight = false;
-      }
-    };
-
     if (socket) {
       socket.on('data.changed', handleChange);
     }
 
-    void pollChanges();
-    const fallbackTimer = window.setInterval(
-      pollChanges,
-      100,
-    );
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        void pollChanges();
-      }
-    };
-    document.addEventListener(
-      'visibilitychange',
-      handleVisibilityChange,
-    );
+    if (channel) {
+      channel.subscribe('data.changed', (message) => {
+        if (message.data && typeof message.data === 'object') {
+          handleChange(message.data as RealtimeChange);
+        }
+      });
+    }
 
     return () => {
       if (socket) {
@@ -173,11 +76,13 @@ export function RealtimeProvider({
         socket.disconnect();
       }
 
-      window.clearInterval(fallbackTimer);
-      document.removeEventListener(
-        'visibilitychange',
-        handleVisibilityChange,
-      );
+      if (channel) {
+        void channel.unsubscribe();
+      }
+
+      if (ably) {
+        ably.close();
+      }
     };
   }, []);
 
