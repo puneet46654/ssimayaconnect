@@ -2075,20 +2075,23 @@ export default function CheckInPage() {
           ================================================== */}
 
           <section
-            className="
+            className={`
               rounded-xl
 
               border
-              border-gray-200
-
-              bg-white
+              ${
+                scanMessage?.type ===
+                'success'
+                  ? 'border-emerald-300 bg-emerald-50/40'
+                  : 'border-gray-200 bg-white'
+              }
 
               p-4
 
               shadow-sm
 
               sm:p-5
-            "
+            `}
           >
             <div
               className="
@@ -2176,12 +2179,16 @@ export default function CheckInPage() {
                   }
                   onChange={(
                     event,
-                  ) =>
+                  ) => {
+                    setScanMessage(
+                      null,
+                    );
+
                     setManualBookingId(
                       event.target
                         .value,
-                    )
-                  }
+                    );
+                  }}
                   placeholder="Enter Booking ID, e.g. SSI-MC-2026-04786"
                   className="form-input"
                 />
