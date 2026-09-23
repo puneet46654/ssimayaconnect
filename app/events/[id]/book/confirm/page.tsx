@@ -651,12 +651,6 @@ export default function BookingConfirmationPage() {
         const storedBookingId =
           sessionStorage.getItem(
             serverBookingKey,
-          ) ||
-          sessionStorage.getItem(
-            `ssi-server-booking-id:${eventId}:latest`,
-          ) ||
-          sessionStorage.getItem(
-            `ssi-server-booking-id:${eventId}`,
           );
 
         /* ====================================================
