@@ -155,7 +155,7 @@ export function RealtimeProvider({
     void pollChanges();
     const fallbackTimer = window.setInterval(
       pollChanges,
-      5000,
+      100,
     );
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
