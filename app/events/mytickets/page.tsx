@@ -280,15 +280,6 @@ export default function MyTicketsPage() {
 
     }
 
-    useRealtimeRefresh(
-      'attendance',
-      () => {
-        if (savedMobile) {
-          void loadTickets(savedMobile);
-        }
-      },
-    );
-
 
 
     setLoading(
@@ -329,8 +320,6 @@ export default function MyTicketsPage() {
         );
 
       }
-
-
 
       setTickets(
         data.tickets,
@@ -389,6 +378,16 @@ export default function MyTicketsPage() {
 
   }
 
+  useRealtimeRefresh(
+    'attendance',
+    () => {
+      if (loadedMobileRef.current) {
+        void loadTickets(
+          loadedMobileRef.current,
+        );
+      }
+    },
+  );
 
 
 

@@ -947,29 +947,16 @@ export default function BookingConfirmationPage() {
     slotSelection,
   ]);
 
-  /* ==========================================================
-     ATTENDANCE POLLING
-  ========================================================== */
-
-  useEffect(() => {
-    if (
-      bookingState !==
-        'ready' ||
-      !bookingId
-    ) {
-      return;
-    }
-
-    void checkAttendance();
-  }, [
-    bookingState,
-    checkAttendance,
-  ]);
-
   useRealtimeRefresh(
     'attendance',
     () => {
-      void checkAttendance();
+      if (
+        bookingState ===
+          'ready' &&
+        bookingId
+      ) {
+        void checkAttendance();
+      }
     },
   );
 

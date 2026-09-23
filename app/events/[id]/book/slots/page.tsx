@@ -6,6 +6,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 
@@ -139,6 +140,9 @@ export default function TimeSlotsPage() {
   ] =
     useState('');
 
+  const slotsRequestInFlightRef =
+    useRef(false);
+
   /* ============================================================
      LOAD REAL DATABASE SLOTS
   ============================================================ */
@@ -148,9 +152,15 @@ export default function TimeSlotsPage() {
       async (
         silent = false,
       ) => {
-        if (!eventId) {
+        if (
+          !eventId ||
+          slotsRequestInFlightRef.current
+        ) {
           return;
         }
+
+        slotsRequestInFlightRef.current =
+          true;
 
         if (!silent) {
           setLoading(true);
@@ -264,6 +274,9 @@ export default function TimeSlotsPage() {
               : 'Unable to load time slots.',
           );
         } finally {
+          slotsRequestInFlightRef.current =
+            false;
+
           if (!silent) {
             setLoading(false);
           }
