@@ -181,15 +181,21 @@ export default function EventDetailsPage() {
         try {
           const response =
             await fetch(
-              `/api/events/${encodeURIComponent(
+              `${`/api/events/${encodeURIComponent(
                 eventId,
-              )}`,
+              )}`}${
+                showLoading
+                  ? ''
+                  : `?refresh=${Date.now()}`
+              }`,
               {
                 method:
                   'GET',
 
                 cache:
-                  'default',
+                  showLoading
+                    ? 'default'
+                    : 'no-store',
               },
             );
 

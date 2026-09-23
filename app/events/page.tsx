@@ -218,15 +218,19 @@ export default function EventsPage() {
         try {
           const response =
             await fetch(
-              '/api/events',
-              {
-                method:
-                  'GET',
+            showInitialLoading
+              ? '/api/events'
+              : `/api/events?refresh=${Date.now()}`,
+            {
+              method:
+                'GET',
 
-                cache:
-                  'default',
-              },
-            );
+              cache:
+                showInitialLoading
+                  ? 'default'
+                  : 'no-store',
+            },
+          );
 
           const data =
             await response.json();

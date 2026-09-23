@@ -29,6 +29,9 @@ import {
 import {
   trackActivity,
 } from '@/lib/activity-client';
+import {
+  useRealtimeRefresh,
+} from '@/components/realtime/RealtimeProvider';
 
 /* ============================================================
    TYPES
@@ -859,6 +862,56 @@ export default function BookingConfirmationPage() {
      Track only after MongoDB has confirmed it.
   ========================================================== */
 
+  const checkAttendance =
+    useCallback(
+      async () => {
+        if (
+          !bookingId
+        ) {
+          return;
+        }
+
+        try {
+          const response =
+            await fetch(
+              `/api/bookings?bookingId=${encodeURIComponent(
+                bookingId,
+              )}`,
+              {
+                method:
+                  'GET',
+                cache:
+                  'no-store',
+              },
+            );
+
+          const data =
+            (await response.json()) as BookingApiResponse;
+
+          if (
+            !response.ok ||
+            !data.success ||
+            !data.booking
+          ) {
+            return;
+          }
+
+          setBookingMongoId(
+            data.booking.id,
+          );
+          setAttendanceStatus(
+            data.booking.attendanceStatus ||
+              'NOT_PRESENT',
+          );
+        } catch {
+          // A transient status refresh failure should not hide a confirmed ticket.
+        }
+      },
+      [
+        bookingId,
+      ],
+    );
+
   useEffect(() => {
     if (
       bookingState !==
@@ -907,97 +960,18 @@ export default function BookingConfirmationPage() {
       return;
     }
 
-    let cancelled =
-      false;
-
-    async function checkAttendance() {
-      try {
-        const response =
-          await fetch(
-            `/api/bookings?bookingId=${encodeURIComponent(
-              bookingId,
-            )}`,
-            {
-              method:
-                'GET',
-
-              cache:
-                'no-store',
-            },
-          );
-
-        const data =
-          (await response.json()) as BookingApiResponse;
-
-        if (
-          cancelled ||
-          !response.ok ||
-          !data.success ||
-          !data.booking
-        ) {
-          return;
-        }
-
-        setBookingMongoId(
-          data.booking.id,
-        );
-
-        setAttendanceStatus(
-          data.booking
-            .attendanceStatus ||
-            'NOT_PRESENT',
-        );
-
-        const nextMongoKey =
-          buildServerBookingMongoStorageKey(
-            eventId,
-            slotSelection,
-          );
-
-        sessionStorage.setItem(
-          nextMongoKey,
-          data.booking.id,
-        );
-
-        sessionStorage.setItem(
-          `ssi-server-booking-mongo-id:${eventId}:latest`,
-          data.booking.id,
-        );
-
-        sessionStorage.removeItem(
-          `ssi-server-booking-mongo-id:${eventId}`,
-        );
-      } catch {
-        /*
-         * Temporary network errors should not
-         * destroy a confirmed ticket.
-         */
-      }
-    }
-
     void checkAttendance();
-
-    const interval =
-      window.setInterval(
-        () => {
-          void checkAttendance();
-        },
-        2500,
-      );
-
-    return () => {
-      cancelled =
-        true;
-
-      window.clearInterval(
-        interval,
-      );
-    };
   }, [
-    bookingId,
     bookingState,
-    eventId,
+    checkAttendance,
   ]);
+
+  useRealtimeRefresh(
+    'attendance',
+    () => {
+      void checkAttendance();
+    },
+  );
 
   /* ==========================================================
      FEEDBACK REDIRECT

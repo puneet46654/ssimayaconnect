@@ -299,84 +299,17 @@ export default function TimeSlotsPage() {
     },
   );
 
-  /* ============================================================
-     LIGHT POLLING
-  ============================================================ */
-
-  useEffect(() => {
-    let timer:
-      | number
-      | undefined;
-
-    function schedulePolling() {
+  useRealtimeRefresh(
+    'bookings',
+    (change) => {
       if (
-        document.visibilityState !==
-        'visible'
+        !change.id ||
+        change.id === eventId
       ) {
-        return;
+        void loadSlots(true);
       }
-
-      timer =
-        window.setTimeout(
-          () => {
-            void loadSlots(
-              true,
-            );
-
-            schedulePolling();
-          },
-          30000,
-        );
-    }
-
-    function handleVisibilityChange() {
-      if (
-        timer !== undefined
-      ) {
-        window.clearTimeout(
-          timer,
-        );
-
-        timer =
-          undefined;
-      }
-
-      if (
-        document.visibilityState ===
-        'visible'
-      ) {
-        void loadSlots(
-          true,
-        );
-
-        schedulePolling();
-      }
-    }
-
-    schedulePolling();
-
-    document.addEventListener(
-      'visibilitychange',
-      handleVisibilityChange,
-    );
-
-    return () => {
-      if (
-        timer !== undefined
-      ) {
-        window.clearTimeout(
-          timer,
-        );
-      }
-
-      document.removeEventListener(
-        'visibilitychange',
-        handleVisibilityChange,
-      );
-    };
-  }, [
-    loadSlots,
-  ]);
+    },
+  );
 
   /* ============================================================
      DERIVED STATE

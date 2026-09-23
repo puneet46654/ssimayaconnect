@@ -18,6 +18,9 @@ import {
 import {
   QRCodeSVG,
 } from 'qrcode.react';
+import {
+  useRealtimeRefresh,
+} from '@/components/realtime/RealtimeProvider';
 
 
 /* ============================================================
@@ -276,6 +279,15 @@ export default function MyTicketsPage() {
       return;
 
     }
+
+    useRealtimeRefresh(
+      'attendance',
+      () => {
+        if (savedMobile) {
+          void loadTickets(savedMobile);
+        }
+      },
+    );
 
 
 
