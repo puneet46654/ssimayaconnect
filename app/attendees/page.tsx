@@ -16,6 +16,9 @@ import {
   AnimatePresence,
   motion,
 } from 'framer-motion';
+import {
+  useRealtimeRefresh,
+} from '@/components/realtime/RealtimeProvider';
 
 /* ============================================================
    TYPES
@@ -334,6 +337,16 @@ export default function AttendeesPage() {
         selectedEventId,
       ],
     );
+
+  useRealtimeRefresh(
+    'attendance',
+    () => {
+      void loadDashboard(
+        selectedEventId,
+        true,
+      );
+    },
+  );
 
   /* ==========================================================
      INITIAL LOAD

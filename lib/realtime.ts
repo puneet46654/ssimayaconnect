@@ -7,7 +7,10 @@ declare global {
 }
 
 export type RealtimeChange = {
-  resource: 'events';
+  resource:
+    | 'events'
+    | 'bookings'
+    | 'attendance';
   action: 'created' | 'updated' | 'deleted';
   id?: string;
 };

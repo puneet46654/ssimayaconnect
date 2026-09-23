@@ -20,6 +20,9 @@ import {
   AnimatePresence,
   motion,
 } from 'framer-motion';
+import {
+  useRealtimeRefresh,
+} from '@/components/realtime/RealtimeProvider';
 
 /* ============================================================
    TYPES
@@ -214,6 +217,16 @@ export default function AdminBookingsPage() {
     error,
     setError,
   ] = useState('');
+
+  useRealtimeRefresh(
+    'bookings',
+    () => {
+      void loadBookings(
+        undefined,
+        true,
+      );
+    },
+  );
 
   /* ==========================================================
      DELETE

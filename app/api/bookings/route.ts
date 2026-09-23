@@ -17,6 +17,7 @@ import { Booking } from '@/models/Booking';
 import { Event } from '@/models/Event';
 import { Slot } from '@/models/Slot';
 import { DaySchedule } from '@/models/DaySchedule';
+import { emitRealtimeChange } from '@/lib/realtime';
 
 export const dynamic =
   'force-dynamic';
@@ -788,6 +789,12 @@ export async function POST(
      */
     reservedSlotId =
       null;
+
+    emitRealtimeChange({
+      resource: 'bookings',
+      action: 'created',
+      id: booking.eventId.toString(),
+    });
 
     let emailSent = false;
     try {

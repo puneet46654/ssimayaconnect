@@ -20,6 +20,7 @@ import {
 import {
   Event,
 } from '@/models/Event';
+import { emitRealtimeChange } from '@/lib/realtime';
 
 /* ============================================================
    QR
@@ -795,6 +796,12 @@ export async function POST(
         },
       );
     }
+
+    emitRealtimeChange({
+      resource: 'attendance',
+      action: 'updated',
+      id: eventId,
+    });
 
     return NextResponse.json(
       {
