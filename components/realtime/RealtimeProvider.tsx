@@ -36,12 +36,19 @@ export function RealtimeProvider({
     > | null = null;
     let pollInFlight = false;
 
-    const socket: Socket = io({
-      autoConnect: true,
-      transports: ['websocket'],
-      reconnection: false,
-      timeout: 2500,
-    });
+    const shouldUseSocket =
+      process.env.NEXT_PUBLIC_ENABLE_REALTIME === 'true' ||
+      (process.env.NODE_ENV === 'development' &&
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'));
+
+    const socket: Socket | null = shouldUseSocket
+      ? io({
+          autoConnect: true,
+          transports: ['websocket'],
+          reconnection: false,
+          timeout: 2500,
+        })
+      : null;
 
     const handleChange = (change: RealtimeChange) => {
       listenersRef.current.forEach((listener) =>
@@ -141,7 +148,9 @@ export function RealtimeProvider({
       }
     };
 
-    socket.on('data.changed', handleChange);
+    if (socket) {
+      socket.on('data.changed', handleChange);
+    }
 
     void pollChanges();
     const fallbackTimer = window.setInterval(
@@ -159,8 +168,11 @@ export function RealtimeProvider({
     );
 
     return () => {
-      socket.off('data.changed', handleChange);
-      socket.disconnect();
+      if (socket) {
+        socket.off('data.changed', handleChange);
+        socket.disconnect();
+      }
+
       window.clearInterval(fallbackTimer);
       document.removeEventListener(
         'visibilitychange',

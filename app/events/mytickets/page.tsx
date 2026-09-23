@@ -183,13 +183,13 @@ export default function MyTicketsPage() {
 
 
     const cachedMobile =
-      localStorage.getItem(
+      sessionStorage.getItem(
         CACHE_KEY,
       );
 
 
     const cachedTickets =
-      localStorage.getItem(
+      sessionStorage.getItem(
         TICKET_CACHE,
       );
 
@@ -326,13 +326,13 @@ export default function MyTicketsPage() {
 
 
 
-      localStorage.setItem(
+      sessionStorage.setItem(
         CACHE_KEY,
         clean,
       );
 
 
-      localStorage.setItem(
+      sessionStorage.setItem(
         TICKET_CACHE,
         JSON.stringify(
           data.tickets,
@@ -694,10 +694,10 @@ export default function MyTicketsPage() {
                 setTickets([]);
                 setLoaded(false);
                 setError('');
-                localStorage.removeItem(
+                sessionStorage.removeItem(
                   CACHE_KEY,
                 );
-                localStorage.removeItem(
+                sessionStorage.removeItem(
                   TICKET_CACHE,
                 );
               }}

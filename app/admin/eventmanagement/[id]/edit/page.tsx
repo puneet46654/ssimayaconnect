@@ -35,6 +35,7 @@ import {
 } from '@/app/components/admin/booking-templates/types';
 
 import { useFormDraft } from '@/lib/use-form-draft';
+import { prepareImageForUpload } from '@/lib/image-upload';
 
 /* ============================================================
    TYPES
@@ -1056,7 +1057,7 @@ export default function EditEventPage() {
      IMAGE CHANGE
   ========================================================== */
 
-  function handleThumbnailChange(
+  async function handleThumbnailChange(
     event:
       ChangeEvent<HTMLInputElement>,
   ) {
@@ -1084,32 +1085,43 @@ export default function EditEventPage() {
       return;
     }
 
-    if (
-      thumbnailPreview?.local
-    ) {
-      URL.revokeObjectURL(
-        thumbnailPreview.url,
+    try {
+      const optimizedFile =
+        await prepareImageForUpload(file);
+
+      if (
+        thumbnailPreview?.local
+      ) {
+        URL.revokeObjectURL(
+          thumbnailPreview.url,
+        );
+      }
+
+      setSelectedThumbnail(
+        optimizedFile,
+      );
+
+      setThumbnailPreview({
+        name:
+          optimizedFile.name,
+
+        url:
+          URL.createObjectURL(
+            optimizedFile,
+          ),
+
+        local:
+          true,
+      });
+
+      setFormError('');
+    } catch (error) {
+      setFormError(
+        error instanceof Error
+          ? error.message
+          : 'Unable to process the selected image.',
       );
     }
-
-    setSelectedThumbnail(
-      file,
-    );
-
-    setThumbnailPreview({
-      name:
-        file.name,
-
-      url:
-        URL.createObjectURL(
-          file,
-        ),
-
-      local:
-        true,
-    });
-
-    setFormError('');
   }
 
   /* ==========================================================

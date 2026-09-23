@@ -9,6 +9,8 @@ import mongoose from 'mongoose';
 
 import { connectDB } from '@/lib/db';
 
+import { Booking } from '@/models/Booking';
+
 import {
   UserActivity,
   type UserActivityAction,
@@ -152,6 +154,66 @@ export async function POST(
     const metadata = sanitizeMetadata(
       body.metadata,
     );
+
+    if (
+      action === 'feedback_submitted' ||
+      action === 'feedback_skipped'
+    ) {
+      const bookingMongoId =
+        metadata?.bookingMongoId;
+      const bookingId =
+        metadata?.bookingId;
+
+      if (
+        typeof bookingMongoId !==
+          'string' ||
+        !mongoose.Types.ObjectId.isValid(
+          bookingMongoId,
+        ) ||
+        typeof bookingId !==
+          'string'
+      ) {
+        return applyCookie(
+          NextResponse.json(
+            {
+              success: false,
+              error:
+                'A verified booking is required for feedback.',
+            },
+            { status: 400 },
+          ),
+          sessionId,
+        );
+      }
+
+      const booking =
+        await Booking.findOne({
+          _id: bookingMongoId,
+          bookingId,
+          ...(eventId
+            ? { eventId }
+            : {}),
+        })
+          .select({
+            _id: 1,
+          })
+          .lean();
+
+      if (!booking) {
+        return applyCookie(
+          NextResponse.json(
+            {
+              success: false,
+              error:
+                'The booking could not be verified for this event.',
+            },
+            { status: 403 },
+          ),
+          sessionId,
+        );
+      }
+    }
+
     const activity = {
       action,
       eventId,

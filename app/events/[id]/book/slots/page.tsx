@@ -472,8 +472,11 @@ export default function TimeSlotsPage() {
       return;
     }
 
+    const slotStorageKey =
+      `ssi-booking-slot:${eventId}:${selectedDay._id}:${selectedSlot._id}`;
+
     sessionStorage.setItem(
-      `ssi-booking-slot:${eventId}`,
+      slotStorageKey,
       JSON.stringify({
         eventId,
 
@@ -494,7 +497,34 @@ export default function TimeSlotsPage() {
       }),
     );
 
-    router.push(
+    sessionStorage.setItem(
+      `ssi-booking-slot:${eventId}:latest`,
+      JSON.stringify({
+        eventId,
+
+        dayScheduleId:
+          selectedDay._id,
+
+        date:
+          selectedDay.date,
+
+        slotId:
+          selectedSlot._id,
+
+        startTime:
+          selectedSlot.startTime,
+
+        endTime:
+          selectedSlot.endTime,
+      }),
+    );
+
+    // Back-compat cleanup for older per-event slot keys.
+    sessionStorage.removeItem(
+      `ssi-booking-slot:${eventId}`,
+    );
+
+    router.replace(
       `/events/${encodeURIComponent(
         eventId,
       )}/book/confirm`,

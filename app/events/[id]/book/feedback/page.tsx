@@ -270,11 +270,17 @@ export default function FeedbackPage() {
         `ssi-feedback-booking-id:${eventId}`,
       ) ||
       sessionStorage.getItem(
+        `ssi-server-booking-id:${eventId}:latest`,
+      ) ||
+      sessionStorage.getItem(
         `ssi-server-booking-id:${eventId}`,
       ) || '';
     const bookingMongoId =
       sessionStorage.getItem(
         `ssi-feedback-booking-mongo-id:${eventId}`,
+      ) ||
+      sessionStorage.getItem(
+        `ssi-server-booking-mongo-id:${eventId}:latest`,
       ) ||
       sessionStorage.getItem(
         `ssi-server-booking-mongo-id:${eventId}`,
@@ -361,11 +367,17 @@ export default function FeedbackPage() {
         `ssi-feedback-booking-id:${eventId}`,
       ) ||
       sessionStorage.getItem(
+        `ssi-server-booking-id:${eventId}:latest`,
+      ) ||
+      sessionStorage.getItem(
         `ssi-server-booking-id:${eventId}`,
       ) || '';
     const bookingMongoId =
       sessionStorage.getItem(
         `ssi-feedback-booking-mongo-id:${eventId}`,
+      ) ||
+      sessionStorage.getItem(
+        `ssi-server-booking-mongo-id:${eventId}:latest`,
       ) ||
       sessionStorage.getItem(
         `ssi-server-booking-mongo-id:${eventId}`,

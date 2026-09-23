@@ -1,4 +1,8 @@
-﻿import { randomInt } from 'node:crypto';
+import {
+  createHmac,
+  randomInt,
+  timingSafeEqual,
+} from 'node:crypto';
 
 import mongoose from 'mongoose';
 
@@ -32,6 +36,70 @@ type BookingDetailsInput =
 
 const RESEND_API_URL =
   'https://api.resend.com/emails';
+
+const BOOKING_ACCESS_COOKIE =
+  'ssimaya_booking_access';
+
+function bookingAccessToken(
+  bookingId: string,
+) {
+  const secret =
+    process.env.BOOKING_ACCESS_SECRET ||
+    process.env.MONGODB_URI ||
+    'ssimaya-development-secret';
+
+  return createHmac(
+    'sha256',
+    secret,
+  )
+    .update(bookingId)
+    .digest('hex');
+}
+
+function hasBookingAccess(
+  request: NextRequest,
+  bookingId: string,
+) {
+  const provided =
+    request.cookies.get(
+      BOOKING_ACCESS_COOKIE,
+    )?.value || '';
+  const expected =
+    bookingAccessToken(bookingId);
+
+  if (
+    !provided ||
+    provided.length !== expected.length
+  ) {
+    return false;
+  }
+
+  return timingSafeEqual(
+    Buffer.from(provided),
+    Buffer.from(expected),
+  );
+}
+
+function withBookingAccess(
+  response: NextResponse,
+  bookingId: string,
+) {
+  response.cookies.set({
+    name:
+      BOOKING_ACCESS_COOKIE,
+    value:
+      bookingAccessToken(bookingId),
+    httpOnly: true,
+    sameSite: 'lax',
+    secure:
+      process.env.NODE_ENV ===
+      'production',
+    path: '/',
+    maxAge: 60 * 60 * 24 * 30,
+  });
+
+  return response;
+}
 
 async function sendBookingEmail(input: {
   bookingId: string;
@@ -176,6 +244,26 @@ export async function GET(
         {
           status:
             400,
+        },
+      );
+    }
+
+    if (
+      !hasBookingAccess(
+        request,
+        bookingId,
+      )
+    ) {
+      return NextResponse.json(
+        {
+          success:
+            false,
+          message:
+            'Booking access could not be verified.',
+        },
+        {
+          status:
+            403,
         },
       );
     }
@@ -452,6 +540,24 @@ export async function POST(
       );
     }
 
+    if (
+      event.status !==
+      'LIVE'
+    ) {
+      return NextResponse.json(
+        {
+          success:
+            false,
+          error:
+            'This event is not currently accepting bookings.',
+        },
+        {
+          status:
+            409,
+        },
+      );
+    }
+
     /* ========================================================
        VERIFY DAY SCHEDULE
     ======================================================== */
@@ -569,23 +675,26 @@ export async function POST(
         .lean();
 
     if (existing) {
-      return NextResponse.json(
-        {
-          success:
-            true,
+      return withBookingAccess(
+        NextResponse.json(
+          {
+            success:
+              true,
 
-          existing:
-            true,
+            existing:
+              true,
 
-          booking:
-            normalizeBookingResponse(
-              existing,
-            ),
-        },
-        {
-          status:
-            200,
-        },
+            booking:
+              normalizeBookingResponse(
+                existing,
+              ),
+          },
+          {
+            status:
+              200,
+          },
+        ),
+        existing.bookingId,
       );
     }
 
@@ -697,17 +806,18 @@ export async function POST(
       );
     }
 
-    return NextResponse.json(
-      {
-        success:
-          true,
+    return withBookingAccess(
+      NextResponse.json(
+        {
+          success:
+            true,
 
-        existing:
-          false,
+          existing:
+            false,
 
-        emailSent,
+          emailSent,
 
-        booking: {
+          booking: {
           id:
             booking._id.toString(),
 
@@ -724,12 +834,14 @@ export async function POST(
             booking.checkedInAt
               ? booking.checkedInAt.toISOString()
               : null,
+          },
         },
-      },
-      {
-        status:
-          201,
-      },
+        {
+          status:
+            201,
+        },
+      ),
+      booking.bookingId,
     );
   } catch (error) {
     console.error(
