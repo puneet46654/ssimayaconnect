@@ -1,5 +1,7 @@
 export const ADMIN_TOKEN_KEY = 'ssi_admin_token';
 
+export const ROOT_ADMIN_USERNAME = 'puneet';
+
 export type AdminRole = 'superadmin' | 'admin' | 'staff';
 
 export type AdminPermission =
@@ -83,6 +85,8 @@ export function hasAdminPermission(
   permission: AdminPermission,
 ): boolean {
   if (!payload) return false;
+  // User & Access belongs to the built-in root admin only.
+  if (permission === 'auth') return payload.username === ROOT_ADMIN_USERNAME;
   if (payload.role === 'superadmin') return true;
   return payload.permissions.includes(permission);
 }
