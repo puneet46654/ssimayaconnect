@@ -3,6 +3,7 @@ import { connectDB } from '@/lib/db';
 import {
   getAdminSession,
   hashPassword,
+  isRootAdmin,
   logAdminActivity,
   seedDefaultAdminsIfEmpty,
 } from '@/lib/admin-server-auth';
@@ -106,6 +107,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, error: 'Username can only contain letters, numbers, dots, hyphens, and underscores.' },
         { status: 400 },
+      );
+    }
+
+    if (isRootAdmin(username)) {
+      return NextResponse.json(
+        { success: false, error: `Username "${username}" is reserved.` },
+        { status: 409 },
       );
     }
 

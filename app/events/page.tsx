@@ -26,9 +26,6 @@ import {
   useRealtimeRefresh,
 } from '@/components/realtime/RealtimeProvider';
 
-import {
-  trackActivity,
-} from '@/lib/activity-client';
 
 /* ============================================================
    TYPES
@@ -110,11 +107,6 @@ export default function EventsPage() {
      TRACK PAGE VIEW
   ========================================================== */
 
-  useEffect(() => {
-    void trackActivity(
-      'page_view',
-    );
-  }, []);
 
   /* ==========================================================
      EVENTS

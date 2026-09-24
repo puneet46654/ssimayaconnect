@@ -4,7 +4,6 @@ import { useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Shield,
-  ShieldCheck,
   UserPlus,
   Trash2,
   Edit3,
@@ -13,7 +12,6 @@ import {
   Eye,
   EyeOff,
   Search,
-  Sparkles,
   LayoutDashboard,
   Calendar,
   Ticket,
@@ -22,10 +20,7 @@ import {
   Lock,
   RefreshCw,
   AlertTriangle,
-  FileText,
-  UserCheck,
   Check,
-  History,
 } from 'lucide-react';
 import {
   getAdminTokenPayload,
@@ -105,13 +100,13 @@ type ActivityLog = {
 };
 
 const ACTIVITY_ACTIONS: { id: string; label: string; className: string }[] = [
-  { id: 'login', label: 'Login', className: 'bg-teal-50 text-teal-700 border-teal-200' },
-  { id: 'logout', label: 'Logout', className: 'bg-gray-100 text-gray-700 border-gray-200' },
+  { id: 'login', label: 'Login', className: 'bg-white text-gray-600 border-gray-200' },
+  { id: 'logout', label: 'Logout', className: 'bg-white text-gray-600 border-gray-200' },
   { id: 'login_failed', label: 'Failed Login', className: 'bg-red-50 text-red-700 border-red-200' },
-  { id: 'create', label: 'Create', className: 'bg-blue-50 text-blue-700 border-blue-200' },
-  { id: 'update', label: 'Update', className: 'bg-amber-50 text-amber-700 border-amber-200' },
-  { id: 'delete', label: 'Delete', className: 'bg-rose-50 text-rose-700 border-rose-200' },
-  { id: 'role_change', label: 'Role / Permission', className: 'bg-purple-50 text-purple-700 border-purple-200' },
+  { id: 'create', label: 'Create', className: 'bg-white text-gray-600 border-gray-200' },
+  { id: 'update', label: 'Update', className: 'bg-white text-gray-600 border-gray-200' },
+  { id: 'delete', label: 'Delete', className: 'bg-white text-gray-600 border-gray-200' },
+  { id: 'role_change', label: 'Role / Permission', className: 'bg-white text-gray-600 border-gray-200' },
 ];
 
 const EASE = [0.16, 1, 0.3, 1] as const;
@@ -216,6 +211,7 @@ export default function AdminAuthManagementPage() {
       fields && `fields: ${fields}`,
       d.credentialReset ? 'credentials reset' : '',
     ].filter(Boolean).join(' · ');
+    if (log.resource === 'auth') return '—';
     return [log.resource.replace('_', ' '), target, extras && `(${extras})`].filter(Boolean).join(' ');
   }
 
@@ -428,20 +424,6 @@ export default function AdminAuthManagementPage() {
     });
   }, [users, search, roleFilter, privilegeFilter]);
 
-  const stats = useMemo(() => {
-    const total = users.length;
-    const superadmins = users.filter((u) => u.role === 'superadmin').length;
-    const viewOnlyCount = users.filter((u) => u.role !== 'superadmin' && !u.canCreate && !u.canDelete).length;
-    const canCreateCount = users.filter((u) => u.role === 'superadmin' || u.canCreate).length;
-
-    return {
-      total,
-      superadmins,
-      viewOnlyCount,
-      canCreateCount,
-    };
-  }, [users]);
-
   const isUserAllowedToCreate = canAdminCreate(currentUser);
   const isUserAllowedToDelete = canAdminDelete(currentUser);
 
@@ -457,19 +439,12 @@ export default function AdminAuthManagementPage() {
         className="flex min-w-0 flex-col gap-4 border-b border-gray-200 pb-5 sm:flex-row sm:items-end sm:justify-between sm:pb-6"
       >
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider text-primary">
-              <ShieldCheck className="h-3.5 w-3.5" />
-              Access Control
-            </span>
-          </div>
-
-          <h1 className="mt-1.5 font-heading text-[23px] font-bold tracking-[-0.035em] text-secondary sm:text-[27px] lg:text-[30px]">
-            User & Access Management
+          <h1 className="font-heading text-[22px] font-bold text-secondary sm:text-[24px]">
+            Users & Access
           </h1>
 
           <p className="mt-1 max-w-[650px] text-[11px] leading-[18px] text-gray-500 sm:text-[13px] sm:leading-5">
-            Manage admin users directly in MongoDB. Assign feature-level sidebar access and granular write/delete action permissions. By default, accounts are kept view-only.
+            Manage admin accounts, roles and permissions.
           </p>
         </div>
 
@@ -488,7 +463,7 @@ export default function AdminAuthManagementPage() {
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={handleOpenCreate}
-              className="flex h-10 items-center justify-center gap-2 rounded-xl bg-[linear-gradient(135deg,#168F82_0%,#146E8A_100%)] px-4 text-[13px] font-bold text-white shadow-[0_8px_20px_rgba(20,110,138,0.24)] transition hover:shadow-[0_12px_28px_rgba(20,110,138,0.32)]"
+              className="flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-[13px] font-semibold text-white transition hover:bg-primary-dark"
             >
               <UserPlus className="h-4 w-4" />
               <span>Add User</span>
@@ -496,55 +471,6 @@ export default function AdminAuthManagementPage() {
           )}
         </div>
       </motion.header>
-
-      {/* ============================================================
-          METRIC STATS CARDS
-      ============================================================ */}
-      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
-        <div className="rounded-2xl border border-gray-200/90 bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Total Users</span>
-            <div className="grid h-7 w-7 place-items-center rounded-lg bg-gray-100 text-gray-600">
-              <UserCheck className="h-3.5 w-3.5" />
-            </div>
-          </div>
-          <p className="mt-2 text-2xl font-bold tracking-tight text-secondary">{stats.total}</p>
-          <p className="mt-0.5 text-[10px] text-gray-400">Stored in MongoDB</p>
-        </div>
-
-        <div className="rounded-2xl border border-gray-200/90 bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Superadmins</span>
-            <div className="grid h-7 w-7 place-items-center rounded-lg bg-purple-50 text-purple-600">
-              <Shield className="h-3.5 w-3.5" />
-            </div>
-          </div>
-          <p className="mt-2 text-2xl font-bold tracking-tight text-purple-700">{stats.superadmins}</p>
-          <p className="mt-0.5 text-[10px] text-purple-600/80 font-medium">Full Unrestricted Access</p>
-        </div>
-
-        <div className="rounded-2xl border border-gray-200/90 bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">View-Only</span>
-            <div className="grid h-7 w-7 place-items-center rounded-lg bg-amber-50 text-amber-600">
-              <Eye className="h-3.5 w-3.5" />
-            </div>
-          </div>
-          <p className="mt-2 text-2xl font-bold tracking-tight text-amber-700">{stats.viewOnlyCount}</p>
-          <p className="mt-0.5 text-[10px] text-amber-600/80 font-medium">Read-Only Safe Default</p>
-        </div>
-
-        <div className="rounded-2xl border border-gray-200/90 bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Write Privileged</span>
-            <div className="grid h-7 w-7 place-items-center rounded-lg bg-teal-50 text-teal-600">
-              <FileText className="h-3.5 w-3.5" />
-            </div>
-          </div>
-          <p className="mt-2 text-2xl font-bold tracking-tight text-teal-700">{stats.canCreateCount}</p>
-          <p className="mt-0.5 text-[10px] text-teal-600/80 font-medium">Can Create / Edit Data</p>
-        </div>
-      </div>
 
       {/* ============================================================
           FILTER & SEARCH TOOLBAR
@@ -569,9 +495,9 @@ export default function AdminAuthManagementPage() {
             className="h-9 rounded-xl border border-gray-200 bg-[#F6F8FB] px-3 text-xs font-semibold text-secondary outline-none transition focus:border-primary/50 focus:bg-white"
           >
             <option value="all">All Privileges</option>
-            <option value="view_only">👁️ View Only</option>
-            <option value="can_create">✍️ Can Create / Edit</option>
-            <option value="can_delete">🗑️ Can Delete</option>
+            <option value="view_only">View only</option>
+            <option value="can_create">Can create / edit</option>
+            <option value="can_delete">Can delete</option>
           </select>
 
           {/* Role filter */}
@@ -626,7 +552,7 @@ export default function AdminAuthManagementPage() {
                 >
                   {/* Left: User identity */}
                   <div className="flex items-center gap-3">
-                    <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-primary/15 to-teal-500/10 font-bold uppercase text-primary shadow-sm">
+                    <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gray-100 font-semibold uppercase text-gray-600">
                       {user.name.slice(0, 2)}
                     </div>
 
@@ -640,11 +566,7 @@ export default function AdminAuthManagementPage() {
                         )}
                         <span
                           className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-                            user.role === 'superadmin'
-                              ? 'bg-purple-50 text-purple-700 border border-purple-200'
-                              : user.role === 'admin'
-                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                              : 'bg-gray-100 text-gray-700 border border-gray-200'
+                            'bg-gray-100 text-gray-700 border border-gray-200'
                           }`}
                         >
                           {user.role}
@@ -664,25 +586,24 @@ export default function AdminAuthManagementPage() {
                     {/* Action capability pills */}
                     <div className="flex flex-wrap items-center gap-1.5">
                       {isSuper ? (
-                        <span className="inline-flex items-center gap-1 rounded-md border border-purple-200 bg-purple-50/80 px-2 py-0.5 text-[10px] font-bold text-purple-700">
-                          <Sparkles className="h-3 w-3" />
-                          <span>Full Operator & Delete</span>
+                        <span className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-gray-600">
+                          <span>Full access</span>
                         </span>
                       ) : isViewOnly ? (
-                        <span className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50/80 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                        <span className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-gray-600">
                           <Eye className="h-3 w-3" />
-                          <span>View Only (Read-Only)</span>
+                          <span>View only</span>
                         </span>
                       ) : (
                         <>
                           {userCanCreate && (
-                            <span className="inline-flex items-center gap-1 rounded-md border border-teal-200 bg-teal-50 px-2 py-0.5 text-[10px] font-bold text-teal-700">
+                            <span className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-gray-600">
                               <Check className="h-3 w-3" />
                               <span>Create / Edit</span>
                             </span>
                           )}
                           {userCanDelete && (
-                            <span className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-bold text-rose-700">
+                            <span className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-gray-600">
                               <Trash2 className="h-3 w-3" />
                               <span>Can Delete</span>
                             </span>
@@ -694,7 +615,7 @@ export default function AdminAuthManagementPage() {
                     {/* Sidebar feature pills */}
                     <div className="flex flex-wrap items-center gap-1">
                       {isSuper ? (
-                        <span className="text-[10px] text-gray-400 font-medium">All 6 Sidebar Features</span>
+                        <span className="text-[10px] text-gray-400 font-medium">All pages</span>
                       ) : (
                         AVAILABLE_PERMISSIONS.map((perm) => {
                           if (!user.permissions.includes(perm.id)) return null;
@@ -749,11 +670,10 @@ export default function AdminAuthManagementPage() {
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="flex items-center gap-2 text-base font-bold text-secondary">
-              <History className="h-4 w-4 text-primary" />
               Admin Activity Log
             </h2>
             <p className="text-[11px] text-gray-500">
-              Logins, failed logins, logouts, and create / update / delete / access changes (latest 200).
+              Latest 200 admin actions.
             </p>
           </div>
           <button
@@ -911,13 +831,8 @@ export default function AdminAuthManagementPage() {
               <div className="flex items-center justify-between border-b border-gray-100 pb-4">
                 <div>
                   <h3 className="text-base font-bold text-secondary">
-                    {editingUserId ? 'Edit User Credentials & Access' : 'Create New User Account'}
+                    {editingUserId ? 'Edit User' : 'Add User'}
                   </h3>
-                  <p className="text-xs text-gray-500">
-                    {editingUserId
-                      ? 'Configure MongoDB credentials, sidebar features, and data privileges.'
-                      : 'Set username, password, sidebar features, and write/delete privileges.'}
-                  </p>
                 </div>
                 <button
                   type="button"
@@ -983,8 +898,7 @@ export default function AdminAuthManagementPage() {
                       onClick={generateRandomPassword}
                       className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary hover:underline"
                     >
-                      <Sparkles className="h-3 w-3" />
-                      Generate Strong
+                      Generate
                     </button>
                   </div>
                   <div className="relative mt-1">
@@ -1035,47 +949,38 @@ export default function AdminAuthManagementPage() {
                 <div className="rounded-2xl border border-gray-200/90 bg-[#F8FAFC] p-3.5">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-xs font-bold text-secondary">Data Action Privileges</p>
-                      <p className="text-[10px] text-gray-500">
-                        Default is View-Only when both toggles are off.
-                      </p>
+                      <p className="text-xs font-bold text-secondary">Permissions</p>
                     </div>
 
                     <span
                       className={`rounded-md px-2 py-0.5 text-[10px] font-bold uppercase ${
-                        formData.role === 'superadmin'
-                          ? 'bg-purple-100 text-purple-700'
-                          : !formData.canCreate && !formData.canDelete
-                          ? 'bg-amber-100 text-amber-800'
-                          : 'bg-teal-100 text-teal-800'
+                        'bg-gray-100 text-gray-700'
                       }`}
                     >
                       {formData.role === 'superadmin'
                         ? 'Full Control'
                         : !formData.canCreate && !formData.canDelete
                         ? 'View Only'
-                        : 'Privileged'}
+                        : 'Custom'}
                     </span>
                   </div>
 
                   {formData.role === 'superadmin' ? (
-                    <p className="mt-2 text-[11px] text-purple-800 font-medium">
-                      Superadmin accounts inherently have full write and delete permissions on all MongoDB collections.
-                    </p>
+                    <p className="mt-2 text-[11px] text-gray-600">Superadmins have full access.</p>
                   ) : (
                     <div className="mt-3 space-y-2.5">
                       {/* Toggle 1: Create & Edit */}
                       <div className="flex items-center justify-between rounded-xl border border-gray-200/80 bg-white p-2.5">
                         <div className="pr-2">
-                          <p className="text-xs font-semibold text-secondary">Allow Create & Edit (POST / PUT)</p>
+                          <p className="text-xs font-semibold text-secondary">Can create & edit</p>
                           <p className="text-[10px] text-gray-400">
-                            Create events, modify bookings, update attendance and records
+                            Events, bookings and attendance
                           </p>
                         </div>
                         <button
                           type="button"
                           onClick={() => setFormData({ ...formData, canCreate: !formData.canCreate })}
-                          className={`relative h-5 w-10 shrink-0 rounded-full transition-colors ${
+                          className={`relative flex h-5 w-10 shrink-0 items-center rounded-full transition-colors ${
                             formData.canCreate ? 'bg-primary' : 'bg-gray-300'
                           }`}
                         >
@@ -1090,16 +995,16 @@ export default function AdminAuthManagementPage() {
                       {/* Toggle 2: Delete */}
                       <div className="flex items-center justify-between rounded-xl border border-gray-200/80 bg-white p-2.5">
                         <div className="pr-2">
-                          <p className="text-xs font-semibold text-secondary">Allow Delete Data (DELETE)</p>
+                          <p className="text-xs font-semibold text-secondary">Can delete</p>
                           <p className="text-[10px] text-gray-400">
-                            Permanently delete events, cancel bookings, or delete records
+                            Events, bookings and users
                           </p>
                         </div>
                         <button
                           type="button"
                           onClick={() => setFormData({ ...formData, canDelete: !formData.canDelete })}
-                          className={`relative h-5 w-10 shrink-0 rounded-full transition-colors ${
-                            formData.canDelete ? 'bg-rose-600' : 'bg-gray-300'
+                          className={`relative flex h-5 w-10 shrink-0 items-center rounded-full transition-colors ${
+                            formData.canDelete ? 'bg-primary' : 'bg-gray-300'
                           }`}
                         >
                           <span
@@ -1119,7 +1024,7 @@ export default function AdminAuthManagementPage() {
                 <div>
                   <div className="flex items-center justify-between">
                     <label className="block text-[11px] font-bold uppercase tracking-[0.08em] text-secondary/70">
-                      Sidebar Navigation Access
+                      Page access
                     </label>
                     {formData.role !== 'superadmin' && (
                       <div className="flex items-center gap-2">
@@ -1153,8 +1058,8 @@ export default function AdminAuthManagementPage() {
                   </div>
 
                   {formData.role === 'superadmin' ? (
-                    <div className="mt-1.5 rounded-xl border border-purple-200 bg-purple-50/60 p-2.5 text-[11px] font-medium text-purple-800">
-                      Superadmins have unrestricted access to all 6 sidebar sections.
+                    <div className="mt-1.5 rounded-xl border border-gray-200 bg-gray-50 p-2.5 text-[11px] text-gray-600">
+                      Superadmins can access every page.
                     </div>
                   ) : (
                     <div className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -1201,7 +1106,7 @@ export default function AdminAuthManagementPage() {
                   <button
                     type="button"
                     onClick={() => setFormData({ ...formData, isActive: !formData.isActive })}
-                    className={`relative h-5 w-10 shrink-0 rounded-full transition-colors ${
+                    className={`relative flex h-5 w-10 shrink-0 items-center rounded-full transition-colors ${
                       formData.isActive ? 'bg-primary' : 'bg-gray-300'
                     }`}
                   >
@@ -1225,7 +1130,7 @@ export default function AdminAuthManagementPage() {
                   <button
                     type="submit"
                     disabled={isSaving}
-                    className="flex h-9 items-center justify-center gap-2 rounded-xl bg-[linear-gradient(135deg,#168F82_0%,#146E8A_100%)] px-5 text-xs font-bold text-white shadow-[0_8px_18px_rgba(20,110,138,0.22)] transition hover:shadow-[0_10px_22px_rgba(20,110,138,0.28)] disabled:opacity-60"
+                    className="flex h-9 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-xs font-semibold text-white transition hover:bg-primary-dark disabled:opacity-60"
                   >
                     {isSaving ? (
                       <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />

@@ -24,9 +24,7 @@ import {
   Slot,
 } from '@/models/Slot';
 
-import {
-  UserActivity,
-} from '@/models/UserActivity';
+import { Feedback } from '@/models/Feedback';
 
 import '@/models/Event';
 import '@/models/DaySchedule';
@@ -629,7 +627,7 @@ async function getBooking(
    The browser activity session which created this booking is
    located using bookingId / Mongo booking ID.
 
-   Feedback is then read from that SAME UserActivity record,
+   Feedback is read from the Feedback collection by booking,
    so feedback from a different attendee is not mixed in.
 ============================================================ */
 
@@ -662,329 +660,47 @@ async function getBookingFeedback(
     | 'event'
     | 'application',
 ): Promise<BookingFeedback> {
-  const emptyFeedback:
-    BookingFeedback = {
-    status:
-      'NONE',
-
-    rating:
-      null,
-
-    message:
-      '',
-
-    suggestedFeature:
-      '',
-
-    submittedAt:
-      null,
+  const emptyFeedback: BookingFeedback = {
+    status: 'NONE',
+    rating: null,
+    message: '',
+    suggestedFeature: '',
+    submittedAt: null,
   };
 
-  if (
-    !isRecord(
-      booking,
-    )
-  ) {
+  if (!isRecord(booking)) {
     return emptyFeedback;
   }
 
-  const bookingId =
-    stringValue(
-      booking.bookingId,
-    );
+  const bookingId = stringValue(booking.bookingId);
+  const bookingMongoId = referenceId(booking._id);
 
-  const bookingMongoId =
-    referenceId(
-      booking._id,
-    );
-
-  const eventId =
-    referenceId(
-      booking.eventId,
-    );
-
-  const attendeeEmail =
-    isRecord(
-      booking.details,
-    )
-      ? stringValue(
-          booking.details.email,
-        ).toLowerCase()
-      : '';
-
-  if (!bookingId) {
+  if (!bookingId && !bookingMongoId) {
     return emptyFeedback;
   }
 
-  const exactMatchFilters:
-    GenericRecord[] = [
-      {
-        'activities.metadata.bookingId':
-          bookingId,
-      },
-      {
-        'events.bookingId':
-          bookingId,
-      },
-    ];
+  const references: GenericRecord[] = [];
+  if (bookingId) references.push({ bookingId });
+  if (bookingMongoId) references.push({ bookingMongoId });
 
-  if (
-    bookingMongoId
-  ) {
-    exactMatchFilters.push({
-      'activities.metadata.bookingMongoId':
-        bookingMongoId,
-    });
-  }
+  // Latest feedback for this booking wins.
+  const feedback = await Feedback.findOne({
+    scope,
+    $or: references,
+  })
+    .sort({ submittedAt: -1 })
+    .lean();
 
-  /*
-   * Best match:
-   * the exact browser activity session that
-   * recorded this booking.
-   */
-  let activity =
-    await UserActivity.findOne({
-      $or:
-        exactMatchFilters,
-    })
-      .select({
-        activities: 1,
-        events: 1,
-      })
-      .lean();
-
-  /*
-   * Legacy fallback.
-   *
-   * Some older booking_completed records may
-   * not contain bookingMongoId.
-   */
-  if (
-    !activity &&
-    eventId &&
-    attendeeEmail
-  ) {
-    activity =
-      await UserActivity.findOne({
-        $or: [
-          {
-            events: {
-              $elemMatch: {
-                eventId,
-
-                'bookingDetails.email':
-                  attendeeEmail,
-              },
-            },
-          },
-          {
-            activities: {
-              $elemMatch: {
-                eventId,
-
-                'metadata.bookingDetails.email':
-                  attendeeEmail,
-              },
-            },
-          },
-        ],
-      })
-        .select({
-          activities: 1,
-          events: 1,
-        })
-        .lean();
-  }
-
-  if (
-    !activity ||
-    !isRecord(
-      activity,
-    ) ||
-    !Array.isArray(
-      activity.activities,
-    )
-  ) {
+  if (!feedback) {
     return emptyFeedback;
   }
-
-  /*
-   * We only use feedback belonging to the
-   * same event.
-   *
-   * Latest feedback action wins.
-   */
-  const feedbackEntries =
-    activity.activities
-      .filter(
-        (
-          item,
-        ) => {
-          if (
-            !isRecord(
-              item,
-            )
-          ) {
-            return false;
-          }
-
-          const action =
-            stringValue(
-              item.action,
-            );
-
-          if (
-            action !==
-              'feedback_submitted' &&
-            action !==
-              'feedback_skipped'
-          ) {
-            return false;
-          }
-
-          const itemEventId =
-            stringValue(
-              item.eventId,
-            );
-
-          const metadata =
-            isRecord(
-              item.metadata,
-            )
-              ? item.metadata
-              : {};
-          const itemBookingId =
-            stringValue(
-              metadata.bookingId,
-            );
-          const itemBookingMongoId =
-            stringValue(
-              metadata.bookingMongoId,
-            );
-          const feedbackScope =
-            stringValue(
-              metadata.feedbackScope,
-            );
-
-          if (
-            (feedbackScope ||
-              'event') !==
-            scope
-          ) {
-            return false;
-          }
-
-          const hasBookingReference =
-            Boolean(
-              itemBookingId ||
-                itemBookingMongoId,
-            );
-          const matchesBooking =
-            (!itemBookingId ||
-              itemBookingId ===
-                bookingId) &&
-            (!itemBookingMongoId ||
-              !bookingMongoId ||
-              itemBookingMongoId ===
-                bookingMongoId);
-
-          return (
-            !eventId ||
-            !itemEventId ||
-            itemEventId ===
-              eventId
-          ) && (
-            !hasBookingReference ||
-            matchesBooking
-          );
-        },
-      )
-      .sort(
-        (
-          first,
-          second,
-        ) =>
-          dateValue(
-            isRecord(
-              second,
-            )
-              ? second.occurredAt
-              : undefined,
-          ) -
-          dateValue(
-            isRecord(
-              first,
-            )
-              ? first.occurredAt
-              : undefined,
-          ),
-      );
-
-  const latest =
-    feedbackEntries[0];
-
-  if (
-    !latest ||
-    !isRecord(
-      latest,
-    )
-  ) {
-    return emptyFeedback;
-  }
-
-  const action =
-    stringValue(
-      latest.action,
-    );
-
-  const occurredAt =
-    dateIsoValue(
-      latest.occurredAt,
-    );
-
-  if (
-    action ===
-    'feedback_skipped'
-  ) {
-    return {
-      ...emptyFeedback,
-
-      status:
-        'SKIPPED',
-
-      submittedAt:
-        occurredAt,
-    };
-  }
-
-  const metadata =
-    isRecord(
-      latest.metadata,
-    )
-      ? latest.metadata
-      : {};
 
   return {
-    status:
-      'SUBMITTED',
-
-    rating:
-      ratingValue(
-        metadata.rating,
-      ),
-
-    message:
-      stringValue(
-        metadata.message,
-      ),
-
-    suggestedFeature:
-      stringValue(
-        metadata.suggestedFeature,
-      ),
-
-    submittedAt:
-      occurredAt,
+    status: 'SUBMITTED',
+    rating: ratingValue(feedback.rating),
+    message: stringValue(feedback.message),
+    suggestedFeature: stringValue(feedback.suggestedFeature),
+    submittedAt: dateIsoValue(feedback.submittedAt),
   };
 }
 

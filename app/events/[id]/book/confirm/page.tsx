@@ -27,9 +27,6 @@ import {
 } from 'html-to-image';
 
 import {
-  trackActivity,
-} from '@/lib/activity-client';
-import {
   useRealtimeRefresh,
 } from '@/components/realtime/RealtimeProvider';
 
@@ -316,20 +313,6 @@ export default function BookingConfirmationPage() {
      ACTIVITY
   ========================================================== */
 
-  useEffect(() => {
-    if (!eventId) {
-      return;
-    }
-
-    void trackActivity(
-      'confirmation_viewed',
-      {
-        eventId,
-      },
-    );
-  }, [
-    eventId,
-  ]);
 
   /* ==========================================================
      LOAD BOOKING FORM DATA
@@ -912,40 +895,6 @@ export default function BookingConfirmationPage() {
       ],
     );
 
-  useEffect(() => {
-    if (
-      bookingState !==
-        'ready' ||
-      !bookingId ||
-      !bookingMongoId
-    ) {
-      return;
-    }
-
-    void trackActivity(
-      'booking_completed',
-      {
-        eventId,
-
-        metadata: {
-          bookingId,
-
-          bookingMongoId,
-
-          bookingDetails,
-
-          slotSelection,
-        },
-      },
-    );
-  }, [
-    bookingDetails,
-    bookingId,
-    bookingMongoId,
-    bookingState,
-    eventId,
-    slotSelection,
-  ]);
 
   /*
    * Fallback when the realtime socket is disconnected (mobile

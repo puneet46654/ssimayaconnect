@@ -22,7 +22,6 @@ import ConferenceTemplate from '@/app/components/admin/booking-templates/Confere
 
 import MantramTemplate from '@/app/components/admin/booking-templates/MantramTemplate';
 
-import { trackActivity } from '@/lib/activity-client';
 
 type BookingFormTemplate =
   | 'practitioner-institutional'
@@ -129,18 +128,6 @@ export default function EventBookingPage() {
   const eventId =
     params.id;
 
-  useEffect(() => {
-    if (eventId) {
-      void trackActivity(
-        'page_view',
-        {
-          eventId,
-        },
-      );
-    }
-  }, [
-    eventId,
-  ]);
 
   const [
     event,

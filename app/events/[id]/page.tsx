@@ -25,7 +25,6 @@ import {
   useRealtimeRefresh,
 } from '@/components/realtime/RealtimeProvider';
 
-import { trackActivity } from '@/lib/activity-client';
 
 interface DaySchedule {
   _id: string;
@@ -107,18 +106,6 @@ export default function EventDetailsPage() {
   const eventId =
     params.id;
 
-  useEffect(() => {
-    if (eventId) {
-      void trackActivity(
-        'page_view',
-        {
-          eventId,
-        },
-      );
-    }
-  }, [
-    eventId,
-  ]);
 
   const [
     event,

@@ -19,7 +19,6 @@ import {
 import Image from 'next/image';
 import Link from 'next/link';
 
-import { trackActivity } from '@/lib/activity-client';
 
 /* ============================================================
    TYPES
@@ -440,21 +439,6 @@ export default function FeedbackPage() {
       );
 
       /* Also track in activity log */
-      void trackActivity(
-        'feedback_submitted',
-        {
-          eventId,
-          metadata: {
-            feedbackScope,
-            bookingId: bookingId || '',
-            bookingMongoId: bookingMongoId || '',
-            rating,
-            message: message.trim(),
-            suggestedFeature:
-              suggestedFeature.trim(),
-          },
-        },
-      );
 
       setSubmitted(true);
     } catch (error) {
@@ -506,17 +490,6 @@ export default function FeedbackPage() {
         'dismissed',
       );
 
-      await trackActivity(
-        'feedback_skipped',
-        {
-          eventId,
-          metadata: {
-            feedbackScope,
-            bookingId,
-            bookingMongoId,
-          },
-        },
-      );
     } catch (error) {
       console.error(
         'Unable to update feedback state:',

