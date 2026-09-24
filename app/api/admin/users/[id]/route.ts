@@ -4,6 +4,7 @@ import { connectDB } from '@/lib/db';
 import {
   getAdminSession,
   hashPassword,
+  isRootAdmin,
   logAdminActivity,
 } from '@/lib/admin-server-auth';
 import {
@@ -38,7 +39,7 @@ export async function PUT(
     );
   }
 
-  if (session.role !== 'superadmin' && !session.permissions.includes('auth')) {
+  if (!isRootAdmin(session.username)) {
     return NextResponse.json(
       { success: false, error: 'Forbidden. User management permission required.' },
       { status: 403 },
@@ -115,13 +116,13 @@ export async function PUT(
       user.name = body.name.trim();
     }
 
-    if (body?.role && ['superadmin', 'admin', 'staff'].includes(body.role)) {
+    if (body?.role && ['admin', 'staff'].includes(body.role)) {
       user.role = body.role as AdminRole;
     }
 
     if (Array.isArray(body?.permissions)) {
       const filtered = body.permissions.filter((p: unknown) =>
-        ADMIN_PERMISSIONS.includes(p as AdminPermission),
+        p !== 'auth' && ADMIN_PERMISSIONS.includes(p as AdminPermission),
       ) as AdminPermission[];
       user.permissions = user.role === 'superadmin' ? [...ADMIN_PERMISSIONS] : filtered;
     } else if (user.role === 'superadmin') {
@@ -227,7 +228,7 @@ export async function DELETE(
     );
   }
 
-  if (session.role !== 'superadmin' && !session.permissions.includes('auth')) {
+  if (!isRootAdmin(session.username)) {
     return NextResponse.json(
       { success: false, error: 'Forbidden. User management permission required.' },
       { status: 403 },

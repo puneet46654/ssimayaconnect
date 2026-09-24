@@ -83,39 +83,9 @@ export function isRootAdmin(username: string | undefined | null) {
    AUTOMATIC DEFAULT SEEDING IF DB IS EMPTY
 ============================================================ */
 
+// The built-in root admin replaces bootstrap seeding; kept so callers still ensure a DB connection.
 export async function seedDefaultAdminsIfEmpty() {
   await connectDB();
-  const count = await AdminUser.countDocuments();
-  if (count > 0) {
-    // If existing users exist without canCreate/canDelete explicitly set, ensure superadmin has them
-    await AdminUser.updateMany(
-      { role: 'superadmin', $or: [{ canCreate: { $exists: false } }, { canDelete: { $exists: false } }] },
-      { $set: { canCreate: true, canDelete: true } },
-    );
-    return;
-  }
-
-  // No hardcoded accounts: the first superadmin comes from env vars (only when the DB is empty).
-  const username = process.env.ADMIN_BOOTSTRAP_USERNAME?.trim().toLowerCase();
-  const password = process.env.ADMIN_BOOTSTRAP_PASSWORD || '';
-  if (!username || password.length < 10) {
-    console.error('No admin users exist. Set ADMIN_BOOTSTRAP_USERNAME and ADMIN_BOOTSTRAP_PASSWORD (min 10 chars).');
-    return;
-  }
-
-  const { hash, salt } = hashPassword(password);
-  await AdminUser.create({
-    username,
-    name: process.env.ADMIN_BOOTSTRAP_NAME?.trim() || username,
-    passwordHash: hash,
-    passwordSalt: salt,
-    role: 'superadmin',
-    permissions: [...ADMIN_PERMISSIONS],
-    canCreate: true,
-    canDelete: true,
-    isActive: true,
-    createdBy: 'system_bootstrap',
-  });
 }
 
 /* ============================================================
@@ -235,15 +205,14 @@ export async function verifyAdminCredentials(
     { $set: { lastLoginAt: new Date() } },
   );
 
-  const isSuper = user.role === 'superadmin';
-
   return {
     username: user.username,
     name: user.name,
-    role: user.role,
-    permissions: user.permissions,
-    canCreate: isSuper ? true : Boolean(user.canCreate),
-    canDelete: isSuper ? true : Boolean(user.canDelete),
+    // Only the built-in root account is a superadmin.
+    role: user.role === 'staff' ? 'staff' : 'admin',
+    permissions: user.permissions.filter((p) => p !== 'auth'),
+    canCreate: Boolean(user.canCreate),
+    canDelete: Boolean(user.canDelete),
   };
 }
 
@@ -291,14 +260,13 @@ export async function getAdminSession(): Promise<AdminSessionPayload | null> {
     .lean();
   if (!user) return null;
 
-  const isSuper = user.role === 'superadmin';
   return {
     ...session,
     name: user.name,
-    role: user.role,
-    permissions: isSuper ? [...ADMIN_PERMISSIONS] : user.permissions,
-    canCreate: isSuper || Boolean(user.canCreate),
-    canDelete: isSuper || Boolean(user.canDelete),
+    role: user.role === 'staff' ? 'staff' : 'admin',
+    permissions: user.permissions.filter((p) => p !== 'auth'),
+    canCreate: Boolean(user.canCreate),
+    canDelete: Boolean(user.canDelete),
   };
 }
 

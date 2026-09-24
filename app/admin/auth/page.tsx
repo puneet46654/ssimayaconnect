@@ -17,7 +17,7 @@ import {
   Ticket,
   QrCode,
   FileSpreadsheet,
-  Lock,
+
   RefreshCw,
   AlertTriangle,
   Check,
@@ -80,12 +80,6 @@ const AVAILABLE_PERMISSIONS: {
     label: 'Reports & Export',
     description: 'Export attendee lists & summaries',
     icon: FileSpreadsheet,
-  },
-  {
-    id: 'auth',
-    label: 'User & Access',
-    description: 'Manage admin accounts & roles',
-    icon: Lock,
   },
 ];
 
@@ -507,7 +501,6 @@ export default function AdminAuthManagementPage() {
             className="h-9 rounded-xl border border-gray-200 bg-[#F6F8FB] px-3 text-xs font-semibold text-secondary outline-none transition focus:border-primary/50 focus:bg-white"
           >
             <option value="all">All Roles</option>
-            <option value="superadmin">Superadmin</option>
             <option value="admin">Admin</option>
             <option value="staff">Staff</option>
           </select>
@@ -925,8 +918,8 @@ export default function AdminAuthManagementPage() {
                   <label className="block text-[11px] font-bold uppercase tracking-[0.08em] text-secondary/70">
                     User Role
                   </label>
-                  <div className="mt-1 grid grid-cols-3 gap-2">
-                    {(['superadmin', 'admin', 'staff'] as AdminRole[]).map((r) => (
+                  <div className="mt-1 grid grid-cols-2 gap-2">
+                    {(['admin', 'staff'] as AdminRole[]).map((r) => (
                       <button
                         key={r}
                         type="button"

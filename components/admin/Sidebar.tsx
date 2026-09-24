@@ -25,6 +25,7 @@ import {
   clearAdminSession,
   decodeAdminToken,
   type AdminPermission,
+  hasAdminPermission,
 } from '@/lib/admin-auth';
 
 interface SidebarProps {
@@ -224,12 +225,8 @@ export default function Sidebar({
         return [];
       }
 
-      if (currentUser.role === 'superadmin') {
-        return ALL_NAV_ITEMS;
-      }
-
       return ALL_NAV_ITEMS.filter((item) =>
-        currentUser.permissions?.includes(item.permission),
+        hasAdminPermission(currentUser, item.permission),
       );
     }, [
       currentUser,

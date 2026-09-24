@@ -30,7 +30,7 @@ export async function GET() {
     );
   }
 
-  if (session.role !== 'superadmin' && !session.permissions.includes('auth')) {
+  if (!isRootAdmin(session.username)) {
     return NextResponse.json(
       { success: false, error: 'Forbidden. User management permission required.' },
       { status: 403 },
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (session.role !== 'superadmin' && !session.permissions.includes('auth')) {
+  if (!isRootAdmin(session.username)) {
     return NextResponse.json(
       { success: false, error: 'Forbidden. User management permission required.' },
       { status: 403 },
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
     const role = (body?.role as AdminRole) || 'admin';
     const permissions = Array.isArray(body?.permissions)
       ? (body.permissions.filter((p: unknown) =>
-          ADMIN_PERMISSIONS.includes(p as AdminPermission),
+          p !== 'auth' && ADMIN_PERMISSIONS.includes(p as AdminPermission),
         ) as AdminPermission[])
       : (['dashboard'] as AdminPermission[]);
 
@@ -131,9 +131,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!['superadmin', 'admin', 'staff'].includes(role)) {
+    if (!['admin', 'staff'].includes(role)) {
       return NextResponse.json(
-        { success: false, error: 'Invalid user role.' },
+        { success: false, error: 'Role must be Admin or Staff.' },
         { status: 400 },
       );
     }

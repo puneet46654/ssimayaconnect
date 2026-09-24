@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/db';
-import { getAdminSession } from '@/lib/admin-server-auth';
+import { getAdminSession, isRootAdmin } from '@/lib/admin-server-auth';
 import {
   AdminActivityLog,
   ADMIN_ACTIVITY_ACTIONS,
@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  if (session.role !== 'superadmin' && !session.permissions.includes('auth')) {
+  if (!isRootAdmin(session.username)) {
     return NextResponse.json(
       { success: false, error: 'Forbidden. User management permission required.' },
       { status: 403 },
