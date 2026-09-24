@@ -870,7 +870,7 @@ export default function EventsPage() {
 
       <header
         className="
-          sticky
+          relative
           top-0
           z-50
 
@@ -904,9 +904,7 @@ export default function EventsPage() {
               gap-3
             "
           >
-            <Brand
-              compact
-            />
+            <span />
 
             <button
               type="button"
@@ -1323,7 +1321,7 @@ export default function EventsPage() {
                 <div
                   className="
                     grid
-                    grid-cols-2
+                    grid-cols-1
                     gap-3
 
                     min-[520px]:grid-cols-2
@@ -1438,50 +1436,6 @@ export default function EventsPage() {
           They are removed only from the top header.
       ====================================================== */}
 
-      <nav
-        className="
-          fixed
-
-          inset-x-0
-          bottom-0
-
-          z-40
-
-          grid
-          grid-cols-2
-
-          border-t
-          border-gray-200/80
-
-          bg-white/95
-
-          pb-[max(8px,env(safe-area-inset-bottom))]
-          pt-1.5
-
-          shadow-[0_-4px_18px_rgba(27,75,107,0.045)]
-
-          backdrop-blur-xl
-
-          md:hidden
-        "
-      >
-        <MobileNavItem
-          href="/events"
-          label="Events"
-          active
-          icon={
-            <HomeIcon />
-          }
-        />
-
-        <MobileNavItem
-          href="/events/mytickets"
-          label="My Tickets"
-          icon={
-            <TicketIcon />
-          }
-        />
-      </nav>
 
       {/* ======================================================
           FEEDBACK EVENT SELECTOR

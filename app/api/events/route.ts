@@ -31,7 +31,7 @@ import { Slot } from '@/models/Slot';
 import {
   emitRealtimeChange,
 } from '@/lib/realtime';
-import { requireAdminSession } from '@/lib/admin-server-auth';
+import { logAdminActivity, requireAdminSession, requireAdminWriteSession } from '@/lib/admin-server-auth';
 
 type EventType =
   | 'conference'
@@ -353,6 +353,13 @@ export async function POST(
     return NextResponse.json(
       { success: false, error: 'Authentication required.' },
       { status: 401 },
+    );
+  }
+
+  if (!(await requireAdminWriteSession())) {
+    return NextResponse.json(
+      { success: false, error: 'Forbidden. You have View-Only access and cannot create events.' },
+      { status: 403 },
     );
   }
 
@@ -764,6 +771,13 @@ export async function POST(
 
       id:
         newEvent._id.toString(),
+    });
+
+    await logAdminActivity({
+      action: 'create',
+      resource: 'event',
+      resourceId: newEvent._id.toString(),
+      details: { eventName: newEvent.eventName },
     });
 
     return NextResponse.json(

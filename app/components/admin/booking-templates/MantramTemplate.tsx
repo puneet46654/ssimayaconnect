@@ -893,7 +893,7 @@ export default function MantramTemplate({
             handleSubmit
           }
           className="
-            w-full
+            max-md:pb-24 w-full
             min-w-0
           "
         >
@@ -901,7 +901,7 @@ export default function MantramTemplate({
 
           <div
             className="
-              flex
+              max-md:hidden flex
               justify-center
             "
           >
@@ -971,7 +971,7 @@ export default function MantramTemplate({
 
           <header
             className="
-              mt-6
+              mt-0 max-md:mb-1 md:mt-6
               max-w-[650px]
 
               sm:mt-7
@@ -992,7 +992,7 @@ export default function MantramTemplate({
 
                 text-secondary
 
-                min-[390px]:text-[24px]
+                min-[390px]:text-[19px]
 
                 sm:text-[27px]
 
@@ -1001,23 +1001,8 @@ export default function MantramTemplate({
                 lg:text-[30px]
               "
             >
-              Practitioner &amp;
-              Institutional Details
+              Practitioner Details
             </h1>
-
-            <p
-              className="
-                mt-2
-                max-w-xl
-                text-[13px]
-                leading-[1.55]
-                text-gray-500
-                sm:text-[14px]
-              "
-            >
-              Please provide accurate
-              verification details.
-            </p>
           </header>
 
           {formError && (
@@ -1420,6 +1405,7 @@ export default function MantramTemplate({
               sm:gap-3
 
               lg:mt-8
+              max-md:fixed max-md:inset-x-0 max-md:bottom-[var(--user-nav-h,0px)] max-md:z-30 max-md:mt-0 max-md:flex-row max-md:border-t max-md:border-gray-200/80 max-md:bg-white/95 max-md:px-4 max-md:py-2.5 max-md:backdrop-blur-xl
             "
           >
             <button
@@ -1428,7 +1414,7 @@ export default function MantramTemplate({
                 router.back()
               }
               className="
-                order-2
+                max-md:order-1 max-md:h-11 max-md:w-auto max-md:shrink-0 max-md:px-5 order-2
                 flex
                 h-11
                 w-full
@@ -1461,7 +1447,7 @@ export default function MantramTemplate({
                 submitting
               }
               className="
-                order-1
+                max-md:order-2 max-md:h-11 max-md:flex-1 order-1
                 flex
                 h-11
                 w-full
@@ -1509,24 +1495,6 @@ export default function MantramTemplate({
               )}
             </button>
           </div>
-
-          <p
-            className="
-              mx-auto
-              mt-3
-              max-w-[500px]
-              px-3
-              text-center
-              text-[9px]
-              leading-4
-              text-gray-400
-
-              sm:mt-4
-              sm:text-[10px]
-            "
-          >
-            Your details will be used to complete the event booking.
-          </p>
         </form>
       </div>
     </main>

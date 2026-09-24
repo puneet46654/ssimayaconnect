@@ -99,6 +99,27 @@
    4. BASE RESET & TYPOGRAPHY
    ============================================================ */
 @layer base {
+  /* Tailwind v4 dropped the pointer cursor on buttons — restore it app-wide */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  a[href],
+  select:not(:disabled),
+  summary,
+  label[for],
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled),
+  input[type="submit"]:not(:disabled),
+  input[type="button"]:not(:disabled),
+  input[type="file"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  select:disabled,
+  input:disabled {
+    cursor: not-allowed;
+  }
+
   *, *::before, *::after {
     box-sizing: border-box;
     margin: 0;
@@ -293,3 +314,19 @@
   white-space: nowrap;
   border-width: 0;
 }
+/* Confirmation page: turn every yellow/amber accent green once the ticket is checked in */
+.ticket-present .bg-yellow-50,
+.ticket-present .bg-yellow-50\/90,
+.ticket-present .hover\:bg-yellow-50:hover { background-color: #ecfdf5; }
+.ticket-present .bg-yellow-100 { background-color: #d1fae5; }
+.ticket-present .bg-yellow-200 { background-color: #a7f3d0; }
+.ticket-present .bg-yellow-500 { background-color: #10b981; }
+.ticket-present .border-yellow-200 { border-color: #a7f3d0; }
+.ticket-present .border-yellow-300 { border-color: #6ee7b7; }
+.ticket-present .text-amber-700 { color: #047857; }
+.ticket-present .text-yellow-600 { color: #059669; }
+
+
+/* Smooth momentum scrolling, no accidental tap highlight / double-tap zoom delay */
+html { -webkit-tap-highlight-color: transparent; }
+button, a, [role="button"], input, select, textarea, label { touch-action: manipulation; }

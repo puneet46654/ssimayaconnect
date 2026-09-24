@@ -344,7 +344,15 @@ AWS_ACCESS_KEY_ID=your_access_key
 AWS_SECRET_ACCESS_KEY=your_secret_key
 AWS_S3_BUCKET=your_bucket_name
 
+# Required in production, min 32 random chars (openssl rand -hex 32)
 ADMIN_SESSION_SECRET=your_admin_session_secret
+
+# Only used to create the first superadmin when no admin users exist
+ADMIN_BOOTSTRAP_USERNAME=admin
+ADMIN_BOOTSTRAP_PASSWORD=min_10_chars_strong_password
+ADMIN_BOOTSTRAP_NAME=Administrator
+
+
 BOOKING_ACCESS_SECRET=your_booking_secret
 
 RESEND_API_KEY=your_resend_key

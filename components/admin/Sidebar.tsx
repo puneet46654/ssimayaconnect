@@ -24,6 +24,7 @@ import {
   ADMIN_TOKEN_KEY,
   clearAdminSession,
   decodeAdminToken,
+  type AdminPermission,
 } from '@/lib/admin-auth';
 
 interface SidebarProps {
@@ -31,45 +32,53 @@ interface SidebarProps {
   onNavigate?: () => void;
 }
 
-const navItems = [
+const ALL_NAV_ITEMS: {
+  name: string;
+  href: string;
+  permission: AdminPermission;
+  icon: string;
+}[] = [
   {
     name: 'Dashboard',
     href: '/admin/landing',
-
+    permission: 'dashboard',
     icon:
       'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001 1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6',
   },
-
   {
     name: 'Events Management',
     href: '/admin/eventmanagement',
-
+    permission: 'events',
     icon:
       'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z',
   },
-
   {
     name: 'Bookings',
     href: '/admin/bookings',
-
+    permission: 'bookings',
     icon:
       'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253',
   },
-
   {
     name: 'Check-in',
     href: '/admin/check-in',
-
+    permission: 'check-in',
     icon:
       'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z',
   },
-
   {
     name: 'Reports & Export',
     href: '/admin/reports',
-
+    permission: 'reports',
     icon:
       'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
+  },
+  {
+    name: 'User & Access',
+    href: '/admin/auth',
+    permission: 'auth',
+    icon:
+      'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z',
   },
 ];
 
@@ -184,6 +193,10 @@ export default function Sidebar({
         return '';
       }
 
+      if (currentUser.name) {
+        return currentUser.name;
+      }
+
       return formatUsername(
         currentUser.username,
       );
@@ -197,8 +210,26 @@ export default function Sidebar({
         return '';
       }
 
+      const source = currentUser.name || currentUser.username;
       return getInitials(
-        currentUser.username,
+        source,
+      );
+    }, [
+      currentUser,
+    ]);
+
+  const visibleNavItems =
+    useMemo(() => {
+      if (!currentUser) {
+        return [];
+      }
+
+      if (currentUser.role === 'superadmin') {
+        return ALL_NAV_ITEMS;
+      }
+
+      return ALL_NAV_ITEMS.filter((item) =>
+        currentUser.permissions?.includes(item.permission),
       );
     }, [
       currentUser,
@@ -446,7 +477,7 @@ export default function Sidebar({
               lg:space-y-1.5
             "
           >
-            {navItems.map(
+            {visibleNavItems.map(
               (item) => {
                 const active =
                   isActiveRoute(
@@ -692,6 +723,12 @@ export default function Sidebar({
                 >
                   {displayName}
                 </p>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className="truncate text-[10px] text-gray-400 font-medium">@{currentUser.username}</span>
+                  <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.2 text-[8px] font-bold uppercase text-primary tracking-wider">
+                    {currentUser.role || 'Admin'}
+                  </span>
+                </div>
               </div>
             </div>
           )}

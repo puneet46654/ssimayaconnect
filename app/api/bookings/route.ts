@@ -15,6 +15,7 @@ import { connectDB } from '@/lib/db';
 
 import { Booking } from '@/models/Booking';
 import { Event } from '@/models/Event';
+import { getEventStatus, hasSlotEnded } from '@/lib/events/status';
 import { Slot } from '@/models/Slot';
 import { DaySchedule } from '@/models/DaySchedule';
 import { emitRealtimeChange } from '@/lib/realtime';
@@ -102,6 +103,10 @@ function withBookingAccess(
   return response;
 }
 
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
 async function sendBookingEmail(input: {
   bookingId: string;
   eventName: string;
@@ -151,9 +156,9 @@ async function sendBookingEmail(input: {
         subject: `Booking Confirmed - ${input.eventName}`,
         html: `
           <h2>Booking Confirmed</h2>
-          <p>Dear ${name}, your booking has been confirmed.</p>
+          <p>Dear ${escapeHtml(name)}, your booking has been confirmed.</p>
           <p><strong>Booking ID:</strong> ${input.bookingId}</p>
-          <p><strong>Event:</strong> ${input.eventName}</p>
+          <p><strong>Event:</strong> ${escapeHtml(input.eventName)}</p>
           <p><strong>Date:</strong> ${date}</p>
           <p><strong>Time:</strong> ${input.startTime} - ${input.endTime}</p>
         `,
@@ -495,6 +500,21 @@ export async function POST(
       );
     }
 
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(details.email.trim())) {
+      return NextResponse.json(
+        { success: false, error: 'Enter a valid email address.' },
+        { status: 400 },
+      );
+    }
+
+    const mobileDigits = details.mobile.replace(/\D/g, '');
+    if (mobileDigits.length < 7 || mobileDigits.length > 15 || /[^\d\s()+-]/.test(details.mobile)) {
+      return NextResponse.json(
+        { success: false, error: 'Enter a valid mobile number.' },
+        { status: 400 },
+      );
+    }
+
     details.fullName =
       details.fullName
         .trim();
@@ -521,7 +541,8 @@ export async function POST(
         .select({
           _id: 1,
           eventName: 1,
-          status: 1,
+          startDate: 1,
+          endDate: 1,
         })
         .lean();
 
@@ -542,8 +563,10 @@ export async function POST(
     }
 
     if (
-      event.status !==
-      'LIVE'
+      getEventStatus(
+        new Date(event.startDate),
+        new Date(event.endDate),
+      ) === 'COMPLETED'
     ) {
       return NextResponse.json(
         {
@@ -675,6 +698,30 @@ export async function POST(
         })
         .lean();
 
+    /*
+     * One booking per person per event: a retry for the same slot returns
+     * the existing booking above; a different slot is rejected.
+     */
+    const otherSlotBooking =
+      !existing &&
+      (await Booking.exists({
+        eventId,
+        $or: [
+          { 'details.email': details.email },
+          { 'details.mobile': details.mobile },
+        ],
+      }));
+
+    if (otherSlotBooking) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'You already have a booking for this event. Use "My Tickets" to view it.',
+        },
+        { status: 409 },
+      );
+    }
+
     if (existing) {
       return withBookingAccess(
         NextResponse.json(
@@ -702,6 +749,13 @@ export async function POST(
     /* ========================================================
        RESERVE SLOT ATOMICALLY
     ======================================================== */
+
+    if (hasSlotEnded(schedule.date, slot.endTime)) {
+      return NextResponse.json(
+        { success: false, error: 'This time slot has already ended. Please choose another slot.' },
+        { status: 409 },
+      );
+    }
 
     const reservedSlot =
       await Slot.findOneAndUpdate(

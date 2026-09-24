@@ -93,6 +93,9 @@ interface Ticket {
 const CACHE_KEY =
   'ssi-my-tickets-mobile';
 
+const EMAIL_CACHE_KEY =
+  'ssi-my-tickets-email';
+
 const TICKET_CACHE =
   'ssi-my-tickets-data';
 
@@ -120,6 +123,8 @@ export default function MyTicketsPage() {
     useState('');
 
 
+
+  const [email, setEmail] = useState('');
 
   const [
     savedMobile,
@@ -198,13 +203,23 @@ export default function MyTicketsPage() {
 
 
 
+    const cachedEmail =
+      sessionStorage.getItem(
+        EMAIL_CACHE_KEY,
+      );
+
     if (
-      cachedMobile
+      cachedMobile &&
+      cachedEmail
     ) {
 
       window.setTimeout(() => {
         setMobile(
           cachedMobile,
+        );
+
+        setEmail(
+          cachedEmail,
         );
 
         setSavedMobile(
@@ -253,7 +268,11 @@ export default function MyTicketsPage() {
   async function loadTickets(
     value =
       mobile,
+    mail =
+      email,
   ) {
+    const cleanEmail = mail.trim().toLowerCase();
+
 
 
     const clean =
@@ -280,6 +299,11 @@ export default function MyTicketsPage() {
 
     }
 
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(cleanEmail)) {
+      setError('Enter the email address used for booking.');
+      return;
+    }
+
 
 
     setLoading(
@@ -295,7 +319,7 @@ export default function MyTicketsPage() {
 
       const response =
         await fetch(
-          `/api/events/mytickets?mobile=${clean}`,
+          `/api/events/mytickets?mobile=${clean}&email=${encodeURIComponent(cleanEmail)}`,
           {
             cache:
               'no-store',
@@ -330,6 +354,11 @@ export default function MyTicketsPage() {
       sessionStorage.setItem(
         CACHE_KEY,
         clean,
+      );
+
+      sessionStorage.setItem(
+        EMAIL_CACHE_KEY,
+        cleanEmail,
       );
 
 
@@ -384,6 +413,7 @@ export default function MyTicketsPage() {
       if (loadedMobileRef.current) {
         void loadTickets(
           loadedMobileRef.current,
+          sessionStorage.getItem(EMAIL_CACHE_KEY) || '',
         );
       }
     },
@@ -403,6 +433,7 @@ export default function MyTicketsPage() {
 
       void loadTickets(
         savedMobile,
+        sessionStorage.getItem(EMAIL_CACHE_KEY) || '',
       );
 
     }
@@ -574,7 +605,7 @@ export default function MyTicketsPage() {
       </header>
 
       <header
-        className="
+        className=" max-md:hidden
           sticky
           top-0
           z-50
@@ -786,6 +817,8 @@ export default function MyTicketsPage() {
 
               placeholder="Enter mobile number"
 
+              inputMode="tel"
+
               className="
                 mt-2
 
@@ -809,6 +842,22 @@ export default function MyTicketsPage() {
             />
 
 
+
+            <label className="mt-3 block text-[11px] font-semibold text-secondary">
+              Registered email address
+            </label>
+
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void loadTickets();
+              }}
+              placeholder="Enter email used for booking"
+              autoComplete="email"
+              className="mt-2 h-11 w-full rounded-lg border border-gray-200 px-3 text-[13px] outline-none focus:border-primary/40"
+            />
 
             <button
               onClick={() =>
@@ -1151,36 +1200,6 @@ export default function MyTicketsPage() {
 
       </AnimatePresence>
 
-      <nav
-        className="
-          fixed
-          inset-x-0
-          bottom-0
-          z-40
-          grid
-          grid-cols-2
-          border-t
-          border-gray-200/80
-          bg-white/95
-          pb-[max(8px,env(safe-area-inset-bottom))]
-          pt-1.5
-          shadow-[0_-4px_18px_rgba(27,75,107,0.045)]
-          backdrop-blur-xl
-          md:hidden
-        "
-      >
-        <MobileNavItem
-          href="/events"
-          label="Events"
-          icon={<HomeIcon />}
-        />
-        <MobileNavItem
-          href="/events/mytickets"
-          label="My Tickets"
-          active
-          icon={<TicketIcon />}
-        />
-      </nav>
 
 
     </main>

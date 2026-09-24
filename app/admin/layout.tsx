@@ -25,7 +25,28 @@ import Sidebar from '@/components/admin/Sidebar';
 
 import {
   getAdminTokenPayload,
+  hasAdminPermission,
+  type AdminPermission,
 } from '@/lib/admin-auth';
+
+const PERMISSION_ROUTES: Record<AdminPermission, string> = {
+  dashboard: '/admin/landing',
+  events: '/admin/eventmanagement',
+  bookings: '/admin/bookings',
+  'check-in': '/admin/check-in',
+  reports: '/admin/reports',
+  auth: '/admin/auth',
+};
+
+function getRequiredPermissionForPath(path: string): AdminPermission | null {
+  if (path === '/admin/landing') return 'dashboard';
+  if (path.startsWith('/admin/eventmanagement')) return 'events';
+  if (path.startsWith('/admin/bookings')) return 'bookings';
+  if (path.startsWith('/admin/check-in')) return 'check-in';
+  if (path.startsWith('/admin/reports')) return 'reports';
+  if (path.startsWith('/admin/auth')) return 'auth';
+  return null;
+}
 
 /* ============================================================
    LAYOUT
@@ -54,7 +75,7 @@ export default function AdminLayout({
   ] = useState(false);
 
   /* ==========================================================
-     AUTH
+     AUTH & PERMISSION CHECK
   ========================================================== */
 
   useEffect(() => {
@@ -84,6 +105,20 @@ export default function AdminLayout({
       );
 
       return;
+    }
+
+    // Check permission for current route
+    const requiredPermission = getRequiredPermissionForPath(pathname);
+    if (requiredPermission && !hasAdminPermission(payload, requiredPermission)) {
+      // User is not authorized for this specific feature; redirect to first allowed route
+      const firstAllowed = Object.entries(PERMISSION_ROUTES).find(([perm]) =>
+        hasAdminPermission(payload, perm as AdminPermission),
+      );
+
+      if (firstAllowed && firstAllowed[1] !== pathname) {
+        router.replace(firstAllowed[1]);
+        return;
+      }
     }
 
     setAuthChecked(

@@ -897,7 +897,7 @@ export default function ConferenceTemplate({
             handleSubmit
           }
           className="
-            w-full
+            max-md:pb-24 w-full
             min-w-0
           "
         >
@@ -905,7 +905,7 @@ export default function ConferenceTemplate({
 
           <div
             className="
-              flex
+              max-md:hidden flex
               justify-center
             "
           >
@@ -961,7 +961,7 @@ export default function ConferenceTemplate({
 
           <header
             className="
-              mt-6
+              mt-0 max-md:mb-1 md:mt-6
               max-w-2xl
 
               sm:mt-7
@@ -973,7 +973,7 @@ export default function ConferenceTemplate({
               className="
                 font-heading
 
-                text-[24px]
+                text-[19px]
                 font-bold
 
                 leading-[1.16]
@@ -987,21 +987,8 @@ export default function ConferenceTemplate({
                 lg:text-[30px]
               "
             >
-              Practitioner &amp;
-              Institutional Details
+              Practitioner Details
             </h1>
-
-            <p
-              className="
-                mt-2
-                text-[14px]
-                leading-5
-                text-gray-500
-              "
-            >
-              Please provide accurate
-              verification details.
-            </p>
           </header>
 
           {/* ERROR */}
@@ -1448,6 +1435,7 @@ export default function ConferenceTemplate({
               sm:gap-3
 
               lg:mt-8
+              max-md:fixed max-md:inset-x-0 max-md:bottom-[var(--user-nav-h,0px)] max-md:z-30 max-md:mt-0 max-md:flex-row max-md:border-t max-md:border-gray-200/80 max-md:bg-white/95 max-md:px-4 max-md:py-2.5 max-md:backdrop-blur-xl
             "
           >
             <button
@@ -1456,7 +1444,7 @@ export default function ConferenceTemplate({
                 router.back()
               }
               className="
-                order-2
+                max-md:order-1 max-md:h-11 max-md:w-auto max-md:shrink-0 max-md:px-5 order-2
 
                 flex
                 h-12
@@ -1499,7 +1487,7 @@ export default function ConferenceTemplate({
                 submitting
               }
               className="
-                order-1
+                max-md:order-2 max-md:h-11 max-md:flex-1 order-1
 
                 flex
                 h-12
@@ -1567,22 +1555,6 @@ export default function ConferenceTemplate({
               )}
             </button>
           </div>
-
-          <p
-            className="
-              mt-4
-
-              text-center
-
-              text-[10px]
-              leading-4
-
-              text-gray-400
-            "
-          >
-            Your details will be used to complete
-            the event booking.
-          </p>
         </form>
       </div>
     </main>

@@ -88,21 +88,41 @@ export async function GET(
         mobile,
       );
 
+    const email =
+      searchParams.get('email')?.trim().toLowerCase() || '';
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+      return NextResponse.json(
+        { success: false, message: 'Enter the email address used for booking.' },
+        { status: 400 },
+      );
+    }
+
+    if (normalizedMobile.length < 7) {
+      return NextResponse.json(
+        { success: false, message: 'Enter your full mobile number.' },
+        { status: 400 },
+      );
+    }
+
+    // Full-number match only: a partial match would expose other people's tickets.
+    const mobilePattern = `${normalizedMobile.split('').join('\\D*')}$`;
+
 
 
     const bookings =
       await Booking.find(
         {
+          'details.email':
+            email,
+
           $or: [
 
             {
               'details.mobile':
                 {
                   $regex:
-                    normalizedMobile,
-
-                  $options:
-                    'i',
+                    mobilePattern,
                 },
             },
 
@@ -111,10 +131,7 @@ export async function GET(
               'details.phone':
                 {
                   $regex:
-                    normalizedMobile,
-
-                  $options:
-                    'i',
+                    mobilePattern,
                 },
             },
 
@@ -235,11 +252,7 @@ export async function GET(
 
 
             date:
-              String(
-                schedule.date ||
-                event.startDate ||
-                '',
-              ),
+              (schedule.date || event.startDate ? new Date(schedule.date || event.startDate).toISOString() : ''),
 
 
             startTime:
@@ -303,16 +316,10 @@ export async function GET(
                     ),
 
                   slotId:
-                    String(
-                      booking.slotId ||
-                      '',
-                    ),
+                    String(slot._id || booking.slotId || ''),
 
                   dayScheduleId:
-                    String(
-                      booking.dayScheduleId ||
-                      '',
-                    ),
+                    String(schedule._id || booking.dayScheduleId || ''),
 
                   eventName:
                     String(
@@ -328,11 +335,7 @@ export async function GET(
                     ),
 
                   date:
-                    String(
-                      schedule.date ||
-                      event.startDate ||
-                      '',
-                    ),
+                    (schedule.date || event.startDate ? new Date(schedule.date || event.startDate).toISOString() : ''),
 
                   startTime:
                     String(
@@ -450,7 +453,7 @@ function calculateTicketStatus(
     new Date(
       `${formatDate(
         schedule.date,
-      )}T${slot.endTime}`,
+      )}T${slot.endTime}:00+05:30`,
     );
 
 
@@ -525,13 +528,13 @@ function formatDate(
 
 
   const year =
-    date.getFullYear();
+    date.getUTCFullYear();
 
 
 
   const month =
     String(
-      date.getMonth()+1,
+      date.getUTCMonth()+1,
     )
     .padStart(
       2,
@@ -542,7 +545,7 @@ function formatDate(
 
   const day =
     String(
-      date.getDate(),
+      date.getUTCDate(),
     )
     .padStart(
       2,

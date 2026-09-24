@@ -16,6 +16,9 @@ import {
   motion,
 } from 'framer-motion';
 
+import Image from 'next/image';
+import Link from 'next/link';
+
 import { trackActivity } from '@/lib/activity-client';
 
 /* ============================================================
@@ -99,8 +102,6 @@ export default function FeedbackPage() {
       : 'event';
   const feedbackStorageKey =
     `ssi-feedback:${feedbackScope}:${eventId}`;
-  const feedbackStateKey =
-    `ssi-feedback-state:${feedbackScope}:${eventId}`;
 
   const [
     rating,
@@ -137,10 +138,99 @@ export default function FeedbackPage() {
     setDraftLoaded,
   ] =
     useState(false);
+
   const [
     submitError,
     setSubmitError,
   ] = useState('');
+
+  const [
+    submitting,
+    setSubmitting,
+  ] = useState(false);
+
+  const [
+    alreadySubmitted,
+    setAlreadySubmitted,
+  ] = useState(false);
+
+  const [
+    checkingDuplicate,
+    setCheckingDuplicate,
+  ] = useState(true);
+
+  /* ============================================================
+     CHECK FOR EXISTING SUBMISSION
+  ============================================================ */
+
+  useEffect(() => {
+    if (!eventId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function checkExisting() {
+      try {
+        const params = new URLSearchParams({
+          scope: feedbackScope,
+        });
+
+        if (
+          feedbackScope === 'event'
+        ) {
+          params.set(
+            'eventId',
+            eventId,
+          );
+        }
+
+        const response =
+          await fetch(
+            `/api/feedback?${params.toString()}`,
+          );
+
+        if (cancelled) {
+          return;
+        }
+
+        if (response.ok) {
+          const data =
+            await response.json();
+
+          if (data.submitted) {
+            setAlreadySubmitted(
+              true,
+            );
+          }
+        }
+      } catch (error) {
+        console.error(
+          'Unable to check feedback status:',
+          error,
+        );
+      } finally {
+        if (!cancelled) {
+          setCheckingDuplicate(
+            false,
+          );
+        }
+      }
+    }
+
+    void checkExisting();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    eventId,
+    feedbackScope,
+  ]);
+
+  /* ============================================================
+     RESTORE DRAFT
+  ============================================================ */
 
   useEffect(() => {
     if (!eventId) {
@@ -259,11 +349,12 @@ export default function FeedbackPage() {
   ============================================================ */
 
   async function handleSubmit() {
-    if (!eventId) {
+    if (!eventId || submitting) {
       return;
     }
 
     setSubmitError('');
+    setSubmitting(true);
 
     const bookingId =
       sessionStorage.getItem(
@@ -274,7 +365,8 @@ export default function FeedbackPage() {
       ) ||
       sessionStorage.getItem(
         `ssi-server-booking-id:${eventId}`,
-      ) || '';
+      ) || undefined;
+
     const bookingMongoId =
       sessionStorage.getItem(
         `ssi-feedback-booking-mongo-id:${eventId}`,
@@ -284,46 +376,78 @@ export default function FeedbackPage() {
       ) ||
       sessionStorage.getItem(
         `ssi-server-booking-mongo-id:${eventId}`,
-      ) || '';
-
-    const feedback:
-      FeedbackData = {
-        eventId,
-
-        rating,
-
-        message:
-          message.trim(),
-
-        suggestedFeature:
-          suggestedFeature.trim(),
-
-        submittedAt:
-          new Date().toISOString(),
-      };
+      ) || undefined;
 
     try {
+      const response = await fetch(
+        '/api/feedback',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type':
+              'application/json',
+          },
+          credentials: 'include',
+          body: JSON.stringify({
+            scope: feedbackScope,
+            eventId,
+            rating,
+            message:
+              message.trim(),
+            suggestedFeature:
+              suggestedFeature.trim(),
+            bookingId,
+            bookingMongoId,
+          }),
+        },
+      );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        if (data.duplicate) {
+          setAlreadySubmitted(true);
+          setSubmitError('');
+          return;
+        }
+
+        setSubmitError(
+          data.error ||
+            'Unable to submit feedback.',
+        );
+        return;
+      }
+
+      /* Store submission state locally */
       sessionStorage.setItem(
         feedbackStorageKey,
-        JSON.stringify(
-          feedback,
-        ),
+        JSON.stringify({
+          eventId,
+          rating,
+          message:
+            message.trim(),
+          suggestedFeature:
+            suggestedFeature.trim(),
+          submittedAt:
+            new Date().toISOString(),
+        }),
       );
 
       sessionStorage.setItem(
-        feedbackStateKey,
+        `ssi-feedback-state:${feedbackScope}:${eventId}`,
         'submitted',
       );
 
-      const recorded =
-        await trackActivity(
+      /* Also track in activity log */
+      void trackActivity(
         'feedback_submitted',
         {
           eventId,
           metadata: {
             feedbackScope,
-            bookingId,
-            bookingMongoId,
+            bookingId: bookingId || '',
+            bookingMongoId: bookingMongoId || '',
             rating,
             message: message.trim(),
             suggestedFeature:
@@ -332,25 +456,18 @@ export default function FeedbackPage() {
         },
       );
 
-      if (!recorded) {
-        sessionStorage.removeItem(
-          feedbackStateKey,
-        );
-        setSubmitError(
-          'Feedback was already submitted for this experience, or could not be saved.',
-        );
-        return;
-      }
+      setSubmitted(true);
     } catch (error) {
       console.error(
         'Unable to save feedback:',
         error,
       );
+      setSubmitError(
+        'Unable to submit feedback. Please try again.',
+      );
+    } finally {
+      setSubmitting(false);
     }
-
-    setSubmitted(
-      true,
-    );
   }
 
   /* ============================================================
@@ -385,7 +502,7 @@ export default function FeedbackPage() {
 
     try {
       sessionStorage.setItem(
-        feedbackStateKey,
+        `ssi-feedback-state:${feedbackScope}:${eventId}`,
         'dismissed',
       );
 
@@ -415,254 +532,621 @@ export default function FeedbackPage() {
   }
 
   /* ============================================================
+     HEADER
+  ============================================================ */
+
+  function Header() {
+    return (
+      <header
+        className=" max-md:hidden
+          sticky
+          top-0
+          z-50
+
+          border-b
+          border-gray-200/80
+
+          bg-white/95
+
+          backdrop-blur-xl
+        "
+      >
+        <div
+          className="
+            mx-auto
+
+            flex
+            h-[56px]
+            w-full
+            max-w-[1500px]
+
+            items-center
+            justify-between
+
+            gap-4
+
+            px-4
+
+            sm:h-[66px]
+            sm:px-6
+
+            lg:px-10
+          "
+        >
+          {/* BACK */}
+
+          <button
+            type="button"
+            onClick={() =>
+              goBack()
+            }
+            className="
+              inline-flex
+              h-8
+              items-center
+              gap-1.5
+              rounded-lg
+              border
+              border-gray-200
+              bg-white
+              px-2.5
+              text-[10px]
+              font-semibold
+              text-secondary
+              shadow-sm
+              transition-colors
+              hover:border-primary/30
+              hover:text-primary
+            "
+          >
+            <span aria-hidden="true">←</span>
+            Back
+          </button>
+
+          {/* BRAND */}
+
+          <Link
+            href="/events"
+            className="
+              inline-flex
+              items-center
+              gap-2
+              transition-opacity
+              hover:opacity-80
+            "
+          >
+            <Image
+              src="/logos/ssilogo.png"
+              alt="SSI"
+              width={24}
+              height={24}
+              priority
+              className="
+                shrink-0
+                object-contain
+              "
+            />
+
+            <span
+              className="
+                text-[13px]
+                font-semibold
+                text-secondary
+                sm:text-[14px]
+              "
+            >
+              SSI Maya Connect
+            </span>
+          </Link>
+
+          {/* SPACER */}
+
+          <div className="w-[72px]" />
+        </div>
+      </header>
+    );
+  }
+
+  /* ============================================================
+     ALREADY SUBMITTED VIEW
+  ============================================================ */
+
+  if (alreadySubmitted) {
+    return (
+      <div
+        className="
+          min-h-dvh
+          bg-[#F7F9FB]
+        "
+      >
+        <Header />
+
+        <main
+          className="
+            grid
+            min-h-[calc(100dvh-66px)]
+            place-items-center
+            px-4
+            py-10
+          "
+        >
+          <motion.section
+            initial={{
+              opacity: 0,
+              y: 22,
+              scale: 0.97,
+            }}
+            animate={{
+              opacity: 1,
+              y: 0,
+              scale: 1,
+            }}
+            transition={{
+              duration: 0.65,
+              ease: EASE,
+            }}
+            className="
+              relative
+              z-10
+              w-full
+              max-w-[360px]
+              rounded-[20px]
+              border
+              border-gray-200
+              bg-white
+              px-5
+              py-6
+              text-center
+              shadow-[0_18px_55px_rgba(27,75,107,0.12)]
+            "
+          >
+            <motion.div
+              initial={{
+                opacity: 0,
+                scale: 0.4,
+              }}
+              animate={{
+                opacity: 1,
+                scale: 1,
+              }}
+              transition={{
+                delay: 0.12,
+                duration: 0.6,
+                ease: EASE,
+              }}
+              className="
+                mx-auto
+                grid
+                h-12
+                w-12
+                place-items-center
+                rounded-full
+                bg-amber-50
+                text-amber-500
+              "
+            >
+              <svg
+                className="
+                  h-6
+                  w-6
+                "
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2.2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 9v3m0 4h.01M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z"
+                />
+              </svg>
+            </motion.div>
+
+            <h1
+              className="
+                mt-4
+                font-heading
+                text-[22px]
+                font-bold
+                tracking-[-0.03em]
+                text-secondary
+              "
+            >
+              Already Submitted
+            </h1>
+
+            <p
+              className="
+                mx-auto
+                mt-2
+                max-w-[330px]
+                text-[13px]
+                leading-6
+                text-gray-500
+              "
+            >
+              {feedbackScope === 'application'
+                ? 'You have already submitted your application feedback. Thank you!'
+                : 'You have already submitted feedback for this event. Thank you!'}
+            </p>
+
+            <div
+              className="
+                mt-5
+                space-y-2
+              "
+            >
+              <button
+                type="button"
+                onClick={goToEvents}
+                className="
+                  h-10
+                  w-full
+                  cursor-pointer
+                  rounded-xl
+                  bg-primary
+                  text-[12px]
+                  font-semibold
+                  text-white
+                  shadow-[0_8px_22px_rgba(26,158,143,0.18)]
+                  transition-transform
+                  hover:-translate-y-0.5
+                  active:scale-[0.985]
+                "
+              >
+                Back to Events
+              </button>
+            </div>
+          </motion.section>
+        </main>
+      </div>
+    );
+  }
+
+  /* ============================================================
      SUCCESS VIEW
   ============================================================ */
 
   if (submitted) {
     return (
-      <main
+      <div
         className="
-          relative
-          grid
           min-h-dvh
-          place-items-center
-          overflow-hidden
           bg-[#F7F9FB]
-          px-4
-          py-10
         "
       >
-        <motion.div
-          initial={{
-            opacity: 0,
-            scale: 0.8,
-          }}
-          animate={{
-            opacity: 1,
-            scale: 1,
-          }}
-          transition={{
-            duration: 1,
-            ease: EASE,
-          }}
-          className="
-            pointer-events-none
-            absolute
-            left-1/2
-            top-1/2
-            h-[420px]
-            w-[420px]
-            -translate-x-1/2
-            -translate-y-1/2
-            rounded-full
-            bg-primary/[0.035]
-            blur-3xl
-          "
-        />
+        <Header />
 
-        <motion.section
-          initial={{
-            opacity: 0,
-            y: 22,
-            scale: 0.97,
-          }}
-          animate={{
-            opacity: 1,
-            y: 0,
-            scale: 1,
-          }}
-          transition={{
-            duration: 0.65,
-            ease: EASE,
-          }}
+        <main
           className="
             relative
-            z-10
-            w-full
-            max-w-[360px]
-            rounded-[20px]
-            border
-            border-gray-200
-            bg-white
-            px-5
-            py-6
-            text-center
-            shadow-[0_18px_55px_rgba(27,75,107,0.12)]
+            grid
+            min-h-[calc(100dvh-66px)]
+            place-items-center
+            overflow-hidden
+            px-4
+            py-10
           "
         >
           <motion.div
             initial={{
               opacity: 0,
-              scale: 0.4,
-              rotate: -8,
+              scale: 0.8,
             }}
             animate={{
               opacity: 1,
               scale: 1,
-              rotate: 0,
             }}
             transition={{
-              delay: 0.12,
-              duration: 0.6,
+              duration: 1,
               ease: EASE,
             }}
             className="
-              mx-auto
-              grid
-              h-12
-              w-12
-              place-items-center
+              pointer-events-none
+              absolute
+              left-1/2
+              top-1/2
+              h-[420px]
+              w-[420px]
+              -translate-x-1/2
+              -translate-y-1/2
               rounded-full
-              bg-primary
-              text-white
-              shadow-[0_10px_28px_rgba(26,158,143,0.22)]
+              bg-primary/[0.035]
+              blur-3xl
             "
-          >
-            <svg
-              className="
-                h-6
-                w-6
-              "
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2.6}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="m5 12 4 4L19 6"
-              />
-            </svg>
-          </motion.div>
+          />
 
-          <motion.h1
+          <motion.section
             initial={{
               opacity: 0,
-              y: 10,
+              y: 22,
+              scale: 0.97,
             }}
             animate={{
               opacity: 1,
               y: 0,
+              scale: 1,
             }}
             transition={{
-              delay: 0.22,
-              duration: 0.55,
+              duration: 0.65,
               ease: EASE,
             }}
             className="
-              mt-4
-              font-heading
-              text-[22px]
-              font-bold
-              tracking-[-0.03em]
-              text-secondary
+              relative
+              z-10
+              w-full
+              max-w-[360px]
+              rounded-[20px]
+              border
+              border-gray-200
+              bg-white
+              px-5
+              py-6
+              text-center
+              shadow-[0_18px_55px_rgba(27,75,107,0.12)]
             "
           >
-            Thank You!
-          </motion.h1>
-
-          <motion.p
-            initial={{
-              opacity: 0,
-              y: 8,
-            }}
-            animate={{
-              opacity: 1,
-              y: 0,
-            }}
-            transition={{
-              delay: 0.28,
-              duration: 0.5,
-              ease: EASE,
-            }}
-            className="
-              mx-auto
-              mt-2
-              max-w-[330px]
-              text-[13px]
-              leading-6
-              text-gray-500
-            "
-          >
-            Thank you for sharing your feedback.
-          </motion.p>
-
-          <motion.div
-            initial={{
-              opacity: 0,
-              y: 12,
-            }}
-            animate={{
-              opacity: 1,
-              y: 0,
-            }}
-            transition={{
-              delay: 0.36,
-              duration: 0.55,
-              ease: EASE,
-            }}
-            className="
-              mt-5
-              space-y-2
-            "
-          >
-            <motion.button
-              type="button"
-              whileHover={{
-                y: -2,
+            <motion.div
+              initial={{
+                opacity: 0,
+                scale: 0.4,
+                rotate: -8,
               }}
-              whileTap={{
-                scale: 0.985,
+              animate={{
+                opacity: 1,
+                scale: 1,
+                rotate: 0,
               }}
-              onClick={goToEvent}
+              transition={{
+                delay: 0.12,
+                duration: 0.6,
+                ease: EASE,
+              }}
               className="
-                h-10
-                w-full
-                cursor-pointer
-                rounded-xl
+                mx-auto
+                grid
+                h-12
+                w-12
+                place-items-center
+                rounded-full
                 bg-primary
-                text-[12px]
-                font-semibold
                 text-white
-                shadow-[0_8px_22px_rgba(26,158,143,0.18)]
+                shadow-[0_10px_28px_rgba(26,158,143,0.22)]
               "
             >
-              Back to Event
-            </motion.button>
+              <svg
+                className="
+                  h-6
+                  w-6
+                "
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2.6}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="m5 12 4 4L19 6"
+                />
+              </svg>
+            </motion.div>
 
-            <motion.button
-              type="button"
-              whileHover={{
-                y: -1,
+            <motion.h1
+              initial={{
+                opacity: 0,
+                y: 10,
               }}
-              whileTap={{
-                scale: 0.985,
+              animate={{
+                opacity: 1,
+                y: 0,
               }}
-              onClick={goToTickets}
+              transition={{
+                delay: 0.22,
+                duration: 0.55,
+                ease: EASE,
+              }}
               className="
-                h-10
-                w-full
-                cursor-pointer
-                rounded-xl
-                border
-                border-gray-200
-                bg-white
-                text-[11px]
-                font-semibold
-                text-gray-500
-                transition-colors
-                duration-300
-                hover:border-gray-300
-                hover:bg-gray-50
-                hover:text-secondary
+                mt-4
+                font-heading
+                text-[22px]
+                font-bold
+                tracking-[-0.03em]
+                text-secondary
               "
             >
-              Back to Ticket
-            </motion.button>
-          </motion.div>
-        </motion.section>
-      </main>
+              Thank You!
+            </motion.h1>
+
+            <motion.p
+              initial={{
+                opacity: 0,
+                y: 8,
+              }}
+              animate={{
+                opacity: 1,
+                y: 0,
+              }}
+              transition={{
+                delay: 0.28,
+                duration: 0.5,
+                ease: EASE,
+              }}
+              className="
+                mx-auto
+                mt-2
+                max-w-[330px]
+                text-[13px]
+                leading-6
+                text-gray-500
+              "
+            >
+              Thank you for sharing your feedback.
+            </motion.p>
+
+            <motion.div
+              initial={{
+                opacity: 0,
+                y: 12,
+              }}
+              animate={{
+                opacity: 1,
+                y: 0,
+              }}
+              transition={{
+                delay: 0.36,
+                duration: 0.55,
+                ease: EASE,
+              }}
+              className="
+                mt-5
+                space-y-2
+              "
+            >
+              {feedbackScope === 'event' && (
+                <motion.button
+                  type="button"
+                  whileHover={{
+                    y: -2,
+                  }}
+                  whileTap={{
+                    scale: 0.985,
+                  }}
+                  onClick={goToEvent}
+                  className="
+                    h-10
+                    w-full
+                    cursor-pointer
+                    rounded-xl
+                    bg-primary
+                    text-[12px]
+                    font-semibold
+                    text-white
+                    shadow-[0_8px_22px_rgba(26,158,143,0.18)]
+                  "
+                >
+                  Back to Event
+                </motion.button>
+              )}
+
+              <motion.button
+                type="button"
+                whileHover={{
+                  y: -2,
+                }}
+                whileTap={{
+                  scale: 0.985,
+                }}
+                onClick={goToEvents}
+                className={`
+                  h-10
+                  w-full
+                  cursor-pointer
+                  rounded-xl
+                  text-[12px]
+                  font-semibold
+                  ${feedbackScope === 'event'
+                    ? 'border border-gray-200 bg-white text-gray-500 transition-colors duration-300 hover:border-gray-300 hover:bg-gray-50 hover:text-secondary'
+                    : 'bg-primary text-white shadow-[0_8px_22px_rgba(26,158,143,0.18)]'
+                  }
+                `}
+              >
+                Back to Events
+              </motion.button>
+
+              {feedbackScope === 'application' && (
+                <motion.button
+                  type="button"
+                  whileHover={{
+                    y: -1,
+                  }}
+                  whileTap={{
+                    scale: 0.985,
+                  }}
+                  onClick={goToTickets}
+                  className="
+                    h-10
+                    w-full
+                    cursor-pointer
+                    rounded-xl
+                    border
+                    border-gray-200
+                    bg-white
+                    text-[11px]
+                    font-semibold
+                    text-gray-500
+                    transition-colors
+                    duration-300
+                    hover:border-gray-300
+                    hover:bg-gray-50
+                    hover:text-secondary
+                  "
+                >
+                  View My Tickets
+                </motion.button>
+              )}
+            </motion.div>
+          </motion.section>
+        </main>
+      </div>
+    );
+  }
+
+  /* ============================================================
+     LOADING STATE
+  ============================================================ */
+
+  if (checkingDuplicate) {
+    return (
+      <div
+        className="
+          min-h-dvh
+          bg-[#F7F9FB]
+        "
+      >
+        <Header />
+
+        <main
+          className="
+            grid
+            min-h-[calc(100dvh-66px)]
+            place-items-center
+            px-4
+            py-10
+          "
+        >
+          <div
+            className="
+              flex
+              flex-col
+              items-center
+              gap-3
+            "
+          >
+            <div
+              className="
+                h-8
+                w-8
+                animate-spin
+                rounded-full
+                border-[3px]
+                border-gray-200
+                border-t-primary
+              "
+            />
+
+            <p
+              className="
+                text-[12px]
+                text-gray-400
+              "
+            >
+              Loading…
+            </p>
+          </div>
+        </main>
+      </div>
     );
   }
 
@@ -671,776 +1155,730 @@ export default function FeedbackPage() {
   ============================================================ */
 
   return (
-    <motion.main
-      variants={
-        pageVariants
-      }
-      initial="hidden"
-      animate="visible"
+    <div
       className="
-        relative
-        flex
-        flex-col
-        items-center
-        justify-center
         min-h-dvh
-        overflow-hidden
-        bg-[#07151F]/35
-        backdrop-blur-[3px]
-        px-3
-        py-3
-        sm:px-6
-        sm:py-8
-        md:bg-[#F7F9FB]
-        md:px-4
-        md:pb-8
-        md:pt-8
-        md:backdrop-blur-0
+        bg-[#F7F9FB]
       "
     >
-      <header
-        className="
-          relative
-          z-20
-          mx-auto
-          mb-2
-          md:mb-5
-          flex
-          w-full
-          max-w-[920px]
-          items-center
-          justify-between
-        "
-      >
-        <button
-          type="button"
-          onClick={() =>
-            goBack()
-          }
-          className="
-            inline-flex
-            h-8
-            items-center
-            gap-1.5
-            rounded-lg
-            border
-            border-gray-200
-            bg-white
-            px-2.5
-            text-[10px]
-            font-semibold
-            text-secondary
-            shadow-sm
-            transition-colors
-            hover:border-primary/30
-            hover:text-primary
-          "
-        >
-          <span aria-hidden="true">←</span>
-          Back
-        </button>
+      <Header />
 
-        <button
-          type="button"
-          onClick={goToEvents}
-          className="
-            text-[11px]
-            font-semibold
-            text-secondary
-            hover:text-primary
-          "
-        >
-          SSI Maya Connect
-        </button>
-      </header>
-
-      <div
-        className="
-          pointer-events-none
-          absolute
-          left-[-180px]
-          top-[-160px]
-          h-[420px]
-          w-[420px]
-          rounded-full
-          bg-primary/[0.025]
-          blur-3xl
-        "
-      />
-
-      <div
-        className="
-          pointer-events-none
-          absolute
-          bottom-[-200px]
-          right-[-180px]
-          h-[430px]
-          w-[430px]
-          rounded-full
-          bg-secondary/[0.025]
-          blur-3xl
-        "
-      />
-
-      <motion.section
+      <motion.main
         variants={
-          itemVariants
+          pageVariants
         }
+        initial="hidden"
+        animate="visible"
         className="
           relative
-          z-10
-          mx-auto
-          w-full
-          max-w-[calc(100vw-24px)]
-          max-h-[calc(100dvh-24px)]
-          overflow-y-auto
-          rounded-[18px]
-          border
-          border-gray-200
-          bg-white
-          shadow-[0_20px_70px_rgba(6,19,29,0.22)]
-          md:max-w-[920px]
-          md:max-h-none
-          md:overflow-hidden
-          md:rounded-[26px]
-          md:shadow-[0_16px_48px_rgba(27,75,107,0.065)]
-          md:grid
-          md:grid-cols-[0.9fr_1.1fr]
+          flex
+          flex-col
+          items-center
+          justify-center
+          min-h-[calc(100dvh-66px)]
+          overflow-hidden
+          px-3
+          py-3
+          sm:px-6
+          sm:py-8
+          md:px-4
+          md:pb-8
+          md:pt-8
         "
       >
-        {/* LEFT PANEL */}
+        <div
+          className="
+            pointer-events-none
+            absolute
+            left-[-180px]
+            top-[-160px]
+            h-[420px]
+            w-[420px]
+            rounded-full
+            bg-primary/[0.025]
+            blur-3xl
+          "
+        />
 
         <div
           className="
+            pointer-events-none
+            absolute
+            bottom-[-200px]
+            right-[-180px]
+            h-[430px]
+            w-[430px]
+            rounded-full
+            bg-secondary/[0.025]
+            blur-3xl
+          "
+        />
+
+        <motion.section
+          variants={
+            itemVariants
+          }
+          className="
             relative
-            overflow-hidden
-            bg-[#FAFCFC]
-            px-4
-            py-4
-            sm:px-6
-            sm:py-6
-            md:border-b-0
-            md:border-r
-            md:px-8
-            md:py-9
+            z-10
+            mx-auto
+            w-full
+            max-w-[calc(100vw-24px)]
+            max-h-[calc(100dvh-90px)]
+            overflow-y-auto
+            rounded-[18px]
+            border
+            border-gray-200
+            bg-white
+            shadow-[0_20px_70px_rgba(6,19,29,0.08)]
+            md:max-w-[920px]
+            md:max-h-none
+            md:overflow-hidden
+            md:rounded-[26px]
+            md:shadow-[0_16px_48px_rgba(27,75,107,0.065)]
+            md:grid
+            md:grid-cols-[0.9fr_1.1fr]
           "
         >
+          {/* LEFT PANEL */}
+
+          <div
+            className="
+              relative
+              overflow-hidden
+              bg-[#FAFCFC]
+              px-4
+              py-4
+              sm:px-6
+              sm:py-6
+              md:border-b-0
+              md:border-r
+              md:px-8
+              md:py-9
+            "
+          >
+            <motion.div
+              initial={{
+                opacity: 0,
+                scale: 0.8,
+                rotate: -5,
+              }}
+              animate={{
+                opacity: 1,
+                scale: 1,
+                rotate: 0,
+              }}
+              transition={{
+                delay: 0.15,
+                duration: 0.6,
+                ease: EASE,
+              }}
+              className="
+                grid
+                h-9
+                w-9
+                place-items-center
+                rounded-[15px]
+                bg-primary/10
+                text-primary
+              "
+            >
+              <svg
+                className="
+                  h-[18px]
+                  w-[18px]
+                  md:h-[22px]
+                  md:w-[22px]
+                "
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.8}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M8 15h8M9 10h.01M15 10h.01"
+                />
+
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 21a9 9 0 1 0-9-9c0 1.8.52 3.48 1.42 4.9L3 21l4.2-1.35A8.96 8.96 0 0 0 12 21z"
+                />
+              </svg>
+            </motion.div>
+
+            <motion.h1
+              initial={{
+                opacity: 0,
+                y: 10,
+              }}
+              animate={{
+                opacity: 1,
+                y: 0,
+              }}
+              transition={{
+                delay: 0.2,
+                duration: 0.55,
+                ease: EASE,
+              }}
+              className="
+                mt-3
+                font-heading
+                text-[19px]
+                font-bold
+                tracking-[-0.03em]
+                text-secondary
+                sm:text-[22px]
+                md:mt-5
+                md:text-[26px]
+                lg:text-[28px]
+              "
+            >
+              {feedbackScope === 'application'
+                ? 'How was your SSI Maya Connect experience?'
+                : 'How was your event experience?'}
+            </motion.h1>
+
+            <motion.p
+              initial={{
+                opacity: 0,
+                y: 8,
+              }}
+              animate={{
+                opacity: 1,
+                y: 0,
+              }}
+              transition={{
+                delay: 0.25,
+                duration: 0.55,
+                ease: EASE,
+              }}
+              className="
+                mt-1
+                max-w-[360px]
+                text-[11px]
+                leading-4
+                text-gray-500
+                md:mt-2
+                md:max-w-[360px]
+                md:text-[13px]
+                md:leading-6
+              "
+            >
+              {feedbackScope === 'application'
+                ? 'Your feedback helps us make booking and using SSI Maya Connect smoother.'
+                : 'Tell us how the event experience felt and help us improve future programmes.'}
+            </motion.p>
+
+            {/* RATING */}
+
+            <motion.div
+              initial={{
+                opacity: 0,
+                y: 10,
+              }}
+              animate={{
+                opacity: 1,
+                y: 0,
+              }}
+              transition={{
+                delay: 0.3,
+                duration: 0.55,
+                ease: EASE,
+              }}
+              className="
+                mt-3
+                md:mt-8
+              "
+            >
+              <p
+                className="
+                  text-[10px]
+                  font-bold
+                  uppercase
+                  tracking-[0.055em]
+                  text-gray-400
+                "
+              >
+                Rate your experience
+              </p>
+
+              <div
+                className="
+                  mt-2
+                  flex
+                  items-center
+                  gap-1
+                "
+                onMouseLeave={() =>
+                  setHoveredRating(
+                    0,
+                  )
+                }
+              >
+                {[1, 2, 3, 4, 5].map(
+                  (
+                    value,
+                  ) => {
+                    const active =
+                      value <=
+                      (
+                        hoveredRating ||
+                        rating
+                      );
+
+                    return (
+                      <motion.button
+                        key={
+                          value
+                        }
+                        type="button"
+                        aria-label={`${value} star${
+                          value === 1
+                            ? ''
+                            : 's'
+                        }`}
+                        onMouseEnter={() =>
+                          setHoveredRating(
+                            value,
+                          )
+                        }
+                        onClick={() =>
+                          setRating(
+                            value,
+                          )
+                        }
+                        whileHover={{
+                          y: -3,
+                          scale: 1.12,
+                        }}
+                        whileTap={{
+                          scale: 0.9,
+                        }}
+                        transition={{
+                          type: 'spring',
+                          stiffness: 380,
+                          damping: 22,
+                        }}
+                        className="
+                          cursor-pointer
+                          rounded-lg
+                          p-0.5
+                          md:p-1
+                        "
+                      >
+                        <StarIcon
+                          active={
+                            active
+                          }
+                        />
+                      </motion.button>
+                    );
+                  },
+                )}
+              </div>
+
+              <div
+                className="
+                  mt-1
+                  min-h-[16px]
+                "
+              >
+                <AnimatePresence
+                  mode="wait"
+                >
+                  {rating >
+                    0 && (
+                    <motion.p
+                      key={
+                        rating
+                      }
+                      initial={{
+                        opacity: 0,
+                        y: 6,
+                      }}
+                      animate={{
+                        opacity: 1,
+                        y: 0,
+                      }}
+                      exit={{
+                        opacity: 0,
+                        y: -4,
+                      }}
+                      transition={{
+                        duration: 0.25,
+                        ease: EASE,
+                      }}
+                      className="
+                        text-[10px]
+                        font-medium
+                        text-gray-500
+                      "
+                    >
+                      {getRatingText(
+                        rating,
+                      )}
+                    </motion.p>
+                  )}
+                </AnimatePresence>
+              </div>
+            </motion.div>
+
+            <motion.div
+              initial={{
+                opacity: 0,
+                y: 8,
+              }}
+              animate={{
+                opacity: 1,
+                y: 0,
+              }}
+              transition={{
+                delay: 0.36,
+                duration: 0.55,
+                ease: EASE,
+              }}
+              className="
+                mt-3
+                md:mt-7
+                flex
+                items-start
+                gap-2
+                rounded-xl
+                bg-primary/[0.045]
+                px-3
+                py-2
+                md:rounded-[14px]
+                md:px-4
+                md:py-3
+              "
+            >
+              <svg
+                className="
+                  mt-0.5
+                  h-3.5
+                  w-3.5
+                  shrink-0
+                  text-primary
+                "
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.9}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 3 5 6v5c0 4.5 2.9 8.6 7 10 4.1-1.4 7-5.5 7-10V6l-7-3Z"
+                />
+
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="m9.5 12 1.7 1.7 3.4-3.7"
+                />
+              </svg>
+
+              <p
+                className="
+                  text-[9px]
+                  leading-4
+                  text-gray-500
+                  md:text-[10px]
+                  md:leading-[17px]
+                "
+              >
+                Feedback is completely optional. You can return
+                to your booking whenever you like.
+              </p>
+            </motion.div>
+          </div>
+
+          {/* RIGHT PANEL */}
+
           <motion.div
             initial={{
               opacity: 0,
-              scale: 0.8,
-              rotate: -5,
+              x: 18,
             }}
             animate={{
               opacity: 1,
-              scale: 1,
-              rotate: 0,
+              x: 0,
             }}
             transition={{
-              delay: 0.15,
+              delay: 0.2,
               duration: 0.6,
               ease: EASE,
             }}
             className="
-              grid
-              h-9
-              w-9
-              place-items-center
-              rounded-[15px]
-              bg-primary/10
-              text-primary
+              px-4
+              py-4
+              sm:px-6
+              sm:py-6
+              md:px-8
+              md:py-9
             "
           >
-            <svg
-              className="
-                h-[18px]
-                w-[18px]
-                md:h-[22px]
-                md:w-[22px]
-              "
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={1.8}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M8 15h8M9 10h.01M15 10h.01"
-              />
-
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 21a9 9 0 1 0-9-9c0 1.8.52 3.48 1.42 4.9L3 21l4.2-1.35A8.96 8.96 0 0 0 12 21z"
-              />
-            </svg>
-          </motion.div>
-
-          <motion.h1
-            initial={{
-              opacity: 0,
-              y: 10,
-            }}
-            animate={{
-              opacity: 1,
-              y: 0,
-            }}
-            transition={{
-              delay: 0.2,
-              duration: 0.55,
-              ease: EASE,
-            }}
-            className="
-              mt-3
-              font-heading
-              text-[19px]
-              font-bold
-              tracking-[-0.03em]
-              text-secondary
-              sm:text-[22px]
-              md:mt-5
-              md:text-[26px]
-              lg:text-[28px]
-            "
-          >
-            {feedbackScope === 'application'
-              ? 'How was your SSI Maya Connect experience?'
-              : 'How was your event experience?'}
-          </motion.h1>
-
-          <motion.p
-            initial={{
-              opacity: 0,
-              y: 8,
-            }}
-            animate={{
-              opacity: 1,
-              y: 0,
-            }}
-            transition={{
-              delay: 0.25,
-              duration: 0.55,
-              ease: EASE,
-            }}
-            className="
-              mt-1
-              max-w-[360px]
-              text-[11px]
-              leading-4
-              text-gray-500
-              md:mt-2
-              md:max-w-[360px]
-              md:text-[13px]
-              md:leading-6
-            "
-          >
-            {feedbackScope === 'application'
-              ? 'Your feedback helps us make booking and using SSI Maya Connect smoother.'
-              : 'Tell us how the event experience felt and help us improve future programmes.'}
-          </motion.p>
-
-          {/* RATING */}
-
-          <motion.div
-            initial={{
-              opacity: 0,
-              y: 10,
-            }}
-            animate={{
-              opacity: 1,
-              y: 0,
-            }}
-            transition={{
-              delay: 0.3,
-              duration: 0.55,
-              ease: EASE,
-            }}
-            className="
-              mt-3
-              md:mt-8
-            "
-          >
-            <p
-              className="
-                text-[10px]
-                font-bold
-                uppercase
-                tracking-[0.055em]
-                text-gray-400
-              "
-            >
-              Rate your experience
-            </p>
-
-            <div
-              className="
-                mt-2
-                flex
-                items-center
-                gap-1
-              "
-              onMouseLeave={() =>
-                setHoveredRating(
-                  0,
-                )
-              }
-            >
-              {[1, 2, 3, 4, 5].map(
-                (
-                  value,
-                ) => {
-                  const active =
-                    value <=
-                    (
-                      hoveredRating ||
-                      rating
-                    );
-
-                  return (
-                    <motion.button
-                      key={
-                        value
-                      }
-                      type="button"
-                      aria-label={`${value} star${
-                        value === 1
-                          ? ''
-                          : 's'
-                      }`}
-                      onMouseEnter={() =>
-                        setHoveredRating(
-                          value,
-                        )
-                      }
-                      onClick={() =>
-                        setRating(
-                          value,
-                        )
-                      }
-                      whileHover={{
-                        y: -3,
-                        scale: 1.12,
-                      }}
-                      whileTap={{
-                        scale: 0.9,
-                      }}
-                      transition={{
-                        type: 'spring',
-                        stiffness: 380,
-                        damping: 22,
-                      }}
-                      className="
-                        cursor-pointer
-                        rounded-lg
-                        p-0.5
-                        md:p-1
-                      "
-                    >
-                      <StarIcon
-                        active={
-                          active
-                        }
-                      />
-                    </motion.button>
-                  );
-                },
-              )}
-            </div>
-
-            <div
-              className="
-                mt-1
-                min-h-[16px]
-              "
-            >
-              <AnimatePresence
-                mode="wait"
-              >
-                {rating >
-                  0 && (
-                  <motion.p
-                    key={
-                      rating
-                    }
-                    initial={{
-                      opacity: 0,
-                      y: 6,
-                    }}
-                    animate={{
-                      opacity: 1,
-                      y: 0,
-                    }}
-                    exit={{
-                      opacity: 0,
-                      y: -4,
-                    }}
-                    transition={{
-                      duration: 0.25,
-                      ease: EASE,
-                    }}
-                    className="
-                      text-[10px]
-                      font-medium
-                      text-gray-500
-                    "
-                  >
-                    {getRatingText(
-                      rating,
-                    )}
-                  </motion.p>
-                )}
-              </AnimatePresence>
-            </div>
-          </motion.div>
-
-          <motion.div
-            initial={{
-              opacity: 0,
-              y: 8,
-            }}
-            animate={{
-              opacity: 1,
-              y: 0,
-            }}
-            transition={{
-              delay: 0.36,
-              duration: 0.55,
-              ease: EASE,
-            }}
-            className="
-              mt-3
-              md:mt-7
-              flex
-              items-start
-              gap-2
-              rounded-xl
-              bg-primary/[0.045]
-              px-3
-              py-2
-              md:rounded-[14px]
-              md:px-4
-              md:py-3
-            "
-          >
-            <svg
-              className="
-                mt-0.5
-                h-3.5
-                w-3.5
-                shrink-0
-                text-primary
-              "
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={1.9}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 3 5 6v5c0 4.5 2.9 8.6 7 10 4.1-1.4 7-5.5 7-10V6l-7-3Z"
-              />
-
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="m9.5 12 1.7 1.7 3.4-3.7"
-              />
-            </svg>
-
-            <p
-              className="
-                text-[9px]
-                leading-4
-                text-gray-500
-                md:text-[10px]
-                md:leading-[17px]
-              "
-            >
-              Feedback is completely optional. You can return
-              to your booking whenever you like.
-            </p>
-          </motion.div>
-        </div>
-
-        {/* RIGHT PANEL */}
-
-        <motion.div
-          initial={{
-            opacity: 0,
-            x: 18,
-          }}
-          animate={{
-            opacity: 1,
-            x: 0,
-          }}
-          transition={{
-            delay: 0.2,
-            duration: 0.6,
-            ease: EASE,
-          }}
-          className="
-            px-4
-            py-4
-            sm:px-6
-            sm:py-6
-            md:px-8
-            md:py-9
-          "
-        >
-          <div>
-            <label
-              htmlFor="feedback-message"
-              className="
-                text-[10px]
-                font-bold
-                uppercase
-                tracking-[0.055em]
-                text-gray-400
-              "
-            >
-              What could we improve?
-
-              <span
+            <div>
+              <label
+                htmlFor="feedback-message"
                 className="
-                  ml-1
-                  normal-case
-                  tracking-normal
-                  text-gray-300
+                  text-[10px]
+                  font-bold
+                  uppercase
+                  tracking-[0.055em]
+                  text-gray-400
                 "
               >
-                Optional
-              </span>
-            </label>
+                What could we improve?
 
-            <textarea
-              id="feedback-message"
-              value={
-                message
-              }
-              onChange={(
-                event,
-              ) =>
-                setMessage(
-                  event.target.value,
-                )
-              }
-              rows={5}
-              maxLength={500}
-              placeholder="Tell us anything that could make your experience better..."
-              className="
-                mt-2
-                min-h-[100px]
-                md:min-h-[132px]
-                w-full
-                resize-none
-                rounded-[14px]
-                border
-                border-gray-200
-                bg-[#FAFBFC]
-                px-3
-                py-2.5
-                text-[11px]
-                leading-4
-                md:px-4
-                md:py-3.5
-                md:text-[12px]
-                md:leading-5
-                text-secondary
-                outline-none
-                transition-all
-                duration-300
-                placeholder:text-gray-400
-                hover:border-gray-300
-                focus:border-primary/45
-                focus:bg-white
-                focus:ring-4
-                focus:ring-primary/[0.07]
-              "
-            />
+                <span
+                  className="
+                    ml-1
+                    normal-case
+                    tracking-normal
+                    text-gray-300
+                  "
+                >
+                  Optional
+                </span>
+              </label>
 
-            <p
-              className="
-                mt-1.5
-                text-right
-                text-[9px]
-                text-gray-300
-              "
-            >
-              {message.length}/500
-            </p>
-          </div>
-
-          <div
-            className="
-              mt-3
-              md:mt-5
-            "
-          >
-            <label
-              htmlFor="feature-suggestion"
-              className="
-                text-[10px]
-                font-bold
-                uppercase
-                tracking-[0.055em]
-                text-gray-400
-              "
-            >
-              Suggest a feature
-
-              <span
+              <textarea
+                id="feedback-message"
+                value={
+                  message
+                }
+                onChange={(
+                  event,
+                ) =>
+                  setMessage(
+                    event.target.value,
+                  )
+                }
+                rows={5}
+                maxLength={500}
+                placeholder="Tell us anything that could make your experience better..."
                 className="
-                  ml-1
-                  normal-case
-                  tracking-normal
-                  text-gray-300
-                "
-              >
-                Optional
-              </span>
-            </label>
-
-            <input
-              id="feature-suggestion"
-              type="text"
-              value={
-                suggestedFeature
-              }
-              onChange={(
-                event,
-              ) =>
-                setSuggestedFeature(
-                  event.target.value,
-                )
-              }
-              maxLength={200}
-              placeholder="Example: calendar reminders, easier ticket access..."
-              className="
-                mt-2
-                h-10
-                md:h-12
-                w-full
-                rounded-[14px]
-                border
-                border-gray-200
-                bg-[#FAFBFC]
-                px-3
-                text-[11px]
-                md:px-4
-                md:text-[12px]
-                text-secondary
-                outline-none
-                transition-all
-                duration-300
-                placeholder:text-gray-400
-                hover:border-gray-300
-                focus:border-primary/45
-                focus:bg-white
-                focus:ring-4
-                focus:ring-primary/[0.07]
-              "
-            />
-          </div>
-
-          <motion.div
-            initial={{
-              opacity: 0,
-              y: 12,
-            }}
-            animate={{
-              opacity: 1,
-              y: 0,
-            }}
-            transition={{
-              delay: 0.36,
-              duration: 0.55,
-              ease: EASE,
-            }}
-            className="
-              mt-3
-              md:mt-7
-              space-y-2.5
-            "
-          >
-            <motion.button
-              type="button"
-              whileHover={{
-                y: -2,
-              }}
-              whileTap={{
-                scale: 0.985,
-              }}
-              onClick={
-                handleSubmit
-              }
-              className="
-                h-10
-                md:h-12
-                w-full
-                cursor-pointer
-                rounded-xl
-                bg-primary
-                text-[12px]
-                md:text-[13px]
-                font-semibold
-                text-white
-                shadow-[0_8px_20px_rgba(26,158,143,0.17)]
-              "
-            >
-              Submit Feedback
-            </motion.button>
-
-            {submitError && (
-              <p
-                role="alert"
-                className="
-                  text-center
+                  mt-2
+                  min-h-[100px]
+                  md:min-h-[132px]
+                  w-full
+                  resize-none
+                  rounded-[14px]
+                  border
+                  border-gray-200
+                  bg-[#FAFBFC]
+                  px-3
+                  py-2.5
                   text-[11px]
-                  font-medium
-                  text-red-600
+                  leading-4
+                  md:px-4
+                  md:py-3.5
+                  md:text-[12px]
+                  md:leading-5
+                  text-secondary
+                  outline-none
+                  transition-all
+                  duration-300
+                  placeholder:text-gray-400
+                  hover:border-gray-300
+                  focus:border-primary/45
+                  focus:bg-white
+                  focus:ring-4
+                  focus:ring-primary/[0.07]
+                "
+              />
+
+              <p
+                className="
+                  mt-1.5
+                  text-right
+                  text-[9px]
+                  text-gray-300
                 "
               >
-                {submitError}
+                {message.length}/500
               </p>
-            )}
+            </div>
 
-            <motion.button
-              type="button"
-              whileHover={{
-                y: -1,
-              }}
-              whileTap={{
-                scale: 0.985,
-              }}
-              onClick={
-                handleMaybeLater
-              }
+            <div
               className="
-                h-11
-                w-full
-                cursor-pointer
-                rounded-xl
-                border
-                border-gray-200
-                bg-white
-                text-[12px]
-                font-semibold
-                text-gray-500
-                transition-colors
-                duration-300
-                hover:border-gray-300
-                hover:bg-gray-50
-                hover:text-secondary
+                mt-3
+                md:mt-5
               "
             >
-              Maybe Later
-            </motion.button>
+              <label
+                htmlFor="feature-suggestion"
+                className="
+                  text-[10px]
+                  font-bold
+                  uppercase
+                  tracking-[0.055em]
+                  text-gray-400
+                "
+              >
+                Suggest a feature
+
+                <span
+                  className="
+                    ml-1
+                    normal-case
+                    tracking-normal
+                    text-gray-300
+                  "
+                >
+                  Optional
+                </span>
+              </label>
+
+              <input
+                id="feature-suggestion"
+                type="text"
+                value={
+                  suggestedFeature
+                }
+                onChange={(
+                  event,
+                ) =>
+                  setSuggestedFeature(
+                    event.target.value,
+                  )
+                }
+                maxLength={200}
+                placeholder="Example: calendar reminders, easier ticket access..."
+                className="
+                  mt-2
+                  h-10
+                  md:h-12
+                  w-full
+                  rounded-[14px]
+                  border
+                  border-gray-200
+                  bg-[#FAFBFC]
+                  px-3
+                  text-[11px]
+                  md:px-4
+                  md:text-[12px]
+                  text-secondary
+                  outline-none
+                  transition-all
+                  duration-300
+                  placeholder:text-gray-400
+                  hover:border-gray-300
+                  focus:border-primary/45
+                  focus:bg-white
+                  focus:ring-4
+                  focus:ring-primary/[0.07]
+                "
+              />
+            </div>
+
+            <motion.div
+              initial={{
+                opacity: 0,
+                y: 12,
+              }}
+              animate={{
+                opacity: 1,
+                y: 0,
+              }}
+              transition={{
+                delay: 0.36,
+                duration: 0.55,
+                ease: EASE,
+              }}
+              className="
+                mt-3
+                md:mt-7
+                space-y-2.5
+              "
+            >
+              <motion.button
+                type="button"
+                whileHover={{
+                  y: -2,
+                }}
+                whileTap={{
+                  scale: 0.985,
+                }}
+                disabled={submitting}
+                onClick={
+                  handleSubmit
+                }
+                className="
+                  h-10
+                  md:h-12
+                  w-full
+                  cursor-pointer
+                  rounded-xl
+                  bg-primary
+                  text-[12px]
+                  md:text-[13px]
+                  font-semibold
+                  text-white
+                  shadow-[0_8px_20px_rgba(26,158,143,0.17)]
+                  disabled:opacity-60
+                  disabled:cursor-not-allowed
+                "
+              >
+                {submitting
+                  ? 'Submitting…'
+                  : 'Submit Feedback'}
+              </motion.button>
+
+              {submitError && (
+                <p
+                  role="alert"
+                  className="
+                    text-center
+                    text-[11px]
+                    font-medium
+                    text-red-600
+                  "
+                >
+                  {submitError}
+                </p>
+              )}
+
+              <motion.button
+                type="button"
+                whileHover={{
+                  y: -1,
+                }}
+                whileTap={{
+                  scale: 0.985,
+                }}
+                onClick={
+                  handleMaybeLater
+                }
+                className="
+                  h-11
+                  w-full
+                  cursor-pointer
+                  rounded-xl
+                  border
+                  border-gray-200
+                  bg-white
+                  text-[12px]
+                  font-semibold
+                  text-gray-500
+                  transition-colors
+                  duration-300
+                  hover:border-gray-300
+                  hover:bg-gray-50
+                  hover:text-secondary
+                "
+              >
+                Maybe Later
+              </motion.button>
+            </motion.div>
           </motion.div>
-        </motion.div>
-      </motion.section>
-    </motion.main>
+        </motion.section>
+      </motion.main>
+    </div>
   );
 }
 

@@ -33,7 +33,12 @@ import { Slot } from '@/models/Slot';
 import {
   emitRealtimeChange,
 } from '@/lib/realtime';
-import { requireAdminSession } from '@/lib/admin-server-auth';
+import {
+  requireAdminSession,
+  requireAdminWriteSession,
+  requireAdminDeleteSession,
+  logAdminActivity,
+} from '@/lib/admin-server-auth';
 
 type RouteContext = {
   params: Promise<{
@@ -349,6 +354,13 @@ export async function PUT(
     return NextResponse.json(
       { success: false, error: 'Authentication required.' },
       { status: 401 },
+    );
+  }
+
+  if (!(await requireAdminWriteSession())) {
+    return NextResponse.json(
+      { success: false, error: 'Forbidden. You have View-Only access and cannot modify events.' },
+      { status: 403 },
     );
   }
 
@@ -1227,6 +1239,13 @@ export async function PUT(
         updatedEvent._id.toString(),
     });
 
+    await logAdminActivity({
+      action: 'update',
+      resource: 'event',
+      resourceId: updatedEvent._id.toString(),
+      details: { eventName: updatedEvent.eventName },
+    });
+
     return NextResponse.json(
       {
         success: true,
@@ -1294,6 +1313,13 @@ export async function DELETE(
     return NextResponse.json(
       { success: false, error: 'Authentication required.' },
       { status: 401 },
+    );
+  }
+
+  if (!(await requireAdminDeleteSession())) {
+    return NextResponse.json(
+      { success: false, error: 'Forbidden. You do not have permission to delete events.' },
+      { status: 403 },
     );
   }
 
@@ -1366,6 +1392,13 @@ export async function DELETE(
 
       id:
         event._id.toString(),
+    });
+
+    await logAdminActivity({
+      action: 'delete',
+      resource: 'event',
+      resourceId: event._id.toString(),
+      details: { eventName: event.eventName },
     });
 
     return NextResponse.json(

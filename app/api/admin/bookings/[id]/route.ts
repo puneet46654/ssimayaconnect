@@ -11,6 +11,9 @@ import {
 
 import {
   requireAdminSession,
+  requireAdminWriteSession,
+  requireAdminDeleteSession,
+  logAdminActivity,
 } from '@/lib/admin-server-auth';
 
 import {
@@ -78,6 +81,12 @@ type BookingFeedback = {
 
 async function authorize() {
   return await requireAdminSession();
+}
+
+async function authorizeWrite() {
+  const isAuth = await requireAdminSession();
+  if (!isAuth) return false;
+  return await requireAdminWriteSession();
 }
 
 /* ============================================================
@@ -207,6 +216,22 @@ export async function PATCH(
         },
         {
           status: 401,
+        },
+      );
+    }
+
+    if (
+      !(await authorizeWrite())
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+
+          message:
+            'Forbidden. You have View-Only access and cannot modify bookings.',
+        },
+        {
+          status: 403,
         },
       );
     }
@@ -346,6 +371,16 @@ export async function PATCH(
 
     await booking.save();
 
+    await logAdminActivity({
+      action: 'update',
+      resource: 'booking',
+      resourceId: booking._id.toString(),
+      details: {
+        bookingId: booking.bookingId,
+        fields: Object.keys(details),
+      },
+    });
+
     const updated =
       await getBooking(
         id,
@@ -433,6 +468,16 @@ export async function DELETE(
       );
     }
 
+    if (!(await requireAdminDeleteSession())) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Forbidden. You do not have permission to delete bookings.',
+        },
+        { status: 403 },
+      );
+    }
+
     const {
       id,
     } =
@@ -483,6 +528,13 @@ export async function DELETE(
     await Booking.deleteOne({
       _id:
         booking._id,
+    });
+
+    await logAdminActivity({
+      action: 'delete',
+      resource: 'booking',
+      resourceId: booking._id.toString(),
+      details: { bookingId: booking.bookingId },
     });
 
     /*

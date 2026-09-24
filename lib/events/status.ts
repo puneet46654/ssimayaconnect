@@ -29,3 +29,20 @@ export function getEventStatus(
   if (today >= start) return 'LIVE' as const;
   return 'UPCOMING' as const;
 }
+
+/*
+ * Schedule dates are stored as UTC midnight and slot times
+ * are India (IST) wall-clock times.
+ */
+export function hasSlotEnded(
+  scheduleDate: Date | string,
+  endTime: string,
+  now = new Date(),
+) {
+  const date = new Date(scheduleDate);
+  if (Number.isNaN(date.getTime()) || !/^\d{2}:\d{2}$/.test(endTime)) {
+    return false;
+  }
+  const day = date.toISOString().slice(0, 10);
+  return now.getTime() > new Date(`${day}T${endTime}:00+05:30`).getTime();
+}

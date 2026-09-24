@@ -38,6 +38,8 @@ type SlotItem = {
   remaining: number;
 
   available: boolean;
+
+  ended?: boolean;
 };
 
 type EventDay = {
@@ -539,7 +541,7 @@ export default function TimeSlotsPage() {
       ===================================================== */}
 
       <header
-        className="
+        className=" max-md:hidden
           sticky
           top-0
           z-50
@@ -1562,7 +1564,9 @@ export default function TimeSlotsPage() {
                               }
                             `}
                           >
-                            {booked
+                            {slot.ended
+                              ? 'Time passed'
+                              : booked
                               ? 'Fully booked'
                               : `${slot.remaining} ${
                                   slot.remaining ===
@@ -1902,7 +1906,7 @@ export default function TimeSlotsPage() {
                   disabled:shadow-none
                 "
               >
-                Continue
+                {availableCount === 0 ? 'No slots left for this date' : 'Continue'}
               </button>
             </div>
           </div>
@@ -1938,7 +1942,7 @@ export default function TimeSlotsPage() {
         className="
           fixed
           inset-x-0
-          bottom-0
+          bottom-0 max-md:bottom-[var(--user-nav-h)]
           z-50
 
           border-t
@@ -2078,7 +2082,7 @@ export default function TimeSlotsPage() {
               disabled:shadow-none
             "
           >
-            Continue
+            {availableCount === 0 ? 'No slots left for this date' : 'Continue'}
           </button>
 
           <button
@@ -2561,7 +2565,7 @@ function SimpleHeader({
 }) {
   return (
     <header
-      className="
+      className=" max-md:hidden
         border-b
         border-gray-200
 

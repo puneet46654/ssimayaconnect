@@ -42,6 +42,20 @@ type AttendanceQrPayload = {
   eventName?: string;
 };
 
+/*
+ * Event.status is only written at creation, so it goes stale.
+ * Match LIVE by date (same UTC-day rule as getEventStatus).
+ */
+function liveDateFilter() {
+  const now = new Date();
+  const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const tomorrowStart = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+  return {
+    startDate: { $lt: tomorrowStart },
+    endDate: { $gte: todayStart },
+  };
+}
+
 /* ============================================================
    GET
 ============================================================ */
@@ -54,7 +68,10 @@ export async function GET(
     const admin =
       await getAdminSession();
 
-    if (!admin) {
+    if (
+      !admin ||
+      (admin.role !== 'superadmin' && !admin.permissions.includes('check-in'))
+    ) {
       return NextResponse.json(
         {
           success:
@@ -78,8 +95,7 @@ export async function GET(
 
     const liveEvents =
       await Event.find({
-        status:
-          'LIVE',
+        ...liveDateFilter(),
       })
         .select({
           _id: 1,
@@ -181,8 +197,7 @@ export async function GET(
         _id:
           eventId,
 
-        status:
-          'LIVE',
+        ...liveDateFilter(),
       })
         .select(
           '_id eventName',
@@ -362,7 +377,10 @@ export async function POST(
     const admin =
       await getAdminSession();
 
-    if (!admin) {
+    if (
+      !admin ||
+      (admin.role !== 'superadmin' && !admin.permissions.includes('check-in'))
+    ) {
       return NextResponse.json(
         {
           success:
@@ -435,8 +453,7 @@ export async function POST(
         _id:
           eventId,
 
-        status:
-          'LIVE',
+        ...liveDateFilter(),
       })
         .select({
           _id: 1,
@@ -604,7 +621,7 @@ export async function POST(
         >[] = [
           {
             bookingId:
-              reference,
+              reference.toUpperCase(),
           },
         ];
 
@@ -641,29 +658,6 @@ export async function POST(
       );
     }
 
-    if (
-      qr?.slotId &&
-      mongoose.Types.ObjectId.isValid(
-        qr.slotId,
-      )
-    ) {
-      query.slotId =
-        new mongoose.Types.ObjectId(
-          qr.slotId,
-        );
-    }
-
-    if (
-      qr?.dayScheduleId &&
-      mongoose.Types.ObjectId.isValid(
-        qr.dayScheduleId,
-      )
-    ) {
-      query.dayScheduleId =
-        new mongoose.Types.ObjectId(
-          qr.dayScheduleId,
-        );
-    }
 
     /* ========================================================
        FIND BOOKING
@@ -760,7 +754,7 @@ export async function POST(
             checkedInAt:
               now,
             checkedInBy:
-              admin,
+              admin.username,
             checkInMethod:
               method,
           },

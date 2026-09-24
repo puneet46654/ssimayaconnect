@@ -490,7 +490,7 @@ function BookingHeader({
 }) {
   return (
     <header
-      className="
+      className=" max-md:hidden
         sticky
         top-0
         z-[150]

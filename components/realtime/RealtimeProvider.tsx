@@ -7,7 +7,6 @@ import {
   useMemo,
   useRef,
 } from 'react';
-import Ably from 'ably';
 import { io, type Socket } from 'socket.io-client';
 
 import type { RealtimeChange } from '@/lib/realtime';
@@ -31,58 +30,63 @@ export function RealtimeProvider({
   );
 
   useEffect(() => {
-    const useAbly =
-      process.env.NEXT_PUBLIC_ENABLE_REALTIME === 'true';
-
-    const socket: Socket | null = !useAbly &&
-      process.env.NODE_ENV === 'development'
-      ? io({
-          autoConnect: true,
-          transports: ['websocket'],
-          reconnection: false,
-          timeout: 2500,
-        })
-      : null;
-    const ably = useAbly
-      ? new Ably.Realtime({
-          authUrl: '/api/realtime/token',
-          authMethod: 'POST',
-          transports: ['web_socket'],
-        })
-      : null;
-    const channel = ably?.channels.get('ssimaya-events');
-
     const handleChange = (change: RealtimeChange) => {
       listenersRef.current.forEach((listener) =>
         listener(change),
       );
     };
 
-    if (socket) {
-      socket.on('data.changed', handleChange);
-    }
-
-    if (channel) {
-      channel.subscribe('data.changed', (message) => {
-        if (message.data && typeof message.data === 'object') {
-          handleChange(message.data as RealtimeChange);
-        }
+    // Local dev runs server.mjs with Socket.IO for instant pushes.
+    if (process.env.NODE_ENV === 'development') {
+      const socket: Socket = io({
+        autoConnect: true,
+        transports: ['websocket'],
+        reconnection: false,
+        timeout: 2500,
       });
-    }
-
-    return () => {
-      if (socket) {
+      socket.on('data.changed', handleChange);
+      return () => {
         socket.off('data.changed', handleChange);
         socket.disconnect();
-      }
+      };
+    }
 
-      if (channel) {
-        void channel.unsubscribe();
-      }
+    // Production (Vercel): poll the CDN-cached change feed while the tab is visible.
+    let last: Record<string, number> | null = null;
+    let stopped = false;
 
-      if (ably) {
-        ably.close();
+    const poll = async () => {
+      if (stopped || document.visibilityState !== 'visible') return;
+      try {
+        const response = await fetch('/api/realtime');
+        const data = (await response.json()) as {
+          versions?: Record<RealtimeChange['resource'], number>;
+        };
+        if (!data.versions || stopped) return;
+        if (last) {
+          for (const [resource, version] of Object.entries(data.versions)) {
+            if (version !== last[resource]) {
+              handleChange({
+                resource: resource as RealtimeChange['resource'],
+                action: 'updated',
+              });
+            }
+          }
+        }
+        last = data.versions;
+      } catch {
+        // Network hiccup: try again on the next tick.
       }
+    };
+
+    void poll();
+    const interval = window.setInterval(poll, 4000);
+    document.addEventListener('visibilitychange', poll);
+
+    return () => {
+      stopped = true;
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', poll);
     };
   }, []);
 

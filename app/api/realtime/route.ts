@@ -1,51 +1,28 @@
 import { NextResponse } from 'next/server';
-
-import { connectDB } from '@/lib/db';
-import { getEventStatus } from '@/lib/events/status';
-import { Event } from '@/models/Event';
+import { getRealtimeVersions } from '@/lib/realtime';
 
 export const dynamic = 'force-dynamic';
 
+/*
+ * Last-change time per resource. Cached at the CDN for 2s so thousands of
+ * polling clients cost roughly one database read every 2 seconds.
+ */
 export async function GET() {
   try {
-    await connectDB();
-
-    const events = await Event.find()
-      .select('_id updatedAt status startDate endDate')
-      .lean();
-
+    const versions = await getRealtimeVersions();
     return NextResponse.json(
-      {
-        success: true,
-        events: events.map((event) => ({
-          id: event._id.toString(),
-          updatedAt: event.updatedAt,
-          status: getEventStatus(
-            event.startDate,
-            event.endDate,
-          ),
-        })),
-      },
+      { success: true, versions },
       {
         headers: {
-          'Cache-Control': 'no-store',
+          'Cache-Control': 'public, max-age=0, s-maxage=2, stale-while-revalidate=5',
         },
       },
     );
   } catch (error) {
-    console.error('Failed to read realtime changes:', error);
-
+    console.error('Failed to read realtime versions:', error);
     return NextResponse.json(
-      {
-        success: false,
-        error: 'Unable to read realtime changes.',
-      },
-      {
-        status: 500,
-        headers: {
-          'Cache-Control': 'no-store',
-        },
-      },
+      { success: false, error: 'Unable to read realtime changes.' },
+      { status: 500, headers: { 'Cache-Control': 'no-store' } },
     );
   }
 }

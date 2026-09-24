@@ -8,6 +8,7 @@ import mongoose from 'mongoose';
 import { connectDB } from '@/lib/db';
 
 import { Event } from '@/models/Event';
+import { hasSlotEnded } from '@/lib/events/status';
 
 import {
   DaySchedule,
@@ -199,8 +200,14 @@ export async function GET(
 
                     remaining,
 
+                    ended:
+
+                      hasSlotEnded(schedule.date, slot.endTime),
+
+
                     available:
-                      remaining > 0,
+                      remaining > 0 &&
+                      !hasSlotEnded(schedule.date, slot.endTime),
                   };
                 },
               ),

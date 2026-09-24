@@ -24,6 +24,10 @@ import { useRouter } from 'next/navigation';
 import {
   ADMIN_TOKEN_KEY,
   getAdminTokenPayload,
+  saveAdminSession,
+  type AdminTokenPayload,
+  type AdminRole,
+  type AdminPermission,
 } from '@/lib/admin-auth';
 
 type LoginState =
@@ -181,27 +185,52 @@ export default function AdminLoginPage() {
       return;
     }
 
-    const session = await response.json() as {
-      username: string;
+    const data = (await response.json()) as {
+      success: boolean;
+      user: {
+        username: string;
+        name: string;
+        role: AdminRole;
+        permissions: AdminPermission[];
+        canCreate?: boolean;
+        canDelete?: boolean;
+      };
       loggedInAt: number;
     };
 
-    localStorage.setItem(
-      ADMIN_TOKEN_KEY,
-      btoa(
-        encodeURIComponent(
-          JSON.stringify(session),
-        ),
-      ),
-    );
+    const isSuper = data.user.role === 'superadmin';
+
+    const sessionPayload: AdminTokenPayload = {
+      username: data.user.username,
+      name: data.user.name,
+      role: data.user.role,
+      permissions: data.user.permissions,
+      canCreate: isSuper ? true : Boolean(data.user.canCreate),
+      canDelete: isSuper ? true : Boolean(data.user.canDelete),
+      loggedInAt: data.loggedInAt,
+    };
+
+    saveAdminSession(sessionPayload);
     setLoginState('success');
+
+    const targetRoute =
+      data.user.role === 'superadmin' || data.user.permissions.includes('dashboard')
+        ? '/admin/landing'
+        : data.user.permissions.includes('events')
+        ? '/admin/eventmanagement'
+        : data.user.permissions.includes('bookings')
+        ? '/admin/bookings'
+        : data.user.permissions.includes('check-in')
+        ? '/admin/check-in'
+        : data.user.permissions.includes('reports')
+        ? '/admin/reports'
+        : data.user.permissions.includes('auth')
+        ? '/admin/auth'
+        : '/admin/landing';
 
     window.setTimeout(
       () => {
-        router.replace(
-          '/admin/landing',
-        );
-
+        router.replace(targetRoute);
         router.refresh();
       },
       750,

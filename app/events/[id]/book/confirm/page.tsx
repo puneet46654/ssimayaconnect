@@ -947,6 +947,35 @@ export default function BookingConfirmationPage() {
     slotSelection,
   ]);
 
+  /*
+   * Fallback when the realtime socket is disconnected (mobile
+   * sleep, flaky network): re-check when the tab regains focus
+   * and poll lightly until the ticket turns PRESENT.
+   */
+  useEffect(() => {
+    if (
+      bookingState !== 'ready' ||
+      !bookingId ||
+      attendanceStatus === 'PRESENT'
+    ) {
+      return;
+    }
+
+    const refreshIfVisible = () => {
+      if (document.visibilityState === 'visible') {
+        void checkAttendance();
+      }
+    };
+
+    const interval = window.setInterval(refreshIfVisible, 5000);
+    document.addEventListener('visibilitychange', refreshIfVisible);
+
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', refreshIfVisible);
+    };
+  }, [attendanceStatus, bookingId, bookingState, checkAttendance]);
+
   useRealtimeRefresh(
     'attendance',
     () => {
@@ -999,7 +1028,7 @@ export default function BookingConfirmationPage() {
     const timer =
       window.setTimeout(
         () => {
-          window.location.replace(
+          router.push(
             `/events/${eventId}/book/feedback?scope=application`,
           );
         },
@@ -1296,12 +1325,14 @@ export default function BookingConfirmationPage() {
 
   return (
     <main
-      className="
+      className={`
         min-h-dvh
 
         overflow-x-hidden
 
-        bg-[#FFF9E8]
+        transition-colors duration-500
+
+        ${active ? 'ticket-present bg-[#ECFDF5]' : 'bg-[#FFF9E8]'}
 
         px-3
 
@@ -1317,7 +1348,7 @@ export default function BookingConfirmationPage() {
 
         md:px-6
         md:py-7
-      "
+      `}
     >
       <div
         className="
@@ -1451,7 +1482,7 @@ export default function BookingConfirmationPage() {
                 ? 'Your booking has been saved successfully.'
                 : bookingState ===
                     'error'
-                  ? 'We could not save this booking in the database.'
+                  ? 'Your booking could not be completed.'
                   : 'Saving your registration securely...'}
             </p>
           </div>
@@ -1500,20 +1531,51 @@ export default function BookingConfirmationPage() {
                 sm:flex-row
               "
             >
-              {bookingDetails &&
-                slotSelection && (
+              {/* Point the user at the action that can actually fix the error */}
+              {/already have a booking/i.test(bookingError) ? (
                 <button
                   type="button"
                   onClick={() =>
-                    void retryBooking()
+                    router.push('/events/mytickets')
                   }
                   className="
                     btn
                     btn-primary
                   "
                 >
-                  Retry Booking
+                  View My Tickets
                 </button>
+              ) : /slot/i.test(bookingError) ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    router.push(
+                      `/events/${eventId}/book/slots`,
+                    )
+                  }
+                  className="
+                    btn
+                    btn-primary
+                  "
+                >
+                  Choose Another Time
+                </button>
+              ) : (
+                bookingDetails &&
+                slotSelection && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void retryBooking()
+                    }
+                    className="
+                      btn
+                      btn-primary
+                    "
+                  >
+                    Try Again
+                  </button>
+                )
               )}
 
               <button
@@ -1528,7 +1590,7 @@ export default function BookingConfirmationPage() {
                   btn-secondary
                 "
               >
-                Back to Booking
+                Edit My Details
               </button>
             </div>
           </div>
@@ -1621,8 +1683,7 @@ export default function BookingConfirmationPage() {
                   md:grid-cols-[310px_minmax(0,1fr)]
 
                   ${
-                    active
-                      ? 'border-yellow-300'
+                    active ? 'border-emerald-300'
                       : 'border-yellow-200'
                   }
                 `}
@@ -1652,8 +1713,7 @@ export default function BookingConfirmationPage() {
                     md:border-r
 
                     ${
-                      active
-                        ? 'bg-amber-50/80'
+                      active ? 'bg-emerald-50/80'
                         : 'bg-yellow-50/90'
                     }
                   `}
@@ -1680,7 +1740,7 @@ export default function BookingConfirmationPage() {
                         repeat:
                           Infinity,
                       }}
-                      className="
+                      className={`
                         pointer-events-none
 
                         absolute
@@ -1690,10 +1750,10 @@ export default function BookingConfirmationPage() {
 
                         rounded-full
 
-                        bg-yellow-200
+                        ${active ? 'bg-emerald-200' : 'bg-yellow-200'}
 
                         blur-3xl
-                      "
+                      `}
                     />
                   )}
 
@@ -1713,8 +1773,7 @@ export default function BookingConfirmationPage() {
                       shadow-sm
 
                       ${
-                        active
-                          ? 'border-yellow-300'
+                        active ? 'border-emerald-300'
                           : 'border-yellow-200'
                       }
                     `}
@@ -1798,8 +1857,8 @@ export default function BookingConfirmationPage() {
                       ${
                         active
                           ? `
-                              bg-yellow-100
-                              text-amber-700
+                              bg-emerald-100
+                              text-emerald-700
                             `
                           : `
                               bg-yellow-50
@@ -1816,8 +1875,7 @@ export default function BookingConfirmationPage() {
                         rounded-full
 
                         ${
-                          active
-                              ? 'bg-yellow-500'
+                          active ? 'bg-emerald-500'
                               : 'animate-pulse bg-yellow-500'
                         }
                       `}
@@ -1955,8 +2013,7 @@ export default function BookingConfirmationPage() {
                         font-medium
 
                         ${
-                          active
-                            ? 'text-amber-600'
+                          active ? 'text-emerald-600'
                             : 'text-yellow-600'
                         }
                       `}
@@ -1969,8 +2026,7 @@ export default function BookingConfirmationPage() {
                           rounded-full
 
                           ${
-                            active
-                              ? 'bg-yellow-500'
+                            active ? 'bg-emerald-500'
                               : 'animate-pulse bg-yellow-500'
                           }
                         `}
@@ -2162,7 +2218,7 @@ export default function BookingConfirmationPage() {
                   fixed
 
                   inset-x-0
-                  bottom-0
+                  bottom-0 max-md:bottom-[var(--user-nav-h)]
 
                   z-50
 

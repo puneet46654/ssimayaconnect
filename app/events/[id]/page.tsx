@@ -421,7 +421,7 @@ export default function EventDetailsPage() {
       {/* HEADER */}
 
       <header
-        className="
+        className=" max-md:hidden
           sticky
           top-0
           z-50
@@ -1150,7 +1150,7 @@ export default function EventDetailsPage() {
         className="
           fixed
           inset-x-0
-          bottom-0
+          bottom-0 max-md:bottom-[var(--user-nav-h)]
           z-50
 
           border-t
@@ -1248,6 +1248,7 @@ export default function EventDetailsPage() {
               text-sm
               font-semibold
               text-secondary
+              hidden sm:block
             "
           >
             Go Back
