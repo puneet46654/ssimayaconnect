@@ -314,40 +314,6 @@ export async function GET(
                       booking.eventId ||
                       '',
                     ),
-
-                  slotId:
-                    String(slot._id || booking.slotId || ''),
-
-                  dayScheduleId:
-                    String(schedule._id || booking.dayScheduleId || ''),
-
-                  eventName:
-                    String(
-                      event.eventName ||
-                      'Event',
-                    ),
-
-                  name:
-                    String(
-                      booking.details
-                        ?.fullName ||
-                      'Attendee',
-                    ),
-
-                  date:
-                    (schedule.date || event.startDate ? new Date(schedule.date || event.startDate).toISOString() : ''),
-
-                  startTime:
-                    String(
-                      slot.startTime ||
-                      '',
-                    ),
-
-                  endTime:
-                    String(
-                      slot.endTime ||
-                      '',
-                    ),
                 },
               ),
 

@@ -360,10 +360,8 @@ export default function AdminAuthManagementPage() {
         isActive: formData.isActive,
       };
 
-      if (!editingUserId) {
-        bodyPayload.username = formData.username.trim().toLowerCase();
-        bodyPayload.password = formData.password;
-      } else if (formData.password) {
+      bodyPayload.username = formData.username.trim().toLowerCase();
+      if (formData.password) {
         bodyPayload.password = formData.password;
       }
 
@@ -382,7 +380,7 @@ export default function AdminAuthManagementPage() {
       // Passwords are stored hashed, so this is the only moment they can be shown.
       if (formData.password) {
         setSavedCredentials({
-          username: editingUserId ? formData.username : String(bodyPayload.username),
+          username: String(bodyPayload.username),
           password: formData.password,
         });
       }
@@ -892,7 +890,6 @@ export default function AdminAuthManagementPage() {
                     <input
                       type="text"
                       required
-                      disabled={Boolean(editingUserId)}
                       placeholder="e.g. puneet"
                       value={formData.username}
                       onChange={(e) =>
@@ -910,7 +907,7 @@ export default function AdminAuthManagementPage() {
                 <div>
                   <div className="flex items-center justify-between">
                     <label className="block text-[11px] font-bold uppercase tracking-[0.08em] text-secondary/70">
-                      {editingUserId ? 'Change Password (leave blank to keep current)' : 'Password'}
+                      {editingUserId ? 'New Password (optional)' : 'Password'}
                     </label>
                     <button
                       type="button"
@@ -924,7 +921,7 @@ export default function AdminAuthManagementPage() {
                     <input
                       type={showPassword ? 'text' : 'password'}
                       required={!editingUserId}
-                      placeholder={editingUserId ? '••••••••••' : 'Min 6 characters'}
+                      placeholder={editingUserId ? 'Enter a new password to change it' : 'Min 6 characters'}
                       value={formData.password}
                       onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                       className="h-10 w-full rounded-xl border border-gray-200 bg-[#F6F8FB] px-3.5 pr-10 text-xs font-medium text-secondary outline-none transition focus:border-primary/50 focus:bg-white focus:ring-2 focus:ring-primary/10"

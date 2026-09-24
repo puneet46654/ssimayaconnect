@@ -1313,7 +1313,7 @@ export default function EventsPage() {
                 <div
                   className="
                     grid
-                    grid-cols-1
+                    grid-cols-2
                     gap-3
 
                     min-[520px]:grid-cols-2

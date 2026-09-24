@@ -74,6 +74,7 @@ export async function PUT(
     const body = await request.json().catch(() => null);
 
     const before = {
+      username: user.username,
       name: user.name,
       role: user.role,
       permissions: [...user.permissions],
@@ -110,6 +111,26 @@ export async function PUT(
         { success: false, error: 'Only superadmins can assign the Superadmin role.' },
         { status: 403 },
       );
+    }
+
+    // Optional username change (same rules as create)
+    if (typeof body?.username === 'string') {
+      const newUsername = body.username.trim().toLowerCase();
+      if (newUsername && newUsername !== user.username) {
+        if (newUsername.length < 3 || !/^[a-z0-9_.-]+$/.test(newUsername)) {
+          return NextResponse.json(
+            { success: false, error: 'Username must be 3+ characters: letters, numbers, dots, hyphens or underscores.' },
+            { status: 400 },
+          );
+        }
+        if (isRootAdmin(newUsername) || (await AdminUser.exists({ username: newUsername }))) {
+          return NextResponse.json(
+            { success: false, error: `Username "${newUsername}" is already taken.` },
+            { status: 409 },
+          );
+        }
+        user.username = newUsername;
+      }
     }
 
     if (typeof body?.name === 'string' && body.name.trim().length >= 2) {
@@ -161,6 +182,7 @@ export async function PUT(
     await user.save();
 
     const after = {
+      username: user.username,
       name: user.name,
       role: user.role,
       permissions: [...user.permissions],

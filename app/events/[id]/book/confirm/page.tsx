@@ -1137,48 +1137,13 @@ export default function BookingConfirmationPage() {
         bookingId,
 
         eventId,
-
-        slotId:
-          slotSelection
-            ?.slotId ||
-          '',
-
-        dayScheduleId:
-          slotSelection
-            ?.dayScheduleId ||
-          '',
-
-        eventName:
-          bookingDetails
-            ?.eventName ||
-          '',
-
-        name:
-          displayName,
-
-        date:
-          slotSelection
-            ?.date ||
-          '',
-
-        startTime:
-          slotSelection
-            ?.startTime ||
-          '',
-
-        endTime:
-          slotSelection
-            ?.endTime ||
-          '',
       });
+      // Minimal payload: the scanner only needs these, and a short QR scans faster.
     }, [
-      bookingDetails,
       bookingId,
       bookingMongoId,
       bookingReady,
-      displayName,
       eventId,
-      slotSelection,
     ]);
 
   /* ==========================================================
@@ -1285,7 +1250,7 @@ export default function BookingConfirmationPage() {
 
         px-3
 
-        pb-[150px]
+        pb-[80px] md:pb-[150px]
         pt-3
 
         sm:px-5
@@ -1326,7 +1291,8 @@ export default function BookingConfirmationPage() {
             y:
               0,
           }}
-          className="
+          className={`
+            ${bookingReady ? 'max-md:hidden' : ''}
             flex
 
             items-center
@@ -1343,7 +1309,7 @@ export default function BookingConfirmationPage() {
             py-3.5
 
             shadow-sm
-          "
+          `}
         >
           <div
             className={`
@@ -1740,6 +1706,7 @@ export default function BookingConfirmationPage() {
                       }
                       bgColor="#FFFFFF"
                       fgColor="#000000"
+                      className="max-md:h-[136px] max-md:w-[136px]"
                     />
                   </div>
 
@@ -1831,7 +1798,7 @@ export default function BookingConfirmationPage() {
                     />
 
                     {active
-                      ? 'Ticket Active'
+                      ? 'Checked In'
                       : 'Ready for Venue Scan'}
                   </span>
 
@@ -1911,6 +1878,7 @@ export default function BookingConfirmationPage() {
                 >
                   <div
                     className="
+                      max-md:hidden
                       flex
 
                       items-center
@@ -1982,7 +1950,7 @@ export default function BookingConfirmationPage() {
                       />
 
                       {active
-                        ? 'Active'
+                        ? 'Checked in'
                         : 'Ready'}
                     </span>
                   </div>
@@ -2061,6 +2029,7 @@ export default function BookingConfirmationPage() {
                     {bookingDetails.specialty && (
                       <InfoField
                         label="Specialty"
+                        mobileHidden
                         value={
                           bookingDetails.specialty
                         }
@@ -2070,6 +2039,7 @@ export default function BookingConfirmationPage() {
                     {bookingDetails.hospitalName && (
                       <InfoField
                         label="Hospital"
+                        mobileHidden
                         value={
                           bookingDetails.hospitalName
                         }
@@ -2079,6 +2049,7 @@ export default function BookingConfirmationPage() {
                     {bookingDetails.email && (
                       <InfoField
                         label="Email"
+                        mobileHidden
                         value={
                           bookingDetails.email
                         }
@@ -2099,6 +2070,7 @@ export default function BookingConfirmationPage() {
                     ) && (
                       <InfoField
                         label="Location"
+                        mobileHidden
                         value={[
                           bookingDetails.city,
                           bookingDetails.state,
@@ -2193,9 +2165,8 @@ export default function BookingConfirmationPage() {
                     flex
 
                     max-w-[520px]
-
-                    flex-col
                     gap-2
+                    [&>*]:flex-1
                   "
                 >
                   <DownloadButton
@@ -2365,16 +2336,17 @@ function BookingSkeleton() {
 function InfoField({
   label,
   value,
+  mobileHidden = false,
 }: {
   label: string;
 
   value: string;
+
+  mobileHidden?: boolean;
 }) {
   return (
     <div
-      className="
-        min-w-0
-      "
+      className={`min-w-0 ${mobileHidden ? 'max-md:hidden' : ''}`}
     >
       <FieldLabel>
         {label}
