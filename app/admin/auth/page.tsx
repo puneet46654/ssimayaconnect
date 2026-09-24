@@ -145,6 +145,23 @@ export default function AdminAuthManagementPage() {
   const [userToDelete, setUserToDelete] = useState<ManagedUser | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Login details shown once after create / password reset
+  const [savedCredentials, setSavedCredentials] = useState<{ username: string; password: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  async function copyCredentials() {
+    if (!savedCredentials) return;
+    try {
+      await navigator.clipboard.writeText(
+        `Username: ${savedCredentials.username}\nPassword: ${savedCredentials.password}\nLogin: ${window.location.origin}/admin/login`,
+      );
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      // Clipboard blocked: details stay visible to copy manually.
+    }
+  }
+
   // Activity logs
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
@@ -362,6 +379,13 @@ export default function AdminAuthManagementPage() {
       }
 
       setIsModalOpen(false);
+      // Passwords are stored hashed, so this is the only moment they can be shown.
+      if (formData.password) {
+        setSavedCredentials({
+          username: editingUserId ? formData.username : String(bodyPayload.username),
+          password: formData.password,
+        });
+      }
       await loadUsers();
       loadLogs();
     } catch (err: unknown) {
@@ -570,7 +594,9 @@ export default function AdminAuthManagementPage() {
                           </span>
                         )}
                       </div>
-                      <p className="mt-0.5 text-xs text-gray-400">@{user.username}</p>
+                      <p className="mt-0.5 text-xs text-gray-500">
+                        Username: <span className="font-mono font-semibold text-secondary">{user.username}</span>
+                      </p>
                     </div>
                   </div>
 
@@ -1137,6 +1163,52 @@ export default function AdminAuthManagementPage() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* ============================================================
+          LOGIN DETAILS (shown once)
+      ============================================================ */}
+      {savedCredentials && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            onClick={() => setSavedCredentials(null)}
+            className="absolute inset-0 bg-[#07151F]/45"
+          />
+          <div className="relative w-full max-w-[380px] rounded-2xl border border-gray-200 bg-white p-6 shadow-xl">
+            <h4 className="text-sm font-bold text-secondary">Login details</h4>
+            <p className="mt-1 text-xs text-gray-500">
+              Share these with the user now. The password can&apos;t be shown again — use Edit to set a new one if it&apos;s lost.
+            </p>
+
+            <dl className="mt-4 space-y-2 rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs">
+              <div className="flex justify-between gap-3">
+                <dt className="text-gray-500">Username</dt>
+                <dd className="font-mono font-semibold text-secondary">{savedCredentials.username}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-gray-500">Password</dt>
+                <dd className="break-all font-mono font-semibold text-secondary">{savedCredentials.password}</dd>
+              </div>
+            </dl>
+
+            <div className="mt-5 flex justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setSavedCredentials(null)}
+                className="h-9 rounded-xl px-4 text-xs font-semibold text-gray-600 hover:bg-gray-100"
+              >
+                Done
+              </button>
+              <button
+                type="button"
+                onClick={copyCredentials}
+                className="h-9 rounded-xl bg-primary px-4 text-xs font-semibold text-white hover:bg-primary-dark"
+              >
+                {copied ? 'Copied' : 'Copy details'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ============================================================
           DELETE CONFIRMATION MODAL
