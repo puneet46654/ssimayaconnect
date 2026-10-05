@@ -102,11 +102,6 @@ interface Ticket {
 const CACHE_KEY =
   ticketStorage.mobile;
 
-const EMAIL_CACHE_KEY =
-  ticketStorage.email;
-
-const TICKET_CACHE =
-  ticketStorage.tickets;
 
 
 
@@ -122,22 +117,20 @@ export default function MyTicketsPage() {
 
   const hydrated = useHydrated();
   const [mobile, setMobile] = useState('');
-  const [reference, setReference] = useState('');
   const [savedMobile, setSavedMobile] = useState('');
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [loaded, setLoaded] = useState(false);
-  const lookupRef = useRef<{ mobile: string; bookingId: string } | null>(null);
+  const lookupRef = useRef<string | null>(null);
   const pendingRef = useRef<AbortController | null>(null);
   const requestVersion = useRef(0);
 
-  const loadTickets = useCallback(async (value: string, bookingReference: string, recover = true) => {
-    const bookingId = bookingReference.trim().toUpperCase();
+  const loadTickets = useCallback(async (value: string) => {
     const clean = normalizePhone(value);
-    if (!bookingId || !isValidPhone(value)) {
-      setError('Enter your booking reference and full mobile number, including country code.');
+    if (!isValidPhone(value)) {
+      setError('Enter your full mobile number, including country code.');
       return;
     }
     pendingRef.current?.abort();
@@ -147,9 +140,9 @@ export default function MyTicketsPage() {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch(recover ? '/api/events/mytickets' : `/api/events/mytickets?bookingId=${encodeURIComponent(bookingId)}`, {
-        method: recover ? 'POST' : 'GET', cache: 'no-store', signal: controller.signal,
-        ...(recover ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bookingId, mobile: clean }) } : {}),
+      const response = await fetch('/api/events/mytickets', {
+        method: 'POST', cache: 'no-store', signal: controller.signal,
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mobile: clean }),
       });
       const data = await response.json();
       if (version !== requestVersion.current || controller.signal.aborted) return;
@@ -158,15 +151,9 @@ export default function MyTicketsPage() {
       setSelectedTicket(current => current ? data.tickets.find((ticket: Ticket) => ticket.bookingId === current.bookingId) || null : null);
       setSavedMobile(clean);
       setMobile(clean);
-      setReference(bookingId);
-      lookupRef.current = { mobile: clean, bookingId };
+      lookupRef.current = clean;
       setLoaded(true);
-      try {
-        sessionStorage.setItem(CACHE_KEY, clean);
-        sessionStorage.setItem(ticketStorage.reference, bookingId);
-        sessionStorage.removeItem(EMAIL_CACHE_KEY);
-        sessionStorage.setItem(TICKET_CACHE, JSON.stringify(data.tickets));
-      } catch { /* Storage is optional; the server response remains authoritative. */ }
+      try { sessionStorage.setItem(CACHE_KEY, clean); } catch { /* Storage is optional. */ }
     } catch (error) {
       if (version !== requestVersion.current || controller.signal.aborted) return;
       setError(error instanceof Error ? error.message : 'Unable to load your ticket. Please retry.');
@@ -179,20 +166,14 @@ export default function MyTicketsPage() {
     const timer = window.setTimeout(() => {
       try {
         const cachedMobile = sessionStorage.getItem(CACHE_KEY);
-        const cachedReference = sessionStorage.getItem(ticketStorage.reference);
-        if (cachedMobile && cachedReference) void loadTickets(cachedMobile, cachedReference, false);
-        else {
-          sessionStorage.removeItem(TICKET_CACHE);
-          sessionStorage.removeItem(EMAIL_CACHE_KEY);
-        }
+        if (cachedMobile) void loadTickets(cachedMobile);
       } catch { /* Start with an empty lookup when browser storage is unavailable. */ }
     }, 0);
     return () => { window.clearTimeout(timer); pendingRef.current?.abort(); };
   }, [loadTickets]);
 
   function refreshTickets() {
-    const identity = lookupRef.current;
-    if (identity) void loadTickets(identity.mobile, identity.bookingId, false);
+    if (lookupRef.current) void loadTickets(lookupRef.current);
   }
   useRealtimeRefresh('attendance', refreshTickets);
   useRealtimeRefresh('bookings', refreshTickets);
@@ -202,21 +183,18 @@ export default function MyTicketsPage() {
     pendingRef.current?.abort();
     pendingRef.current = null;
     lookupRef.current = null;
-    setMobile(''); setReference(''); setSavedMobile(''); setTickets([]);
+    setMobile(''); setSavedMobile(''); setTickets([]);
     setSelectedTicket(null); setLoaded(false); setLoading(false); setError('');
-    for (const key of [CACHE_KEY, EMAIL_CACHE_KEY, TICKET_CACHE, ticketStorage.reference]) {
-      try { sessionStorage.removeItem(key); } catch { /* Nothing can be restored without a successful server lookup. */ }
-    }
+    try { sessionStorage.removeItem(CACHE_KEY); } catch { /* Nothing to restore. */ }
   }
 
-  function changeLookup(field: 'mobile' | 'reference', value: string) {
+  function changeMobile(value: string) {
     requestVersion.current++;
     pendingRef.current?.abort();
     pendingRef.current = null;
     setLoading(false);
     setError('');
-    if (field === 'mobile') setMobile(value);
-    else setReference(value);
+    setMobile(value);
   }
 
   /* ==========================================================
@@ -573,10 +551,12 @@ export default function MyTicketsPage() {
 
               onChange={
                 e =>
-                  changeLookup('mobile',
-                    e.target.value,
-                  )
+                  changeMobile(e.target.value)
               }
+
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void loadTickets(mobile);
+              }}
 
               placeholder="Full number with country code, e.g. +91 98765 43210"
 
@@ -606,29 +586,12 @@ export default function MyTicketsPage() {
 
 
 
-            <label htmlFor="ticket-reference" className="mt-3 block text-[11px] font-semibold text-secondary">
-              Booking reference
-            </label>
-
-            <input disabled={!hydrated}
-              id="ticket-reference"
-              type="text"
-              value={reference}
-              onChange={(e) => changeLookup('reference', e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void loadTickets(mobile, reference);
-              }}
-              placeholder="e.g. SSI-MC-2026-12345"
-              autoComplete="off"
-              className="mt-2 h-11 w-full rounded-lg border border-gray-200 px-3 text-[13px] outline-none focus:border-primary/40"
-            />
-
-            <p className="mt-3 text-xs text-gray-500">Lost your booking reference? Ask staff at the event registration desk to help locate it. No email or OTP is needed.</p>
+            <p className="mt-3 text-xs text-gray-500">Enter the mobile number you registered with. No email or OTP is needed.</p>
 
             <button
               disabled={!hydrated || loading}
               onClick={() =>
-                void loadTickets(mobile, reference)
+                void loadTickets(mobile)
               }
 
               className="
@@ -750,7 +713,7 @@ export default function MyTicketsPage() {
                   text-gray-500
                 "
               >
-                No ticket matches this booking reference and mobile number.
+                No ticket matches this mobile number.
               </p>
 
 
