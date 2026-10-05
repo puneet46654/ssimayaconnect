@@ -65,7 +65,8 @@ export default function AdminLayout({
 
   const [verified, setVerified] = useState<{ path: string; user: AdminTokenPayload | null; error: string } | null>(null);
   const [retry, setRetry] = useState(0);
-  const currentUser = verified?.path === pathname ? verified.user : null;
+  // Keep the verified session across navigation; the effect below re-checks it in the background.
+  const currentUser = verified?.user ?? null;
   const authChecked = !!currentUser;
 
   const [
