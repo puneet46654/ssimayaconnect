@@ -6,6 +6,7 @@ import { connectDB } from '@/lib/db';
 declare global {
   // Set by server.mjs when the application is running with Socket.IO.
   var realtimeIO: SocketIOServer | undefined;
+  var eventsListCache: { at: number; body: unknown } | undefined;
 }
 
 export type RealtimeChange = {
@@ -48,6 +49,8 @@ export async function getRealtimeVersions() {
 }
 
 export function emitRealtimeChange(change: RealtimeChange) {
+  // Drop the in-process public event list so the next read is fresh.
+  globalThis.eventsListCache = undefined;
   // Instant push when running under server.mjs (local dev / self-hosted).
   globalThis.realtimeIO?.emit('data.changed', change);
 

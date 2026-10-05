@@ -254,6 +254,16 @@ export async function clearAdminServerSession() {
   });
 }
 
+async function findAdminUser(username: string) {
+  await connectDB();
+  return AdminUser.findOne({ username, isActive: true })
+    .select('name role permissions canCreate canDelete passwordHash passwordSalt')
+    .lean();
+}
+
+const SESSION_LOOKUP_TTL_MS = 5000;
+const sessionLookups = new Map<string, { at: number; user: unknown }>();
+
 export async function getAdminSession(): Promise<AdminSessionPayload | null> {
   const cookieStore = await cookies();
   const cookieVal = cookieStore.get(ADMIN_SESSION_COOKIE)?.value;
@@ -265,10 +275,15 @@ export async function getAdminSession(): Promise<AdminSessionPayload | null> {
   }
 
   // Re-read access from the DB so deactivation, deletion and role changes apply immediately.
-  await connectDB();
-  const user = await AdminUser.findOne({ username: session.username, isActive: true })
-    .select('name role permissions canCreate canDelete passwordHash passwordSalt')
-    .lean();
+  const cachedLookup = sessionLookups.get(session.username);
+  let user = cachedLookup && Date.now() - cachedLookup.at < SESSION_LOOKUP_TTL_MS
+    ? cachedLookup.user as Awaited<ReturnType<typeof findAdminUser>>
+    : undefined;
+  if (user === undefined) {
+    user = await findAdminUser(session.username);
+    if (sessionLookups.size > 200) sessionLookups.clear();
+    sessionLookups.set(session.username, { at: Date.now(), user });
+  }
   if (!user || session.credentialVersion !== credentialVersion(user)) return null;
 
   return {

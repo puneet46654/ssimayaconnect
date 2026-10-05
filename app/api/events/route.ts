@@ -58,8 +58,14 @@ function getPublicImageUrl(
    GET ALL EVENTS
 ============================================================ */
 
+const LIST_CACHE_HEADERS = { 'Cache-Control': 'public, max-age=0, s-maxage=5, stale-while-revalidate=30' };
+
 export async function GET() {
   try {
+    const cachedList = globalThis.eventsListCache;
+    if (cachedList && Date.now() - cachedList.at < 5000) {
+      return NextResponse.json(cachedList.body, { headers: LIST_CACHE_HEADERS });
+    }
     await connectDB();
 
     const events =
@@ -192,20 +198,9 @@ export async function GET() {
         },
       );
 
-    return NextResponse.json(
-      {
-        success: true,
-
-        events:
-          responseEvents,
-      },
-      {
-        headers: {
-          'Cache-Control':
-            'public, max-age=0, s-maxage=5, stale-while-revalidate=30',
-        },
-      },
-    );
+    const listBody = { success: true, events: responseEvents };
+    globalThis.eventsListCache = { at: Date.now(), body: listBody };
+    return NextResponse.json(listBody, { headers: LIST_CACHE_HEADERS });
   } catch (
     error: unknown
   ) {

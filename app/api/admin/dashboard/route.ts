@@ -46,6 +46,11 @@ export async function GET() {
 
     await connectDB();
 
+    // Independent queries start together instead of one after another.
+    const totalBookingsPromise = Booking.countDocuments({});
+    const todaySchedulesPromise = schedulesByLocalDate('today');
+    const futureSchedulesPromise = schedulesByLocalDate('upcoming');
+
 /* ========================================================
        EVENTS
     ======================================================== */
@@ -87,16 +92,14 @@ export async function GET() {
     ======================================================== */
 
     const totalBookings =
-      await Booking.countDocuments(
-        {},
-      );
+      await totalBookingsPromise;
 
     /* ========================================================
        TODAY SCHEDULE IDS
     ======================================================== */
 
     const todaySchedules =
-      await schedulesByLocalDate('today');
+      await todaySchedulesPromise;
 
     const todayScheduleIds =
       todaySchedules.map(
@@ -131,7 +134,7 @@ export async function GET() {
     ======================================================== */
 
     const futureSchedules =
-      await schedulesByLocalDate('upcoming');
+      await futureSchedulesPromise;
 
     const futureScheduleIds =
       futureSchedules.map(
