@@ -387,6 +387,8 @@ export default function BookingConfirmationPage() {
         await toPng(
           ticketRef.current,
           {
+            // Export the settled ticket even if its entrance animation is running.
+            style: { opacity: '1', transform: 'none', animation: 'none', transition: 'none' },
             cacheBust:
               true,
 
@@ -913,16 +915,13 @@ export default function BookingConfirmationPage() {
                       value={
                         qrValue
                       }
-                      size={
-                        170
-                      }
+                      size={200}
                       level="H"
-                      includeMargin={
-                        false
-                      }
+                      marginSize={4}
                       bgColor="#FFFFFF"
                       fgColor="#000000"
-                      className="max-md:h-[136px] max-md:w-[136px]"
+                      role="img"
+                      aria-label="Ticket QR code"
                     />)}
                   </div>
 

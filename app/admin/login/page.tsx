@@ -1,6 +1,7 @@
 'use client';
 
 import Image from 'next/image';
+import { useHydrated } from '@/lib/use-hydrated';
 import {
   AnimatePresence,
   motion,
@@ -73,6 +74,8 @@ const formVariants: Variants = {
 
 export default function AdminLoginPage() {
   const router = useRouter();
+  // Server-rendered fields must not accept text before React can retain their changes.
+  const hydrated = useHydrated();
 
   useEffect(() => { clearAdminSession(); }, []);
 
@@ -99,7 +102,7 @@ export default function AdminLoginPage() {
     useState<LoginState>('idle');
 
   const isInteracting =
-    loginState === 'loading' ||
+    !hydrated || loginState === 'loading' ||
     loginState === 'success';
 
   function handleInputChange(

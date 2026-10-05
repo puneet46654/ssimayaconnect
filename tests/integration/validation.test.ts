@@ -64,9 +64,20 @@ test('status is current in every API even when stored status is stale', async ()
   const headers = { Cookie: cookie };
   const reports = await (await api(`/api/admin/reports?eventId=${eventId}`, { headers })).json();
   assert.equal(reports.eventOptions.find((event: { id: string }) => event.id === String(eventId)).status, 'UPCOMING');
-  const dashboard = await (await api('/api/admin/dashboard', { headers })).json();
-  assert.ok(dashboard.success, JSON.stringify(dashboard));
-  assert.equal(dashboard.upcomingEvents.find((event: { id: string }) => event.id === String(eventId)).status, 'UPCOMING');
+  // The dashboard intentionally returns only three live/upcoming events. Make our
+  // own fixture the earliest live event, so other test files cannot displace it.
+  const firstEvent = await db.collection('events').find().sort({ startDate: 1 }).limit(1).next();
+  const earlierStart = new Date(new Date(firstEvent!.startDate).getTime() - DAY_MS);
+  await db.collection('events').updateOne({ _id: eventId }, { $set: { startDate: earlierStart, status: 'UPCOMING' } });
+  try {
+    const dashboard = await (await api('/api/admin/dashboard', { headers })).json();
+    assert.ok(dashboard.success, JSON.stringify(dashboard));
+    const card = dashboard.upcomingEvents.find((event: { id: string }) => event.id === String(eventId));
+    assert.ok(card, 'The earliest live fixture must appear in the three dashboard cards.');
+    assert.equal(card.status, 'LIVE');
+  } finally {
+    await db.collection('events').updateOne({ _id: eventId }, { $set: { startDate: new Date(tomorrow), status: 'LIVE' } });
+  }
   const slots = await (await api(`/api/events/${eventId}/slots`)).json();
   assert.equal(slots.event.status, 'UPCOMING');
   const detail = await (await api(`/api/events/${eventId}`)).json();

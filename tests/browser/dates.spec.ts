@@ -43,7 +43,7 @@ test.afterAll(async () => {
 
 for (const timezoneId of ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland']) {
   test(`event date and slot clock stay in IST for a browser in ${timezoneId}`, async ({ browser }) => {
-    const context = await browser.newContext({ timezoneId });
+    const context = await browser.newContext({ timezoneId, ignoreHTTPSErrors: baseURL.startsWith('https:') });
     const page = await context.newPage();
     await page.goto(`${baseURL}/events/${eventId}`);
     await expect(page.getByRole('heading', { name: 'Calendar boundary browser test' })).toBeVisible();
@@ -60,7 +60,7 @@ for (const timezoneId of ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckla
 }
 
 test('new events auto-select device timezone and allow correction; edit preserves saved timezone', async ({ browser }) => {
-  const context = await browser.newContext({ timezoneId: 'America/Los_Angeles' });
+  const context = await browser.newContext({ timezoneId: 'America/Los_Angeles', ignoreHTTPSErrors: baseURL.startsWith('https:') });
   const page = await context.newPage();
   await page.goto(`${baseURL}/admin/login`);
   await page.getByLabel('Login ID').fill(admin.username);

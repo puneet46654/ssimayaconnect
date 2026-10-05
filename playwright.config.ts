@@ -6,5 +6,5 @@ export default defineConfig({
   outputDir: './test-results',
   workers: 1,
   timeout: 45_000,
-  use: { baseURL, headless: true, trace: 'retain-on-failure' },
+  use: { baseURL, headless: true, trace: 'retain-on-failure', ignoreHTTPSErrors: baseURL.startsWith('https:') },
 });

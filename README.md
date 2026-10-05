@@ -96,7 +96,7 @@ npx tsc --noEmit
 npm run build
 ```
 
-Integration and browser tests require a separate running development server and isolated MongoDB. The helpers refuse application port 3000 and databases outside `127.0.0.1:27027/ssimaya_oct01_test` (or localhost). They create synthetic fixtures and remove their own records. Never point these tests at a real event database.
+Integration and browser tests require a separate running server and isolated MongoDB. The helpers refuse application port 3000 and databases outside `127.0.0.1:27027/ssimaya_oct01_test` (or localhost). They create synthetic fixtures and remove their own records. Never point these tests at a real event database.
 
 1. Start a local MongoDB replica set on port 27027, named `ssimayaTest`. For example, use a disposable data directory outside this repository:
 
@@ -135,7 +135,32 @@ Integration and browser tests require a separate running development server and 
 
 Coverage includes international dates/DST and phone normalization, concurrent capacity and retry handling, authorization/session revocation, event rollback/cancellation, drafts, ticket recovery and feedback, check-in windows and camera lifecycle, stale requests/realtime fallback, report printing/exports, image validation, and keyboard accessibility.
 
-S3 image reads in the image-handler tests are mocked, and invalid upload tests stop before S3. These checks do not verify live AWS writes or optional Resend delivery. Camera lifecycle tests use controlled browser streams/decoders; test a physical camera on the intended check-in device before an event.
+S3 image reads in the image-handler tests are mocked, and invalid upload tests stop before S3. These checks do not verify live AWS writes or optional Resend delivery. Camera lifecycle tests use controlled browser streams/decoders. The event-day journey also decodes the actual downloaded ticket PNG and feeds rendered QR pixels through the real fallback scanner in Chromium. Test a physical camera on the intended check-in device before an event.
+
+### Event-day verification
+
+The opt-in scenario uses three synthetic events in `Europe/Madrid`, `Asia/Colombo` and `Asia/Jakarta` (the assumed Indonesian timezone). Each has three days of 60 slots. Unsuccessful attendees retry the next day alongside 100 or 120 new arrivals per event. It runs 30 concurrent booking requests, checks capacity against stored reservations and reports, rejects premature admission, then checks in 180 attendees with 180 duplicate requests. Only its own fixtures are moved into a current admission window and removed afterward.
+
+```powershell
+$env:TEST_BASE_URL='http://127.0.0.1:3101'
+$env:SCENARIO_ARRIVALS='100' # Repeat with 120 for the higher estimate.
+npm run test:scenario
+npx playwright install chromium firefox webkit
+npx playwright test tests/browser/admin-auth.spec.ts tests/browser/dates.spec.ts tests/browser/event-day.spec.ts tests/browser/overflow.spec.ts --browser=all
+```
+
+The scenario writes timings and counts to ignored `playwright-report/event-day-load-100.json` (or `120.json`). These are local measurements, not a hosting-capacity guarantee. Browser tests cover delayed login scripts, both mobile registration forms, ticket PNG decoding, recovery, feedback, and choosing another day after losing the final slot to another attendee.
+
+For production-mode browser verification, build and start the isolated app with the same test database/secrets on a free port, then expose it through a local HTTPS proxy. Set `TEST_BASE_URL` to that loopback HTTPS address and `NODE_EXTRA_CA_CERTS` to the test certificate for Node's API requests. The browser config accepts local test certificates; the helpers still reject non-loopback addresses and port 3000. HTTPS is needed to exercise secure production cookies consistently across browsers.
+
+Local verification on 5 October 2026 used a production build on Node 24.21.0 and isolated MongoDB. All 22 unit tests, 34 API tests and 65 production browser checks passed: all 41 browser cases in Chromium, plus 12 key journeys each in Firefox and WebKit. Lint, TypeScript and the production build passed. This run caught and fixed lost early input in login/ticket recovery and faded ticket downloads captured during the entrance animation.
+
+| New attendees per event/day | Booking attempts including retries on later days | Confirmed across 3 events / 3 days | Booking p95 / slowest | Check-in requests / newly present / duplicates |
+| --- | --- | --- | --- | --- |
+| 100 | 1,260 | 540 | 1.621 s / 5.165 s | 360 / 180 / 180 |
+| 120 | 1,620 | 540 | 1.454 s / 6.762 s | 360 / 180 / 180 |
+
+Both runs used 30 requests in flight, returned expected capacity conflicts for overflow, and kept database counters and reports consistent without overbooking. These measurements came from the local test machine with browser checks also running. Physical phone cameras, venue lighting/mobile networks, deployed hosting capacity, live AWS writes and email delivery remain outside these results. No live event records were used.
 
 ## Relevant code
 

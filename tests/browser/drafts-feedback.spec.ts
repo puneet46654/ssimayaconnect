@@ -38,7 +38,7 @@ async function locationLists(page: Page) {
 }
 for (const template of ['practitioner-institutional', 'template-2']) {
   test(`${template} restores independent residence, phone and partial attendee fields across reload and back navigation`, async ({ browser }) => {
-    const context = await browser.newContext({ timezoneId: 'America/Los_Angeles' });
+    const context = await browser.newContext({ timezoneId: 'America/Los_Angeles', ignoreHTTPSErrors: baseURL.startsWith('https:') });
     const page = await context.newPage(); await locationLists(page); const f = await fixture(template);
     await page.goto(`${baseURL}/events/${f.eventId}/book`);
     await expect(page.locator('input[name="country"]')).toHaveValue('United States');

@@ -1,5 +1,6 @@
 'use client';
 
+import { useHydrated } from '@/lib/use-hydrated';
 import { eventTimeZone } from '@/lib/events/dates';
 import { ticketStorage } from '@/lib/booking-contracts';
 
@@ -119,6 +120,7 @@ const TICKET_CACHE =
 export default function MyTicketsPage() {
 
 
+  const hydrated = useHydrated();
   const [mobile, setMobile] = useState('');
   const [reference, setReference] = useState('');
   const [savedMobile, setSavedMobile] = useState('');
@@ -563,7 +565,7 @@ export default function MyTicketsPage() {
             </label>
 
 
-            <input
+            <input disabled={!hydrated}
               id="ticket-mobile"
               value={
                 mobile
@@ -608,7 +610,7 @@ export default function MyTicketsPage() {
               Booking reference
             </label>
 
-            <input
+            <input disabled={!hydrated}
               id="ticket-reference"
               type="text"
               value={reference}
@@ -624,7 +626,7 @@ export default function MyTicketsPage() {
             <p className="mt-3 text-xs text-gray-500">Lost your booking reference? Ask staff at the event registration desk to help locate it. No email or OTP is needed.</p>
 
             <button
-              disabled={loading}
+              disabled={!hydrated || loading}
               onClick={() =>
                 void loadTickets(mobile, reference)
               }

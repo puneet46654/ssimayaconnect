@@ -99,3 +99,21 @@ test('session service failures offer retry and accounts with no modules have a u
   await page.getByRole('button', { name: 'Go to login' }).click();
   await expect(page.getByLabel('Login ID')).toBeVisible();
 });
+
+
+test('login preserves credentials entered as soon as delayed scripts make the form ready', async ({ page }) => {
+  const user = await admin(['bookings']);
+  let release!: () => void;
+  const scriptsReady = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/_next/static/**/*.js', async route => { await scriptsReady; await route.continue(); });
+  try {
+    await page.goto('/admin/login', { waitUntil: 'commit' });
+    await expect(page.getByLabel('Login ID')).toBeDisabled();
+    await expect(page.getByLabel('Password', { exact: true })).toBeDisabled();
+    await expect(page.locator('button[type=submit]')).toBeDisabled();
+  } finally { release(); }
+  await page.getByLabel('Login ID').fill(user.username);
+  await page.getByLabel('Password', { exact: true }).fill(user.password);
+  await page.locator('button[type=submit]').click();
+  await page.waitForURL('**/admin/bookings');
+});
