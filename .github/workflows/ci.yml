@@ -20,3 +20,8 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+        env:
+          # Placeholder values so the build can load modules; no real services are contacted.
+          MONGODB_URI: mongodb://localhost:27017/ci-placeholder
+          ADMIN_SESSION_SECRET: ci-placeholder-secret
+          BOOKING_ACCESS_SECRET: ci-placeholder-secret
