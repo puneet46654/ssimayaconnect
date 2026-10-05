@@ -1,6 +1,6 @@
 'use client';
 
-import { calendarDateFormatter, eventTimeZone } from '@/lib/events/dates';
+import { calendarDate, calendarDateFormatter, eventTimeZone, zonedDate } from '@/lib/events/dates';
 
 import Image from 'next/image';
 
@@ -238,7 +238,12 @@ export default function TimeSlotsPage() {
                 return current;
               }
 
+              // Default to today's event day, then the first day with an open slot.
+              const today = zonedDate(new Date(), eventTimeZone(data.event?.timeZone));
+
               return (
+                nextDays.find((day) => calendarDate(day.date) === today)?._id ||
+                nextDays.find((day) => day.slots.some((slot) => slot.available))?._id ||
                 nextDays[0]?._id ||
                 ''
               );
