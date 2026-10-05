@@ -1,5 +1,11 @@
 'use client';
 
+import { useDialog } from '@/lib/use-dialog';
+
+import { AdminAccess, useAdminSession } from '@/components/admin/AdminSessionContext';
+
+import { canAdminDelete, adminFetch as fetch } from '@/lib/admin-auth';
+
 import type {
   ReactNode,
 } from 'react';
@@ -50,7 +56,8 @@ interface IEvent {
   status:
     | 'LIVE'
     | 'COMPLETED'
-    | 'UPCOMING';
+    | 'UPCOMING'
+    | 'CANCELLED';
 
   description?: string;
 
@@ -71,6 +78,7 @@ type EventTab =
   | 'Completed';
 
 type DeleteTarget = {
+  hasBookings: boolean;
   id: string;
   name: string;
 };
@@ -96,6 +104,7 @@ const EASE = [
 ============================================================ */
 
 export default function EventsManagementPage() {
+  const currentUser = useAdminSession();
   const [
     events,
     setEvents,
@@ -311,25 +320,16 @@ export default function EventsManagementPage() {
         );
       }
 
-      setEvents(
-        (
-          current,
-        ) =>
-          current.filter(
-            (
-              event,
-            ) =>
-              event._id !==
-              id,
-          ),
-      );
+      setEvents(current => data.cancelled
+        ? current.map(event => event._id === id ? { ...event, status: 'CANCELLED' } : event)
+        : current.filter(event => event._id !== id));
 
       setDeleteTarget(
         null,
       );
 
       setSuccessMessage(
-        `"${name}" was deleted successfully.`,
+        data.message || `"${name}" was deleted successfully.`,
       );
 
       window.setTimeout(
@@ -512,6 +512,7 @@ export default function EventsManagementPage() {
     ).toLocaleDateString(
       'en-GB',
       {
+        timeZone: 'UTC',
         day:
           '2-digit',
 
@@ -765,7 +766,7 @@ export default function EventsManagementPage() {
                 0.98,
             }}
           >
-            <Link
+            <AdminAccess permission="events" action="write"><Link
               href="/admin/eventmanagement/new"
               className="
                 inline-flex
@@ -802,7 +803,7 @@ export default function EventsManagementPage() {
               <PlusIcon />
 
               New Event
-            </Link>
+            </Link></AdminAccess>
           </motion.div>
         </div>
       </motion.header>
@@ -1002,6 +1003,7 @@ export default function EventsManagementPage() {
                     .value,
                 )
               }
+              aria-label="Search event, venue or type"
               placeholder="Search event, venue or type..."
               className="
                 h-10
@@ -1421,7 +1423,7 @@ export default function EventsManagementPage() {
                   text-secondary
                 "
               >
-                No events found
+                {error ? 'Events could not be loaded' : 'No events found'}
               </h2>
 
               <p
@@ -1534,6 +1536,7 @@ export default function EventsManagementPage() {
                     )}
                     onDelete={() =>
                       setDeleteTarget({
+                        hasBookings: event.bookedSlots > 0,
                         id:
                           event._id,
 
@@ -1615,7 +1618,7 @@ export default function EventsManagementPage() {
       ====================================================== */}
 
       <AnimatePresence>
-        {deleteTarget && (
+        {deleteTarget && canAdminDelete(currentUser) && (
           <DeleteModal
             target={
               deleteTarget
@@ -2182,7 +2185,7 @@ function EventCard({
                 gap-2
               "
             >
-              <Link
+              {event.status !== 'CANCELLED' && <AdminAccess permission="events" action="write"><Link
                 href={`/admin/eventmanagement/${event._id}/edit`}
                 className="
                   inline-flex
@@ -2217,9 +2220,9 @@ function EventCard({
                 <EditIcon />
 
                 Edit Event
-              </Link>
+              </Link></AdminAccess>}
 
-              <button
+              {event.status !== 'CANCELLED' && <AdminAccess permission="events" action="delete"><button
                 type="button"
                 disabled={
                   deleting
@@ -2268,8 +2271,8 @@ function EventCard({
 
                 {deleting
                   ? 'Deleting'
-                  : 'Delete'}
-              </button>
+                  : event.bookedSlots > 0 ? 'Cancel Event' : 'Delete'}
+              </button></AdminAccess>}
             </div>
           </div>
         </div>
@@ -2516,6 +2519,7 @@ function StatusLabel({
   status:
     IEvent['status'];
 }) {
+  if (status === 'CANCELLED') return <span className="rounded-full bg-red-50 px-2 py-1 text-[10px] font-bold text-red-700">Cancelled</span>;
   if (
     status ===
     'LIVE'
@@ -2653,6 +2657,7 @@ function DeleteModal({
   onConfirm:
     () => void;
 }) {
+  const dialog = useDialog(true, () => { if (!deleting) onCancel(); }, target?.hasBookings ? 'Cancel event' : 'Delete event');
   return (
     <>
       <motion.button
@@ -2704,7 +2709,7 @@ function DeleteModal({
           sm:p-4
         "
       >
-        <motion.div
+        <motion.div {...dialog}
           initial={{
             opacity:
               0,
@@ -2802,7 +2807,7 @@ function DeleteModal({
                   text-secondary
                 "
               >
-                Delete Event?
+                {target.hasBookings ? 'Cancel Event?' : 'Delete Event?'}
               </h2>
 
               <p
@@ -2815,8 +2820,7 @@ function DeleteModal({
                   text-gray-500
                 "
               >
-                You are about to
-                permanently delete{' '}
+                {target.hasBookings ? 'You are about to cancel ' : 'You are about to delete '}
                 <strong
                   className="
                     font-semibold
@@ -2825,8 +2829,7 @@ function DeleteModal({
                 >
                   {target.name}
                 </strong>
-                . This action cannot
-                be undone.
+                . {target.hasBookings ? 'Booking history will be retained. Tickets will no longer allow admission.' : 'If bookings exist when this is confirmed, the event will be cancelled and its history retained.'}
               </p>
             </div>
           </div>
@@ -2907,8 +2910,8 @@ function DeleteModal({
               )}
 
               {deleting
-                ? 'Deleting...'
-                : 'Delete Event'}
+                ? 'Saving...'
+                : target.hasBookings ? 'Cancel Event' : 'Delete Event'}
             </button>
           </div>
         </motion.div>

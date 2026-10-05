@@ -1,5 +1,11 @@
 'use client';
 
+import { AdminAccess } from '@/components/admin/AdminSessionContext';
+
+import { adminFetch as fetch } from '@/lib/admin-auth';
+
+import { calendarDateFormatter } from '@/lib/events/dates';
+
 import type {
   ReactNode,
 } from 'react';
@@ -7,10 +13,12 @@ import type {
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
 } from 'react';
 
 import Link from 'next/link';
+import { useRealtimeRefresh } from '@/components/realtime/RealtimeProvider';
 
 import {
   motion,
@@ -145,11 +153,14 @@ export default function AdminDashboard() {
      LOAD DASHBOARD
   ========================================================== */
 
+  const dashboardRequest = useRef<AbortController | null>(null);
   const loadDashboard =
     useCallback(
       async (
         quiet = false,
       ) => {
+        dashboardRequest.current?.abort();
+        const controller = new AbortController(); dashboardRequest.current = controller;
         if (quiet) {
           setRefreshing(
             true,
@@ -167,6 +178,7 @@ export default function AdminDashboard() {
             await fetch(
               '/api/admin/dashboard',
               {
+                signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
                 method:
                   'GET',
 
@@ -181,6 +193,7 @@ export default function AdminDashboard() {
           const data =
             (await response.json()) as DashboardResponse;
 
+          if (controller.signal.aborted) return;
           if (
             !response.ok ||
             !data.success
@@ -206,6 +219,7 @@ export default function AdminDashboard() {
               [],
           );
         } catch (err) {
+          if (controller.signal.aborted) return;
           console.error(
             'Dashboard load failed:',
             err,
@@ -218,6 +232,7 @@ export default function AdminDashboard() {
               : 'Unable to load dashboard.',
           );
         } finally {
+          if (!controller.signal.aborted) {
           setLoading(
             false,
           );
@@ -225,16 +240,22 @@ export default function AdminDashboard() {
           setRefreshing(
             false,
           );
+          }
         }
       },
       [],
     );
 
   useEffect(() => {
-    void loadDashboard();
+    const timer = window.setTimeout(() => { void loadDashboard(); }, 0);
+    return () => { clearTimeout(timer); dashboardRequest.current?.abort(); };
   }, [
     loadDashboard,
   ]);
+
+  useRealtimeRefresh('events', () => { void loadDashboard(true); });
+  useRealtimeRefresh('bookings', () => { void loadDashboard(true); });
+  useRealtimeRefresh('attendance', () => { void loadDashboard(true); });
 
   /* ==========================================================
      RENDER
@@ -497,8 +518,8 @@ export default function AdminDashboard() {
             lg:divide-x
           "
         >
-          <QuickActionCard
-            href="/admin/eventmanagement"
+          <AdminAccess permission="events" action="write"><QuickActionCard
+            href="/admin/eventmanagement/new"
             title="Create Event"
             description="Create and configure a new event."
             icon={
@@ -507,9 +528,9 @@ export default function AdminDashboard() {
             index={
               0
             }
-          />
+          /></AdminAccess>
 
-          <QuickActionCard
+          <AdminAccess permission="bookings" action="read"><QuickActionCard
             href="/admin/bookings"
             title="Manage Bookings"
             description="Review and manage registrations."
@@ -519,9 +540,9 @@ export default function AdminDashboard() {
             index={
               1
             }
-          />
+          /></AdminAccess>
 
-          <QuickActionCard
+          <AdminAccess permission="check-in" action="read"><QuickActionCard
             href="/admin/check-in"
             title="Check-in Scanner"
             description="Scan attendee QR passes at venue."
@@ -531,9 +552,9 @@ export default function AdminDashboard() {
             index={
               2
             }
-          />
+          /></AdminAccess>
 
-          <QuickActionCard
+          <AdminAccess permission="reports" action="read"><QuickActionCard
             href="/admin/reports"
             title="Reports & Export"
             description="Analyse and export operational data."
@@ -543,7 +564,7 @@ export default function AdminDashboard() {
             index={
               3
             }
-          />
+          /></AdminAccess>
         </div>
       </motion.section>
 
@@ -887,8 +908,8 @@ export default function AdminDashboard() {
             ) : recentBookings.length ===
               0 ? (
               <DashboardEmpty
-                title="No bookings yet"
-                description="New registrations will appear here."
+                title={error ? 'Bookings could not be loaded' : 'No bookings yet'}
+                description={error ? 'Use Retry above to load the dashboard.' : 'New registrations will appear here.'}
               />
             ) : (
               recentBookings.map(
@@ -974,8 +995,7 @@ export default function AdminDashboard() {
                         text-gray-400
                       "
                     >
-                      No bookings
-                      found.
+                      {error ? 'Bookings could not be loaded.' : 'No bookings found.'}
                     </td>
                   </tr>
                 ) : (
@@ -1622,6 +1642,7 @@ function SectionHeader({
         </p>
       </div>
 
+      <AdminAccess permission={href === '/admin/bookings' ? 'bookings' : 'events'}>
       <Link
         href={
           href
@@ -1659,7 +1680,7 @@ function SectionHeader({
         >
           <ArrowIcon />
         </span>
-      </Link>
+      </Link></AdminAccess>
     </div>
   );
 }
@@ -2587,7 +2608,7 @@ function formatShortDate(
     return '—';
   }
 
-  return new Intl.DateTimeFormat(
+  return calendarDateFormatter(
     'en-GB',
     {
       day:
@@ -2634,7 +2655,7 @@ function formatEventDates(
   }
 
   if (!end) {
-    return new Intl.DateTimeFormat(
+    return calendarDateFormatter(
       'en-GB',
       {
         day:
@@ -2667,14 +2688,14 @@ function formatEventDates(
   }
 
   const sameMonth =
-    startDate.getMonth() ===
-      endDate.getMonth() &&
-    startDate.getFullYear() ===
-      endDate.getFullYear();
+    startDate.getUTCMonth() ===
+      endDate.getUTCMonth() &&
+    startDate.getUTCFullYear() ===
+      endDate.getUTCFullYear();
 
   if (sameMonth) {
     const monthYear =
-      new Intl.DateTimeFormat(
+      calendarDateFormatter(
         'en-GB',
         {
           month:
@@ -2687,11 +2708,11 @@ function formatEventDates(
         startDate,
       );
 
-    return `${startDate.getDate()}-${endDate.getDate()} ${monthYear}`;
+    return `${startDate.getUTCDate()}-${endDate.getUTCDate()} ${monthYear}`;
   }
 
   const first =
-    new Intl.DateTimeFormat(
+    calendarDateFormatter(
       'en-GB',
       {
         day:
@@ -2705,7 +2726,7 @@ function formatEventDates(
     );
 
   const second =
-    new Intl.DateTimeFormat(
+    calendarDateFormatter(
       'en-GB',
       {
         day:
@@ -2917,23 +2938,6 @@ function ReportIcon() {
   );
 }
 
-function BoltIcon() {
-  return (
-    <svg
-      className="h-[17px] w-[17px]"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth={1.9}
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="m13 2-8 12h6l-1 8 9-13h-6V2Z"
-      />
-    </svg>
-  );
-}
 
 function CalendarSmallIcon() {
   return (

@@ -27,7 +27,16 @@ export type AdminUserProfile = {
 
 export type AdminSessionPayload = AdminUserProfile & {
   loggedInAt: number;
+  credentialVersion?: string;
 };
+
+type VerifiedAdmin = AdminUserProfile & { credentialVersion?: string };
+
+function credentialVersion(user: { _id: unknown; passwordHash: string; passwordSalt: string }) {
+  // A password change automatically revokes prior sessions, even if two resets race.
+  // Older database-admin sessions without this binding must sign in once again.
+  return sign(`admin-credentials:${user._id}:${user.passwordHash}:${user.passwordSalt}`);
+}
 
 /* ============================================================
    PASSWORD HASHING & VERIFICATION (Node.js Crypto)
@@ -106,7 +115,7 @@ function sign(value: string) {
   return createHmac('sha256', getSecret()).update(value).digest('base64url');
 }
 
-function createSessionToken(profile: AdminUserProfile, loggedInAt: number) {
+function createSessionToken(profile: VerifiedAdmin, loggedInAt: number) {
   const payloadString = JSON.stringify({
     ...profile,
     loggedInAt,
@@ -145,7 +154,7 @@ function verifySessionToken(token: string | undefined): AdminSessionPayload | nu
       return null;
     }
 
-    if (Date.now() - data.loggedInAt > SESSION_MAX_AGE * 1000) {
+    if (!Number.isFinite(data.loggedInAt) || data.loggedInAt > Date.now() || Date.now() - data.loggedInAt > SESSION_MAX_AGE * 1000) {
       return null;
     }
 
@@ -159,6 +168,7 @@ function verifySessionToken(token: string | undefined): AdminSessionPayload | nu
       canCreate: isSuper ? true : Boolean(data.canCreate),
       canDelete: isSuper ? true : Boolean(data.canDelete),
       loggedInAt: data.loggedInAt,
+      credentialVersion: typeof data.credentialVersion === 'string' ? data.credentialVersion : undefined,
     };
   } catch {
     return null;
@@ -172,7 +182,7 @@ function verifySessionToken(token: string | undefined): AdminSessionPayload | nu
 export async function verifyAdminCredentials(
   usernameInput: string,
   passwordInput: string,
-): Promise<AdminUserProfile | null> {
+): Promise<VerifiedAdmin | null> {
   const username = usernameInput.trim().toLowerCase();
   if (!username || !passwordInput) {
     return null;
@@ -213,6 +223,7 @@ export async function verifyAdminCredentials(
     permissions: user.permissions.filter((p) => p !== 'auth'),
     canCreate: Boolean(user.canCreate),
     canDelete: Boolean(user.canDelete),
+    credentialVersion: credentialVersion(user),
   };
 }
 
@@ -220,7 +231,7 @@ export async function verifyAdminCredentials(
    SESSION COOKIE MANAGEMENT
 ============================================================ */
 
-export async function createAdminSession(profile: AdminUserProfile): Promise<number> {
+export async function createAdminSession(profile: VerifiedAdmin): Promise<number> {
   const loggedInAt = Date.now();
   const token = createSessionToken(profile, loggedInAt);
   const cookieStore = await cookies();
@@ -256,9 +267,9 @@ export async function getAdminSession(): Promise<AdminSessionPayload | null> {
   // Re-read access from the DB so deactivation, deletion and role changes apply immediately.
   await connectDB();
   const user = await AdminUser.findOne({ username: session.username, isActive: true })
-    .select('name role permissions canCreate canDelete')
+    .select('name role permissions canCreate canDelete passwordHash passwordSalt')
     .lean();
-  if (!user) return null;
+  if (!user || session.credentialVersion !== credentialVersion(user)) return null;
 
   return {
     ...session,

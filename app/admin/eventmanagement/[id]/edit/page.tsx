@@ -1,5 +1,15 @@
 'use client';
 
+import { labelFieldControl } from '@/lib/field-control';
+import { useId } from 'react';
+
+import { generateSlotPreview as generateSlots } from '@/lib/events/slots';
+
+import { adminFetch as fetch } from '@/lib/admin-auth';
+
+import TimeZoneSelect from '@/app/components/TimeZoneSelect';
+import { calendarDateFormatter, eventTimeZone } from '@/lib/events/dates';
+
 import type {
   ChangeEvent,
   FormEvent,
@@ -34,7 +44,7 @@ import {
   isBookingFormTemplate,
 } from '@/app/components/admin/booking-templates/types';
 
-import { useFormDraft } from '@/lib/use-form-draft';
+import { useEventDraft } from '@/lib/use-event-draft';
 import { prepareImageForUpload } from '@/lib/image-upload';
 
 /* ============================================================
@@ -57,6 +67,7 @@ type DaySchedule = {
 };
 
 type EventResponse = {
+  timeZone?: string;
   _id: string;
 
   eventName: string;
@@ -80,7 +91,8 @@ type EventResponse = {
   status:
     | 'LIVE'
     | 'COMPLETED'
-    | 'UPCOMING';
+    | 'UPCOMING'
+    | 'CANCELLED';
 
   daySchedules: Array<
     DaySchedule & {
@@ -266,21 +278,7 @@ const createDaySchedule = (
 
 function parseLocalDate(
   value: string,
-) {
-  const [
-    year,
-    month,
-    day,
-  ] = value
-    .split('-')
-    .map(Number);
-
-  return new Date(
-    year,
-    month - 1,
-    day,
-  );
-}
+) { return new Date(`${value}T00:00:00.000Z`); }
 
 function toDateInputValue(
   value:
@@ -336,17 +334,17 @@ function addDays(
       value,
     );
 
-  date.setDate(
-    date.getDate() +
+  date.setUTCDate(
+    date.getUTCDate() +
       amount,
   );
 
   const year =
-    date.getFullYear();
+    date.getUTCFullYear();
 
   const month =
     String(
-      date.getMonth() +
+      date.getUTCMonth() +
         1,
     ).padStart(
       2,
@@ -355,7 +353,7 @@ function addDays(
 
   const day =
     String(
-      date.getDate(),
+      date.getUTCDate(),
     ).padStart(
       2,
       '0',
@@ -371,7 +369,7 @@ function formatDate(
     return 'Date not selected';
   }
 
-  return new Intl.DateTimeFormat(
+  return calendarDateFormatter(
     'en-IN',
     {
       day: 'numeric',
@@ -392,7 +390,7 @@ function formatCompactDate(
     return '—';
   }
 
-  return new Intl.DateTimeFormat(
+  return calendarDateFormatter(
     'en-IN',
     {
       day: 'numeric',
@@ -429,32 +427,6 @@ function timeToMinutes(
   );
 }
 
-function formatTime(
-  totalMinutes: number,
-) {
-  const hours =
-    Math.floor(
-      totalMinutes /
-        60,
-    );
-
-  const minutes =
-    totalMinutes %
-    60;
-
-  return `${String(
-    hours,
-  ).padStart(
-    2,
-    '0',
-  )}:${String(
-    minutes,
-  ).padStart(
-    2,
-    '0',
-  )}`;
-}
-
 /* ============================================================
    SCHEDULE HELPERS
 ============================================================ */
@@ -467,112 +439,6 @@ function copyDay1Schedule(
     ...day1,
     sameAsDay1,
   };
-}
-
-function generateSlots(
-  schedule: DaySchedule,
-) {
-  const start =
-    timeToMinutes(
-      schedule.startTime,
-    );
-
-  const end =
-    timeToMinutes(
-      schedule.endTime,
-    );
-
-  const duration =
-    Number(
-      schedule.slotDuration,
-    );
-
-  const gap =
-    Number(
-      schedule.slotGap,
-    );
-
-  if (
-    !start ||
-    !end ||
-    !duration ||
-    end <= start
-  ) {
-    return [];
-  }
-
-  const lunchStart =
-    schedule.lunchEnabled
-      ? timeToMinutes(
-          schedule.lunchStart,
-        )
-      : 0;
-
-  const lunchEnd =
-    schedule.lunchEnabled
-      ? timeToMinutes(
-          schedule.lunchEnd,
-        )
-      : 0;
-
-  if (
-    schedule.lunchEnabled &&
-    (
-      !lunchStart ||
-      !lunchEnd ||
-      lunchEnd <= lunchStart ||
-      lunchStart < start ||
-      lunchEnd > end
-    )
-  ) {
-    return [];
-  }
-
-  const slots:
-    string[] = [];
-
-  let cursor =
-    start;
-
-  while (
-    cursor +
-      duration <=
-    end
-  ) {
-    const slotEnd =
-      cursor +
-      duration;
-
-    const overlapsLunch =
-      schedule.lunchEnabled &&
-      cursor <
-        lunchEnd &&
-      slotEnd >
-        lunchStart;
-
-    if (
-      overlapsLunch
-    ) {
-      cursor =
-        lunchEnd;
-
-      continue;
-    }
-
-    slots.push(
-      `${formatTime(
-        cursor,
-      )} – ${formatTime(
-        slotEnd,
-      )}`,
-    );
-
-    cursor =
-      slotEnd +
-      gap;
-  }
-
-  return slots;
 }
 
 /* ============================================================
@@ -610,16 +476,13 @@ export default function EditEventPage() {
     setLoadError,
   ] = useState('');
 
-  useFormDraft(
-    initialLoading
-      ? ''
-      : `ssi-event-draft:edit:${eventId}`,
-    formRef,
-  );
+
 
   /* ==========================================================
      EVENT
   ========================================================== */
+
+  const [timeZone, setTimeZone] = useState('');
 
   const [
     eventName,
@@ -730,6 +593,19 @@ export default function EditEventPage() {
     setSelectedDayIndex,
   ] = useState(0);
 
+  const eventDraft = useEventDraft(`ssi-event-draft:edit:${eventId}`,
+    { eventName, eventType, bookingFormTemplate, venue, description, numberOfDays, startDate, timeZone, daySchedules, selectedDayIndex },
+    selectedThumbnail, (saved, thumbnail) => {
+      setEventName(saved.eventName); setEventType(saved.eventType); setBookingFormTemplate(saved.bookingFormTemplate);
+      setVenue(saved.venue); setDescription(saved.description); setNumberOfDays(saved.numberOfDays);
+      setStartDate(saved.startDate); setTimeZone(saved.timeZone); setDaySchedules(saved.daySchedules); setSelectedDayIndex(saved.selectedDayIndex);
+      if (thumbnail) {
+        setSelectedThumbnail(thumbnail);
+        setThumbnailPreview({ name: thumbnail.name, url: URL.createObjectURL(thumbnail), local: true });
+      }
+    }, !initialLoading && !loadError);
+
+
   /* ==========================================================
      LOAD EVENT
   ========================================================== */
@@ -776,6 +652,9 @@ export default function EditEventPage() {
 
         const event =
           data.event as EventResponse;
+
+        if (event.status === 'CANCELLED') throw new Error('Cancelled events are kept for history and cannot be edited.');
+        setTimeZone(eventTimeZone(event.timeZone));
 
         setEventName(
           event.eventName,
@@ -1505,6 +1384,7 @@ export default function EditEventPage() {
     try {
       const formData =
         new FormData();
+      formData.set('timeZone', timeZone);
 
       formData.set(
         'eventName',
@@ -1649,6 +1529,7 @@ export default function EditEventPage() {
         null,
       );
 
+      await eventDraft.clear();
       setSubmissionState(
         'success',
       );
@@ -1812,6 +1693,8 @@ export default function EditEventPage() {
   /* ==========================================================
      PAGE
   ========================================================== */
+
+  if (!eventDraft.ready) return <p className="p-6 text-sm text-gray-500">Loading event draft...</p>;
 
   return (
     <motion.form
@@ -2300,6 +2183,8 @@ export default function EditEventPage() {
                     )}
                   </select>
                 </Field>
+
+                <TimeZoneSelect value={timeZone} onChange={setTimeZone} autoDetect={false} className={inputClass} />
 
                 <Field
                   label="Start Date"
@@ -3161,7 +3046,7 @@ export default function EditEventPage() {
                         </p>
                       </div>
 
-                      <Switch
+                      <Switch label="Same as Day 1"
                         checked={
                           activeSchedule.sameAsDay1
                         }
@@ -3440,7 +3325,7 @@ export default function EditEventPage() {
                           </span>
                         </div>
 
-                        <Switch
+                        <Switch label="Lunch break"
                           checked={
                             activeSchedule.lunchEnabled
                           }
@@ -3888,6 +3773,7 @@ function Field({
   hint?: string;
   className?: string;
 }) {
+  const fieldId = useId();
   return (
     <div
       className={`
@@ -3905,7 +3791,7 @@ function Field({
           gap-2
         "
       >
-        <label
+        <label htmlFor={fieldId}
           className="
             text-[8px]
             font-semibold
@@ -3944,7 +3830,7 @@ function Field({
         )}
       </div>
 
-      {children}
+      {labelFieldControl(children, fieldId)}
     </div>
   );
 }
@@ -3962,6 +3848,7 @@ function ScheduleField({
   children: ReactNode;
   suffix?: string;
 }) {
+  const fieldId = useId();
   return (
     <div
       className="
@@ -3978,7 +3865,7 @@ function ScheduleField({
           gap-1
         "
       >
-        <label
+        <label htmlFor={fieldId}
           className="
             text-[8px]
             font-semibold
@@ -4002,7 +3889,7 @@ function ScheduleField({
         )}
       </div>
 
-      {children}
+      {labelFieldControl(children, fieldId)}
     </div>
   );
 }
@@ -4012,10 +3899,12 @@ function ScheduleField({
 ============================================================ */
 
 function Switch({
+  label,
   checked,
   disabled = false,
   onChange,
 }: {
+  label: string;
   checked: boolean;
 
   disabled?: boolean;
@@ -4030,13 +3919,9 @@ function Switch({
     <button
       type="button"
       role="switch"
+      aria-label={label}
       aria-checked={
         checked
-      }
-      aria-label={
-        checked
-          ? 'Disable'
-          : 'Enable'
       }
       disabled={
         disabled

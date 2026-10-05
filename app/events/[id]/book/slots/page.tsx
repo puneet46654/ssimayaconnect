@@ -1,5 +1,7 @@
 'use client';
 
+import { calendarDateFormatter, eventTimeZone } from '@/lib/events/dates';
+
 import Image from 'next/image';
 
 import {
@@ -57,6 +59,7 @@ type EventDay = {
 };
 
 type SlotEvent = {
+  timeZone?: string;
   _id: string;
 
   eventName: string;
@@ -72,7 +75,8 @@ type SlotEvent = {
   status:
     | 'LIVE'
     | 'UPCOMING'
-    | 'COMPLETED';
+    | 'COMPLETED'
+    | 'CANCELLED';
 };
 
 type SlotsResponse = {
@@ -142,8 +146,7 @@ export default function TimeSlotsPage() {
   ] =
     useState('');
 
-  const slotsRequestInFlightRef =
-    useRef(false);
+  const slotsRequest = useRef<AbortController | null>(null);
 
   /* ============================================================
      LOAD REAL DATABASE SLOTS
@@ -155,14 +158,13 @@ export default function TimeSlotsPage() {
         silent = false,
       ) => {
         if (
-          !eventId ||
-          slotsRequestInFlightRef.current
+          !eventId
         ) {
           return;
         }
 
-        slotsRequestInFlightRef.current =
-          true;
+        slotsRequest.current?.abort();
+        const controller = new AbortController(); slotsRequest.current = controller;
 
         if (!silent) {
           setLoading(true);
@@ -177,6 +179,7 @@ export default function TimeSlotsPage() {
                 eventId,
               )}/slots?refresh=${Date.now()}`,
               {
+                signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
                 method:
                   'GET',
 
@@ -194,6 +197,8 @@ export default function TimeSlotsPage() {
             (await response.json()) as
               SlotsResponse;
 
+          if (controller.signal.aborted) return;
+          if (response.status === 404) { setEvent(null); setDays([]); }
           if (
             !response.ok ||
             !data.success ||
@@ -265,6 +270,7 @@ export default function TimeSlotsPage() {
         } catch (
           error: unknown
         ) {
+          if (controller.signal.aborted) return;
           console.error(
             'Time slot loading error:',
             error,
@@ -276,10 +282,7 @@ export default function TimeSlotsPage() {
               : 'Unable to load time slots.',
           );
         } finally {
-          slotsRequestInFlightRef.current =
-            false;
-
-          if (!silent) {
+          if (!controller.signal.aborted) {
             setLoading(false);
           }
         }
@@ -290,7 +293,8 @@ export default function TimeSlotsPage() {
     );
 
   useEffect(() => {
-    void loadSlots();
+    const timer = window.setTimeout(() => { void loadSlots(); }, 0);
+    return () => { clearTimeout(timer); slotsRequest.current?.abort(); };
   }, [
     loadSlots,
   ]);
@@ -410,8 +414,8 @@ export default function TimeSlotsPage() {
 
   function handleContinue() {
     if (
-      !selectedDay ||
-      !selectedSlot
+      event?.status === 'CANCELLED' || !selectedDay ||
+      !selectedSlot || !selectedSlot.available
     ) {
       setError(
         'Please select an available time slot.',
@@ -426,6 +430,7 @@ export default function TimeSlotsPage() {
     sessionStorage.setItem(
       slotStorageKey,
       JSON.stringify({
+        timeZone: eventTimeZone(event?.timeZone),
         eventId,
 
         dayScheduleId:
@@ -448,6 +453,7 @@ export default function TimeSlotsPage() {
     sessionStorage.setItem(
       `ssi-booking-slot:${eventId}:latest`,
       JSON.stringify({
+        timeZone: eventTimeZone(event?.timeZone),
         eventId,
 
         dayScheduleId:
@@ -514,6 +520,12 @@ export default function TimeSlotsPage() {
         }
       />
     );
+  }
+
+  if (event?.status === 'CANCELLED') {
+    return <main className="mx-auto max-w-xl p-8 text-center"><h1 className="text-xl font-bold">Event cancelled</h1>
+      <p className="my-4">Bookings are closed. Existing tickets are not valid for admission.</p>
+      <button type="button" onClick={() => router.push('/events')}>Back to events</button></main>;
   }
 
   if (!event) {
@@ -917,6 +929,7 @@ export default function TimeSlotsPage() {
                 >
                   {event.eventName}
                 </h1>
+                <p className="mt-1 text-xs text-gray-500">All event times: {eventTimeZone(event.timeZone)}</p>
 
                 <div
                   className="
@@ -1221,7 +1234,7 @@ export default function TimeSlotsPage() {
                               }
                             `}
                           >
-                            {new Intl.DateTimeFormat(
+                            {calendarDateFormatter(
                               'en-IN',
                               {
                                 weekday:
@@ -1243,7 +1256,7 @@ export default function TimeSlotsPage() {
                               leading-none
                             "
                           >
-                            {new Intl.DateTimeFormat(
+                            {calendarDateFormatter(
                               'en-IN',
                               {
                                 day:
@@ -1269,7 +1282,7 @@ export default function TimeSlotsPage() {
                               }
                             `}
                           >
-                            {new Intl.DateTimeFormat(
+                            {calendarDateFormatter(
                               'en-IN',
                               {
                                 month:
@@ -1812,7 +1825,7 @@ export default function TimeSlotsPage() {
                     sm:text-xs
                   "
                 >
-                  {error}
+                  {error} <button type="button" className="ml-3 underline" onClick={() => { void loadSlots(true); }}>Retry</button>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -2704,7 +2717,7 @@ function SimpleHeader({
 function formatSelectedDate(
   value: string,
 ) {
-  return new Intl.DateTimeFormat(
+  return calendarDateFormatter(
     'en-IN',
     {
       weekday:

@@ -1,446 +1,152 @@
-﻿# SSI Maya Connect
+# SSI Maya Connect
 
-SSI Maya Connect is a full-stack event management, registration, scheduling, and booking platform built for SSI.
+Event registration, appointment slots, QR tickets and admin check-in for SSI. Built with Next.js 16, React 19, TypeScript, Tailwind CSS, MongoDB/Mongoose, S3 and Socket.IO. The custom Node server runs both Next.js and Socket.IO.
 
-It serves two audiences:
+## What the app does
 
-- Admin portal: create, manage, and monitor events
-- Public portal: browse events, complete registration, choose slots, and confirm bookings
+- Public event catalogue, event details, two registration templates, multi-day slots and downloadable tickets.
+- Browser drafts preserve attendee details, independent residence/phone countries, event schedules and selected images.
+- Booking requests use persistent retry IDs and MongoDB transactions to prevent duplicate submissions and overselling. Retrying a lost response returns the confirmed booking.
+- My Tickets supports multiple tickets. Recovery requires the booking reference and full mobile number; people without their reference must contact event staff. Matching these values does not verify phone ownership. Email alone never grants ticket access.
+- Event feedback requires access to a matching booked ticket. General application feedback is separate.
+- Admin permissions control pages and API actions. Password resets sign out previous sessions for that database-admin account; public tickets remain valid.
+- Event edits preserve booked slot identities and reject changes that would invalidate bookings. Removing an event with bookings cancels it and retains history; an empty event can be deleted.
+- QR/manual check-in accepts the booked date and interval in the event timezone: start inclusive, end exclusive, without an early/late grace period. Cancelled events reject admission. Repeated valid scans do not duplicate attendance.
+- Reports provide CSV, Excel and browser Print/PDF. Exports use the displayed filter snapshot and timezone. Printing includes every filtered booking, even when the screen is paginated. CSV text that could be interpreted as a formula is prefixed with an apostrophe.
+- Realtime notifications and fallback polling refresh bookings, attendance, event availability, dashboards and reports. Temporary request failures expose retry controls.
+- Forms have associated labels; modal dialogs support keyboard focus, Escape and focus restoration.
 
-The application is built with Next.js, React, TypeScript, Tailwind CSS, MongoDB, Mongoose, AWS S3, and Socket.IO.
+## Dates, countries and timezones
 
----
+The app supports events worldwide, with India as the primary market and fallback. New forms use the device's IANA timezone, with manual correction available. No geolocation request or location-permission prompt is used. Country and dialing-code defaults come from the device timezone where a mapping is available; they are independent editable choices and do not overwrite restored drafts.
 
-## Project purpose
+Each event stores its timezone. Schedule dates represent calendar dates, not UTC appointment instants. Event status, slot expiry and check-in use the event timezone regardless of the viewer's timezone. Legacy events without a timezone use `Asia/Kolkata`. Skipped or ambiguous daylight-saving clock times are rejected rather than silently shifting a booking. Overnight schedules are not supported; daytime schedules are not restricted to Indian business hours.
 
-This project centralizes event operations into a single data-driven system. Administrators manage event content and schedules in one place, and the public interfaces fetch the latest data from MongoDB instead of relying on hardcoded values.
+A single-event report uses the event timezone. Cross-event reports use the explicitly selected reporting timezone. Export metadata records the timezone and filters used.
 
-The platform is designed to support:
+## Local setup
 
-- event publishing and lifecycle management
-- multi-day schedules and generated slots
-- dynamic registration templates
-- real availability and capacity tracking
-- booking confirmation and ticket generation
-- attendance reporting and admin dashboards
+Use Node.js 24 or newer to satisfy the installed QR decoder's engine declaration, and npm. The October bug-fix checks also ran on Node 22.21. MongoDB must support transactions: use Atlas or a replica set, including a single-node replica set for local work. A standalone MongoDB server cannot support the booking/event transaction workflows.
 
----
-
-## What is already built
-
-### Public user experience
-
-- responsive event landing page and listing
-- event detail screens with venue, date, and description
-- event images stored and served from AWS S3
-- dynamic registration templates by event
-- multi-day event selection
-- real slot availability based on database state
-- remaining seats and fully booked slot handling
-- booking confirmation flow
-- QR code ticket display and confirmation UI
-
-### Admin experience
-
-- admin login and protected route handling
-- admin dashboard and event management screens
-- create, edit, delete event flows
-- image upload and replacement workflows
-- multi-day schedule configuration
-- slot duration, gap, lunch break, and capacity settings
-- event template selection
-- attendance and reporting modules
-- live refresh for admin screens using realtime updates
-
-### Backend and platform logic
-
-- MongoDB connection and Mongoose models
-- event CRUD APIs
-- schedule validation and slot generation
-- capacity tracking for slots
-- server-side booking validation
-- secure admin session management
-- booking confirmation email flow via Resend
-- Socket.IO realtime change broadcasting
-
----
-
-## Current status
-
-The project is in an advanced implementation stage. The core event system, dynamic booking flow, and admin workflows are largely in place.
-
-### Completed
-
-- [x] Next.js application foundation
-- [x] MongoDB and Mongoose integration
-- [x] Event model and event APIs
-- [x] AWS S3 image management
-- [x] Admin authentication and protected routes
-- [x] Event creation, edit, and delete flows
-- [x] Multi-day scheduling and slot generation
-- [x] Dynamic booking templates
-- [x] Public event pages and booking flow
-- [x] Real slot availability loading
-- [x] Booking confirmation flow
-- [x] QR ticket support
-- [x] Attendance/status tracking
-- [x] Admin reports dashboard
-- [x] Realtime event refresh
-
-### In progress / planned
-
-- [ ] polished My Tickets experience
-- [ ] advanced attendee management
-- [ ] full QR check-in workflow
-- [ ] CSV/Excel export
-- [ ] deeper reporting and analytics
-- [ ] production hardening and monitoring
-
----
-
-## Technical stack
-
-### Frontend
-
-- Next.js 16
-- React 19
-- TypeScript
-- Tailwind CSS
-- App Router
-- Framer Motion
-- QR code generation
-
-### Backend
-
-- Next.js API routes
-- Node.js
-- MongoDB
-- Mongoose
-- Socket.IO
-
-### Storage and services
-
-- AWS S3 for event images
-- Resend for booking emails
-- Redis support present for future integrations
-
----
-
-## Core application flow
-
-The product follows a clear data-driven architecture:
-
-```text
-Admin creates/updates event data
-        ↓
-MongoDB stores the system of record
-        ↓
-Public APIs read current data
-        ↓
-Users browse, register, and select slots
-        ↓
-Server validates availability and bookings
-        ↓
-Confirmation and ticketing complete the flow
+```powershell
+npm ci
 ```
 
-This is important because the frontend is never treated as the final authority for slot availability or booking validity.
+Set local application configuration in `.env.local` (ignored by Git):
 
----
-
-## Main domain models
-
-### Event
-
-Represents a top-level event with fields such as:
-
-- eventName
-- eventType
-- bookingFormTemplate
-- venue
-- description
-- imageUrl
-- numberOfDays
-- startDate
-- endDate
-- status
-
-### DaySchedule
-
-Represents one day within an event and includes:
-
-- dayNumber
-- date
-- startTime
-- endTime
-- lunch configuration
-- slot duration
-- slot gap
-- capacity
-- sameAsDay1
-
-### Slot
-
-Represents one generated time slot and includes:
-
-- eventId
-- dayScheduleId
-- startTime
-- endTime
-- capacity
-- bookedCount
-
----
-
-## Booking flow
-
-The system follows this user journey:
-
-```text
-Landing page
-  → Event listing
-  → Event details
-  → Registration form
-  → Time-slot selection
-  → Booking confirmation
-  → Ticket / QR display
+```dotenv
+MONGODB_URI=mongodb://127.0.0.1:27017/ssimaya?replicaSet=rs0
+ADMIN_SESSION_SECRET=replace-with-a-long-random-value
+BOOKING_ACCESS_SECRET=replace-with-another-long-random-value
 ```
 
-Main user routes:
+The database URI must point at your own configured replica set. Keep secrets stable across restarts to preserve signed access.
 
-- /events
-- /events/[id]
-- /events/[id]/book
-- /events/[id]/book/slots
-- /events/[id]/book/confirm
+| Variable | Use |
+| --- | --- |
+| `MONGODB_URI` | Required MongoDB connection string. |
+| `ADMIN_SESSION_SECRET` | Signs admin cookies; required in production. Development has a fallback. |
+| `BOOKING_ACCESS_SECRET` | Signs public ticket grants. Set explicitly; current compatibility fallback uses `MONGODB_URI`. Changing it invalidates existing grants, but tickets remain recoverable. |
+| `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_S3_BUCKET_NAME` | Existing S3 overrides. The existing hardcoded fallback configuration is intentionally unchanged by this bug-fix work. |
+| `RESEND_API_KEY`, `RESEND_FROM_EMAIL` | Optional confirmation email. Without a key, email is skipped. Email failure does not undo a successful booking. |
+| `PORT`, `HOSTNAME` | Custom server address, read from the process environment before Next loads local configuration. Set these in the shell. |
+| `NODE_ENV` | `development` for development; `production` for a built server. |
 
----
+Redis is installed but is not a required service for the implemented flows. There is no required Redis environment variable or mandatory email/OTP service.
 
-## Admin flow
+### Development
 
-Core admin areas are under the admin section:
+Use a free port. These commands explicitly use 3101 and leave the other project's port 3000 alone.
 
-- /admin/login
-- /admin
-- /admin/eventmanagement
-- /admin/eventmanagement/new
-- /admin/eventmanagement/[id]/edit
-- /admin/reports
-- /admin/bookings
-- /admin/check-in
-
-These screens are protected and rely on server-side validation before acting on data.
-
----
-
-## Availability and booking safety
-
-A key implementation principle is: never trust client-side capacity values.
-
-The expected server-side flow is:
-
-```text
-Receive booking request
-  → validate event
-  → validate selected slot
-  → check remaining capacity
-  → reserve capacity atomically
-  → create booking record
-  → return confirmation
-```
-
-This prevents overbooking and ensures availability is based on the live database state.
-
----
-
-## Project structure
-
-```text
-ssimayaconnect/
-├── app/
-│   ├── admin/
-│   ├── api/
-│   ├── events/
-│   ├── globals.css
-│   ├── layout.tsx
-│   ├── page.tsx
-│   └── ...
-├── components/
-│   ├── admin/
-│   └── realtime/
-├── lib/
-│   ├── admin-auth.ts
-│   ├── admin-server-auth.ts
-│   ├── db.ts
-│   ├── realtime.ts
-│   ├── s3.ts
-│   └── events/
-├── models/
-│   ├── Event.ts
-│   ├── DaySchedule.ts
-│   ├── Slot.ts
-│   └── Booking.ts
-├── public/
-├── .env.local
-├── next.config.ts
-├── package.json
-├── server.mjs
-├── README.md
-├── tsconfig.json
-└── ...
-```
-
----
-
-## API overview
-
-### Public APIs
-
-- GET /api/events
-- POST /api/events
-- GET /api/events/[id]
-- PUT /api/events/[id]
-- DELETE /api/events/[id]
-- GET /api/events/[id]/image
-- GET /api/events/[id]/slots
-- POST /api/bookings
-
-### Admin APIs
-
-- /api/admin/login
-- /api/admin/logout
-- /api/admin/dashboard
-- /api/admin/reports
-- /api/admin/bookings
-- /api/admin/attendance
-
----
-
-## Realtime updates
-
-The project includes a realtime refresh layer using Socket.IO.
-
-When a change is made to event data, the system can emit updates and refresh the relevant UI without needing a full manual reload. This is especially useful for admin screens and event management workflows.
-
----
-
-## Environment setup
-
-### Install dependencies
-
-```bash
-npm install
-```
-
-### Create environment file
-
-Create `.env.local` in the project root with values similar to:
-
-```env
-MONGODB_URI=your_mongodb_connection_string
-
-AWS_REGION=your_aws_region
-AWS_ACCESS_KEY_ID=your_access_key
-AWS_SECRET_ACCESS_KEY=your_secret_key
-AWS_S3_BUCKET=your_bucket_name
-
-# Required in production, min 32 random chars (openssl rand -hex 32)
-ADMIN_SESSION_SECRET=your_admin_session_secret
-
-# Only used to create the first superadmin when no admin users exist
-ADMIN_BOOTSTRAP_USERNAME=admin
-ADMIN_BOOTSTRAP_PASSWORD=min_10_chars_strong_password
-ADMIN_BOOTSTRAP_NAME=Administrator
-
-
-BOOKING_ACCESS_SECRET=your_booking_secret
-
-RESEND_API_KEY=your_resend_key
-RESEND_FROM_EMAIL=your_verified_sender_email
-```
-
-### Run locally
-
-```bash
+```powershell
+$env:PORT='3101'
+$env:HOSTNAME='127.0.0.1'
 npm run dev
 ```
 
-Open:
+Open `http://127.0.0.1:3101/events` or `/admin/login`. The existing root-account arrangement is unchanged; credentials are not repeated here. Manage additional accounts through the root user's authentication page.
 
-```text
-http://localhost:3000
-```
+The `dev` and `start` npm scripts use Windows `set` syntax. On macOS/Linux, use `NODE_ENV=development PORT=3101 HOSTNAME=127.0.0.1 node server.mjs` instead.
 
-### Production build
+### Build and run
 
-```bash
+```powershell
 npm run build
-npm run start
+$env:PORT='3101'
+$env:HOSTNAME='127.0.0.1'
+npm start
 ```
 
----
+Run `server.mjs` for Socket.IO support; `next start` alone does not run the custom realtime server. Production cookies are secure and require HTTPS when using a deployed production server.
 
-## Security and operational notes
+## Images
 
-The project should never store secrets in Git:
+The server accepts genuine static JPG, PNG and WebP files up to 5 MiB and 25 megapixels. It checks the declared type and actual bytes, fully decodes and re-encodes content, and strips metadata before upload. SVG, animated images, damaged data and type mismatches are rejected. The browser may compress a large selected image before sending it.
 
-- .env
-- .env.local
-- AWS credentials
-- MongoDB credentials
-- API keys
-- admin session secrets
+The public image handler also validates stored bytes, serves the normalized MIME type and sets `nosniff` and a restrictive content-security policy. Unsupported legacy objects return an image error and should be replaced with a supported raster file.
 
-Critical paths such as admin auth, event updates, and booking validation are handled on the server side.
+## Verification
 
----
+Fast checks:
 
-## Design direction
+```powershell
+npm test
+npm run lint
+npx tsc --noEmit
+npm run build
+```
 
-The project follows a professional, clean, and mobile-friendly UI style:
+Integration and browser tests require a separate running development server and isolated MongoDB. The helpers refuse application port 3000 and databases outside `127.0.0.1:27027/ssimaya_oct01_test` (or localhost). They create synthetic fixtures and remove their own records. Never point these tests at a real event database.
 
-- clear hierarchy and typography
-- neutral backgrounds
-- consistent spacing
-- accessible form design
-- strong action buttons
-- responsive layouts for desktop and mobile
+1. Start a local MongoDB replica set on port 27027, named `ssimayaTest`. For example, use a disposable data directory outside this repository:
 
----
+   ```powershell
+   mongod --dbpath C:\temp\ssimaya-test-mongo --port 27027 --bind_ip 127.0.0.1 --replSet ssimayaTest
+   ```
 
-## Summary for AI or future contributors
+   Create that directory first. In another terminal, initialize it once with `mongosh`:
 
-SSI Maya Connect is a modern event management and booking platform designed to centralize event operations, attendee registrations, scheduling, and admin oversight in one system.
+   ```javascript
+   // mongosh mongodb://127.0.0.1:27027
+   rs.initiate({ _id: 'ssimayaTest', members: [{ _id: 0, host: '127.0.0.1:27027' }] })
+   ```
 
-The most important context is:
+2. Start the isolated app with these **test-only** values. They match the synthetic cookie helpers and must never be used for a real deployment. Leave Resend unset for the test server.
 
-- this is a Next.js event platform, not a static marketing site
-- MongoDB is the source of truth for event data, schedules, and slot availability
-- public booking pages fetch from the database and render according to event metadata
-- admin users control the event lifecycle
-- slot capacity and booking validity are enforced on the server
-- the project is structured to grow into attendance, check-in, and reporting workflows
+   ```powershell
+   $env:MONGODB_URI='mongodb://127.0.0.1:27027/ssimaya_oct01_test?replicaSet=ssimayaTest'
+   $env:ADMIN_SESSION_SECRET='local-test-session-secret-for-oct01-only'
+   $env:BOOKING_ACCESS_SECRET='local-test-booking-secret-for-oct01-only'
+   $env:PORT='3101'
+   $env:HOSTNAME='127.0.0.1'
+   $env:NODE_ENV='development'
+   node server.mjs
+   ```
 
----
+3. Run the suites from another terminal:
 
-## Recommended next steps
+   ```powershell
+   npx playwright install chromium
+   npm run test:integration
+   npm run test:browser
+   ```
 
-1. complete the My Tickets experience
-2. improve attendee management screens
-3. finalize QR-based check-in workflow
-4. expand reporting and export features
-5. harden production configuration and monitoring
+`TEST_BASE_URL` and `TEST_MONGODB_URI` override the defaults within the same safety restrictions. Browser runs use one worker. Traces and generated print PDFs are written under ignored `test-results/`.
 
----
+Coverage includes international dates/DST and phone normalization, concurrent capacity and retry handling, authorization/session revocation, event rollback/cancellation, drafts, ticket recovery and feedback, check-in windows and camera lifecycle, stale requests/realtime fallback, report printing/exports, image validation, and keyboard accessibility.
 
-## AI-friendly handoff summary
+S3 image reads in the image-handler tests are mocked, and invalid upload tests stop before S3. These checks do not verify live AWS writes or optional Resend delivery. Camera lifecycle tests use controlled browser streams/decoders; test a physical camera on the intended check-in device before an event.
 
-If another AI system is asked to continue this project, it should know:
+## Relevant code
 
-- this repo is a data-driven event booking and admin management application
-- event content, schedules, and slots are managed dynamically through MongoDB
-- admin and public interfaces share the same underlying event source of truth
-- capacity and booking enforcement must happen on the backend
-- the app already has the foundational pieces for a production-ready event management system
+- `app/events/`: catalogue, registration, slots, tickets and feedback.
+- `app/admin/`: event/user management, bookings, check-in and reports.
+- `app/api/`: public and protected server endpoints.
+- `lib/bookings/`: booking validation, access grants and transactions.
+- `lib/events/`: calendar/timezone rules, schedule validation and reporting helpers.
+- `lib/use-dialog.ts`, `lib/field-control.tsx`: shared keyboard and label behavior.
+- `lib/image-validation.ts`, `lib/csv.ts`: normalized raster images and safe CSV cells.
+- `models/`: MongoDB models; `server.mjs`: HTTP and Socket.IO startup.
+- `tests/`: unit, live API and Playwright regression suites.
 
-This README is intentionally concise, implementation-focused, and easy to scan so it can be understood quickly without wasting tokens.
+The scope is practical project fixes. Credential migration, mandatory email verification, enterprise infrastructure and unrelated dependency upgrades are intentionally outside this change.

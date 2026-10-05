@@ -1,5 +1,10 @@
 'use client';
 
+import { adminFetch as fetch } from '@/lib/admin-auth';
+
+import TimeZoneSelect from '@/app/components/TimeZoneSelect';
+import { calendarDateFormatter, eventDateFormatter, zonedDate, deviceTimeZone, DEFAULT_TIME_ZONE, calendarDate, DAY_MS } from '@/lib/events/dates';
+
 import type {
   ReactNode,
 } from 'react';
@@ -8,6 +13,10 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
+  useId,
+  isValidElement,
+  cloneElement,
   useState,
 } from 'react';
 
@@ -28,6 +37,8 @@ import {
 } from 'recharts';
 
 import * as XLSX from 'xlsx';
+import { csvEscape } from '@/lib/csv';
+import { useRealtimeRefresh } from '@/components/realtime/RealtimeProvider';
 
 /* ============================================================
    TYPES
@@ -52,6 +63,7 @@ type ReportSummary = {
 };
 
 type EventOption = {
+  timeZone: string;
   id: string;
   eventName: string;
   status: string;
@@ -106,6 +118,8 @@ type EventPerformance = {
 };
 
 type BookingLedgerRow = {
+  reportingTimeZone: string;
+  eventTimeZone: string;
   id: string;
 
   bookingId: string;
@@ -149,6 +163,8 @@ type BookingLedgerRow = {
 };
 
 type ReportResponse = {
+  filters: FilterState;
+  timeZone: string;
   success: boolean;
 
   message?: string;
@@ -177,6 +193,7 @@ type ReportResponse = {
 };
 
 type FilterState = {
+  timeZone: string;
   eventId: string;
 
   from: string;
@@ -212,6 +229,7 @@ const EMPTY_SUMMARY: ReportSummary = {
 };
 
 const EMPTY_FILTERS: FilterState = {
+  timeZone: '',
   eventId: '',
   from: '',
   to: '',
@@ -297,11 +315,14 @@ export default function ReportsPage() {
      LOAD REPORT
   ========================================================== */
 
+  const reportRequest = useRef<AbortController | null>(null);
   const loadReport =
     useCallback(
       async (
         quiet = false,
       ) => {
+        reportRequest.current?.abort();
+        const controller = new AbortController(); reportRequest.current = controller;
         if (quiet) {
           setRefreshing(
             true,
@@ -317,6 +338,7 @@ export default function ReportsPage() {
         try {
           const params =
             new URLSearchParams();
+          params.set('timeZone', filters.timeZone || deviceTimeZone());
 
           if (
             filters.eventId
@@ -359,6 +381,7 @@ export default function ReportsPage() {
             await fetch(
               `/api/admin/reports?${params.toString()}`,
               {
+                signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
                 method:
                   'GET',
 
@@ -373,6 +396,7 @@ export default function ReportsPage() {
           const data =
             (await response.json()) as ReportResponse;
 
+          if (controller.signal.aborted) return;
           if (
             !response.ok ||
             !data.success
@@ -389,6 +413,7 @@ export default function ReportsPage() {
 
           setPage(1);
         } catch (err) {
+          if (controller.signal.aborted) return;
           console.error(
             'Report error:',
             err,
@@ -401,6 +426,7 @@ export default function ReportsPage() {
               : 'Unable to generate report.',
           );
         } finally {
+          if (!controller.signal.aborted) {
           setLoading(
             false,
           );
@@ -408,6 +434,7 @@ export default function ReportsPage() {
           setRefreshing(
             false,
           );
+          }
         }
       },
       [
@@ -415,8 +442,13 @@ export default function ReportsPage() {
       ],
     );
 
+  useRealtimeRefresh('events', () => { void loadReport(true); });
+  useRealtimeRefresh('bookings', () => { void loadReport(true); });
+  useRealtimeRefresh('attendance', () => { void loadReport(true); });
+
   useEffect(() => {
-    void loadReport();
+    const timer = window.setTimeout(() => { void loadReport(); }, 0);
+    return () => { clearTimeout(timer); reportRequest.current?.abort(); };
   }, [
     loadReport,
   ]);
@@ -486,20 +518,22 @@ export default function ReportsPage() {
   ========================================================== */
 
   function applyFilters() {
+    reportRequest.current?.abort(); setLoading(true);
     setPage(1);
 
     setFilters(
-      draft,
+      { ...draft },
     );
   }
 
   function clearFilters() {
+    reportRequest.current?.abort(); setLoading(true);
     setDraft(
       EMPTY_FILTERS,
     );
 
     setFilters(
-      EMPTY_FILTERS,
+      { ...EMPTY_FILTERS },
     );
 
     setPage(1);
@@ -508,34 +542,10 @@ export default function ReportsPage() {
   function quickRange(
     days: number,
   ) {
-    const end =
-      new Date();
-
-    const start =
-      new Date();
-
-    start.setDate(
-      start.getDate() -
-        (days - 1),
-    );
-
-    setDraft(
-      (
-        current,
-      ) => ({
-        ...current,
-
-        from:
-          toDateInput(
-            start,
-          ),
-
-        to:
-          toDateInput(
-            end,
-          ),
-      }),
-    );
+    const timeZone = draft.timeZone || deviceTimeZone();
+    const to = zonedDate(new Date(), timeZone);
+    const from = calendarDate(new Date(new Date(to).getTime() - (days - 1) * DAY_MS));
+    setDraft(current => ({ ...current, from, to }));
   }
 
   /* ==========================================================
@@ -544,7 +554,7 @@ export default function ReportsPage() {
 
   function exportCsv() {
     if (
-      !report ||
+      !report || loading || refreshing ||
       report.bookings.length ===
         0
     ) {
@@ -558,7 +568,7 @@ export default function ReportsPage() {
     try {
       const rows =
         buildExportRows(
-          report.bookings,
+          report.bookings, report,
         );
 
       const headers =
@@ -612,7 +622,7 @@ export default function ReportsPage() {
 
         buildFilename(
           'SSI-Maya-Booking-Report',
-          'csv',
+          'csv', report,
         ),
       );
     } finally {
@@ -625,7 +635,7 @@ export default function ReportsPage() {
   ========================================================== */
 
   function exportExcel() {
-    if (!report) {
+    if (!report || loading || refreshing) {
       return;
     }
 
@@ -635,13 +645,18 @@ export default function ReportsPage() {
 
     try {
       const overview = [
+        { Metric: 'Reporting Timezone', Value: report.timeZone },
+        { Metric: 'Event Filter', Value: report.eventOptions.find(event => event.id === report.filters.eventId)?.eventName || 'All events' },
+        { Metric: 'Registered From', Value: report.filters.from || 'Any date' },
+        { Metric: 'Registered To', Value: report.filters.to || 'Any date' },
+        { Metric: 'Attendance Filter', Value: report.filters.attendance },
         {
           Metric:
             'Report Generated',
 
           Value:
             formatDateTime(
-              report.generatedAt,
+              report.generatedAt, report?.timeZone,
             ),
         },
 
@@ -778,7 +793,7 @@ export default function ReportsPage() {
 
       const bookingRows =
         buildExportRows(
-          report.bookings,
+          report.bookings, report,
         );
 
       const workbook =
@@ -850,7 +865,7 @@ export default function ReportsPage() {
         workbook,
         buildFilename(
           'SSI-Maya-Full-Report',
-          'xlsx',
+          'xlsx', report,
         ),
       );
     } finally {
@@ -863,6 +878,7 @@ export default function ReportsPage() {
   ========================================================== */
 
   function printReport() {
+    if (!report || loading || refreshing) return;
     window.print();
   }
 
@@ -873,6 +889,7 @@ export default function ReportsPage() {
   return (
     <div
       className="
+        report-page
         w-full
         min-w-0
         max-w-full
@@ -906,10 +923,16 @@ export default function ReportsPage() {
         <p>
           Generated:{' '}
           {formatDateTime(
-            report?.generatedAt,
+            report?.generatedAt, report?.timeZone,
           )}
         </p>
       </div>
+
+      {report && <p className="report-filter-summary text-xs text-gray-600" data-testid="report-filter-summary">
+        Displayed report: {report.eventOptions.find(event => event.id === report.filters.eventId)?.eventName || 'All events'};
+        registered {report.filters.from || 'any date'} to {report.filters.to || 'any date'};
+        attendance {report.filters.attendance}; timezone {report.timeZone}.
+      </p>}
 
       {/* ======================================================
           PAGE HEADER
@@ -1019,7 +1042,7 @@ export default function ReportsPage() {
 
             <HeaderAction
               disabled={
-                !report ||
+                !report || loading || refreshing ||
                 !report
                   .bookings
                   .length ||
@@ -1040,7 +1063,7 @@ export default function ReportsPage() {
             <HeaderAction
               primary
               disabled={
-                !report ||
+                !report || loading || refreshing ||
                 Boolean(
                   exporting,
                 )
@@ -1060,7 +1083,7 @@ export default function ReportsPage() {
 
             <HeaderAction
               disabled={
-                !report
+                !report || loading || refreshing
               }
               onClick={
                 printReport
@@ -1217,10 +1240,8 @@ export default function ReportsPage() {
                   ) => ({
                     ...current,
 
-                    eventId:
-                      event
-                        .target
-                        .value,
+                    eventId: event.target.value,
+                    timeZone: report?.eventOptions.find(option => option.id === event.target.value)?.timeZone || deviceTimeZone(),
                   }),
                 )
               }
@@ -1255,6 +1276,15 @@ export default function ReportsPage() {
               )}
             </select>
           </FilterField>
+
+          <TimeZoneSelect
+            hint="Registration filters, charts and timestamps use this timezone. Slot times remain in the event timezone."
+            value={draft.timeZone}
+            onChange={timeZone => setDraft(current => ({ ...current, timeZone }))}
+            autoDetect
+            className="form-select w-full"
+          />
+          <p className="text-xs text-gray-500">Displayed report timezone: {report?.timeZone || DEFAULT_TIME_ZONE}</p>
 
           <FilterField
             label="Registered From"
@@ -2385,7 +2415,7 @@ export default function ReportsPage() {
             divide-y
             divide-gray-100
 
-            lg:hidden
+            lg:hidden print:hidden
           "
         >
           {loading ? (
@@ -2423,10 +2453,10 @@ export default function ReportsPage() {
             hidden
             overflow-x-auto
 
-            lg:block
+            lg:block print:block
           "
         >
-          <table
+          <table aria-label="Booking ledger"
             className="
               data-table
               min-w-[1600px]
@@ -2489,12 +2519,12 @@ export default function ReportsPage() {
                     11
                   }
                 />
-              ) : visibleBookings.length ? (
-                visibleBookings.map(
+              ) : report?.bookings.length ? (
+                report.bookings.map(
                   (
-                    booking,
+                    booking, index,
                   ) => (
-                    <tr
+                    <tr className={index >= (page - 1) * PAGE_SIZE && index < page * PAGE_SIZE ? undefined : "hidden print:table-row"}
                       key={
                         booking.id
                       }
@@ -2641,7 +2671,7 @@ export default function ReportsPage() {
                           {
                             formatSlot(
                               booking.startTime,
-                              booking.endTime,
+                              booking.endTime, booking.eventTimeZone,
                             )
                           }
                         </p>
@@ -2665,7 +2695,7 @@ export default function ReportsPage() {
                       <td>
                         {
                           formatDateTime(
-                            booking.checkedInAt,
+                            booking.checkedInAt, booking.reportingTimeZone,
                           )
                         }
                       </td>
@@ -2680,7 +2710,7 @@ export default function ReportsPage() {
                       <td>
                         {
                           formatDateTime(
-                            booking.createdAt,
+                            booking.createdAt, booking.reportingTimeZone,
                           )
                         }
                       </td>
@@ -2780,7 +2810,7 @@ export default function ReportsPage() {
         <span>
           Generated{' '}
           {formatDateTime(
-            report?.generatedAt,
+            report?.generatedAt, report?.timeZone,
           )}
         </span>
       </footer>
@@ -2883,30 +2913,12 @@ function HeaderAction({
    FILTER FIELD
 ============================================================ */
 
-function FilterField({
-  label,
-  children,
-}: {
-  label: string;
-
-  children: ReactNode;
-}) {
-  return (
-    <label
-      className="
-        block
-        min-w-0
-      "
-    >
-      <span
-        className="form-label"
-      >
-        {label}
-      </span>
-
-      {children}
-    </label>
-  );
+function FilterField({ label, children }: { label: string; children: ReactNode }) {
+  const generatedId = useId();
+  const child = isValidElement<{ id?: string }>(children) ? children : null;
+  const id = child?.props.id || generatedId;
+  return <div className="block min-w-0"><label htmlFor={id} className="form-label">{label}</label>
+    {child ? cloneElement(child, { id }) : children}</div>;
 }
 
 /* ============================================================
@@ -2938,7 +2950,7 @@ function ReportCard({
 
         shadow-sm
 
-        print:break-inside-avoid
+        print:overflow-visible
 
         ${printClassName}
       `}
@@ -3773,7 +3785,7 @@ function BookingMobileCard({
           value={
             formatSlot(
               booking.startTime,
-              booking.endTime,
+              booking.endTime, booking.eventTimeZone,
             )
           }
         />
@@ -3790,7 +3802,7 @@ function BookingMobileCard({
           label="Checked In"
           value={
             formatDateTimeShort(
-              booking.checkedInAt,
+              booking.checkedInAt, booking.reportingTimeZone,
             )
           }
         />
@@ -3842,7 +3854,7 @@ function BookingMobileCard({
             label="Registered"
             value={
               formatDateTime(
-                booking.createdAt,
+                booking.createdAt, booking.reportingTimeZone,
               )
             }
           />
@@ -4169,6 +4181,7 @@ function EventStatus({
 }: {
   status: string;
 }) {
+  if (status === 'CANCELLED') return <span className="badge badge--info shrink-0">Cancelled</span>;
   if (
     status ===
     'LIVE'
@@ -4848,11 +4861,18 @@ function EmptyRow({
 function buildExportRows(
   bookings:
     BookingLedgerRow[],
+  report: ReportResponse,
 ) {
   return bookings.map(
     (
       booking,
     ) => ({
+      'Report Generated': report.generatedAt,
+      'Reporting Timezone': report.timeZone,
+      'Event Filter': report.eventOptions.find(event => event.id === report.filters.eventId)?.eventName || 'All events',
+      'Registered From Filter': report.filters.from,
+      'Registered To Filter': report.filters.to,
+      'Attendance Filter': report.filters.attendance,
       'Booking ID':
         booking.bookingId,
 
@@ -4900,7 +4920,7 @@ function buildExportRows(
       'Time Slot':
         formatSlot(
           booking.startTime,
-          booking.endTime,
+          booking.endTime, booking.eventTimeZone,
         ),
 
       Attendance:
@@ -4914,7 +4934,7 @@ function buildExportRows(
 
       'Checked In At':
         formatDateTime(
-          booking.checkedInAt,
+          booking.checkedInAt, booking.reportingTimeZone,
         ),
 
       'Checked In By':
@@ -4922,30 +4942,10 @@ function buildExportRows(
 
       'Registered At':
         formatDateTime(
-          booking.createdAt,
+          booking.createdAt, booking.reportingTimeZone,
         ),
     }),
   );
-}
-
-function csvEscape(
-  value:
-    unknown,
-) {
-  const text =
-    value ===
-      undefined ||
-    value ===
-      null
-      ? ''
-      : String(
-          value,
-        );
-
-  return `"${text.replace(
-    /"/g,
-    '""',
-  )}"`;
 }
 
 function downloadBlob(
@@ -4984,47 +4984,13 @@ function downloadBlob(
 function buildFilename(
   prefix: string,
   extension: string,
-) {
-  const date =
-    new Date()
-      .toISOString()
-      .slice(
-        0,
-        10,
-      );
-
-  return `${prefix}-${date}.${extension}`;
-}
+  report: ReportResponse,
+) { return `${prefix}-${report.filters.eventId || 'all-events'}-${zonedDate(report.generatedAt, report.timeZone)}.${extension}`; }
 
 /* ============================================================
    DATE
 ============================================================ */
 
-function toDateInput(
-  date: Date,
-) {
-  const year =
-    date.getFullYear();
-
-  const month =
-    String(
-      date.getMonth() +
-        1,
-    ).padStart(
-      2,
-      '0',
-    );
-
-  const day =
-    String(
-      date.getDate(),
-    ).padStart(
-      2,
-      '0',
-    );
-
-  return `${year}-${month}-${day}`;
-}
 
 function formatDate(
   value:
@@ -5047,7 +5013,7 @@ function formatDate(
     return '—';
   }
 
-  return new Intl.DateTimeFormat(
+  return calendarDateFormatter(
     'en-GB',
     {
       day: '2-digit',
@@ -5062,6 +5028,7 @@ function formatDate(
 function formatDateTime(
   value:
     string | null | undefined,
+  timeZone = deviceTimeZone(),
 ) {
   if (!value) {
     return '—';
@@ -5080,7 +5047,7 @@ function formatDateTime(
     return '—';
   }
 
-  return new Intl.DateTimeFormat(
+  return eventDateFormatter(
     'en-GB',
     {
       day: '2-digit',
@@ -5088,7 +5055,7 @@ function formatDateTime(
       year: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
-    },
+    }, timeZone,
   ).format(
     date,
   );
@@ -5097,6 +5064,7 @@ function formatDateTime(
 function formatDateTimeShort(
   value:
     string | null | undefined,
+  timeZone = deviceTimeZone(),
 ) {
   if (!value) {
     return '—';
@@ -5115,14 +5083,14 @@ function formatDateTimeShort(
     return '—';
   }
 
-  return new Intl.DateTimeFormat(
+  return eventDateFormatter(
     'en-GB',
     {
       day: '2-digit',
       month: 'short',
       hour: '2-digit',
       minute: '2-digit',
-    },
+    }, timeZone,
   ).format(
     date,
   );
@@ -5131,6 +5099,7 @@ function formatDateTimeShort(
 function formatSlot(
   start: string,
   end: string,
+  timeZone: string,
 ) {
   if (
     !start ||
@@ -5139,7 +5108,7 @@ function formatSlot(
     return '—';
   }
 
-  return `${start} - ${end}`;
+  return `${start} - ${end} (${timeZone})`;
 }
 
 /* ============================================================

@@ -42,6 +42,7 @@ export default function BookingTemplateSelector({
               <button
                 key={template.id}
                 type="button"
+                aria-pressed={selected}
                 disabled={
                   !template.available
                 }

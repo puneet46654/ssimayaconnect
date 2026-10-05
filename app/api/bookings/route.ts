@@ -1,107 +1,25 @@
-import {
-  createHmac,
-  randomInt,
-  timingSafeEqual,
-} from 'node:crypto';
-
+import { createHash, randomBytes } from 'node:crypto';
 import mongoose from 'mongoose';
-
-import {
-  NextRequest,
-  NextResponse,
-} from 'next/server';
-
+import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/db';
-
 import { Booking } from '@/models/Booking';
-import { Event } from '@/models/Event';
-import { getEventStatus, hasSlotEnded } from '@/lib/events/status';
 import { Slot } from '@/models/Slot';
 import { DaySchedule } from '@/models/DaySchedule';
+import { eventTimeZone, zonedDate } from '@/lib/events/dates';
+import { getEventStatus, hasSlotEnded } from '@/lib/events/status';
+import { isValidEmail, isValidPhone, normalizeEmail, normalizePhone } from '@/lib/phone';
+import { hasBookingAccess, withBookingAccess } from '@/lib/bookings/access';
+import { BookingError, lockBookingEvent, contactConflict } from '@/lib/bookings/mutations';
+import { bookingRequestData } from '@/lib/bookings/identity';
+import { loadPublicBooking } from '@/lib/bookings/public-booking';
 import { emitRealtimeChange } from '@/lib/realtime';
+import type { BookingDetails } from '@/lib/booking-contracts';
 
-export const dynamic =
-  'force-dynamic';
-
-export const revalidate =
-  0;
-
-/* ============================================================
-   TYPES
-============================================================ */
-
-type BookingDetailsInput =
-  Record<
-    string,
-    unknown
-  >;
-
-const RESEND_API_URL =
-  'https://api.resend.com/emails';
-
-const BOOKING_ACCESS_COOKIE =
-  'ssimaya_booking_access';
-
-function bookingAccessToken(
-  bookingId: string,
-) {
-  const secret =
-    process.env.BOOKING_ACCESS_SECRET ||
-    process.env.MONGODB_URI ||
-    'ssimaya-development-secret';
-
-  return createHmac(
-    'sha256',
-    secret,
-  )
-    .update(bookingId)
-    .digest('hex');
-}
-
-function hasBookingAccess(
-  request: NextRequest,
-  bookingId: string,
-) {
-  const provided =
-    request.cookies.get(
-      BOOKING_ACCESS_COOKIE,
-    )?.value || '';
-  const expected =
-    bookingAccessToken(bookingId);
-
-  if (
-    !provided ||
-    provided.length !== expected.length
-  ) {
-    return false;
-  }
-
-  return timingSafeEqual(
-    Buffer.from(provided),
-    Buffer.from(expected),
-  );
-}
-
-function withBookingAccess(
-  response: NextResponse,
-  bookingId: string,
-) {
-  response.cookies.set({
-    name:
-      BOOKING_ACCESS_COOKIE,
-    value:
-      bookingAccessToken(bookingId),
-    httpOnly: true,
-    sameSite: 'lax',
-    secure:
-      process.env.NODE_ENV ===
-      'production',
-    path: '/',
-    maxAge: 60 * 60 * 24 * 30,
-  });
-
-  return response;
-}
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+type BookingDetailsInput = Record<string, unknown>;
+const RESEND_API_URL = 'https://api.resend.com/emails';
+const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 
 function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -110,6 +28,7 @@ function escapeHtml(value: string) {
 async function sendBookingEmail(input: {
   bookingId: string;
   eventName: string;
+  timeZone: string;
   date: Date | string;
   startTime: string;
   endTime: string;
@@ -138,7 +57,7 @@ async function sendBookingEmail(input: {
       : 'Doctor';
   const date = new Date(input.date).toLocaleDateString(
     'en-IN',
-    { dateStyle: 'long' },
+    { dateStyle: 'long', timeZone: 'UTC' },
   );
 
   const response = await fetch(
@@ -150,6 +69,7 @@ async function sendBookingEmail(input: {
         'Content-Type': 'application/json',
         'Idempotency-Key': `booking-confirmation/${input.bookingId}`,
       },
+      signal: AbortSignal.timeout(8000),
       body: JSON.stringify({
         from,
         to: [recipient],
@@ -160,7 +80,7 @@ async function sendBookingEmail(input: {
           <p><strong>Booking ID:</strong> ${input.bookingId}</p>
           <p><strong>Event:</strong> ${escapeHtml(input.eventName)}</p>
           <p><strong>Date:</strong> ${date}</p>
-          <p><strong>Time:</strong> ${input.startTime} - ${input.endTime}</p>
+          <p><strong>Time:</strong> ${input.startTime} - ${input.endTime} (${escapeHtml(input.timeZone)})</p>
         `,
       }),
     },
@@ -177,900 +97,97 @@ async function sendBookingEmail(input: {
   return true;
 }
 
-/* ============================================================
-   RESPONSE HELPER
-============================================================ */
 
-function normalizeBookingResponse(
-  booking: {
-    _id: unknown;
-    bookingId: string;
-    eventId: unknown;
-    attendanceStatus?: string;
-    checkedInAt?: Date | string | null;
-  },
-) {
-  return {
-    id:
-      String(
-        booking._id,
-      ),
-
-    bookingId:
-      booking.bookingId,
-
-    eventId:
-      String(
-        booking.eventId,
-      ),
-
-    attendanceStatus:
-      booking.attendanceStatus ||
-      'NOT_PRESENT',
-
-    checkedInAt:
-      booking.checkedInAt
-        ? new Date(
-            booking.checkedInAt,
-          ).toISOString()
-        : null,
-  };
+function failure(error: unknown, fallback: string) {
+  if (!(error instanceof BookingError)) console.error(fallback, error);
+  return NextResponse.json({ success: false, error: error instanceof BookingError ? error.message : fallback },
+    { status: error instanceof BookingError ? error.status : 500 });
 }
 
-/* ============================================================
-   GET BOOKING
-
-   Used by:
-   - confirmation page restore
-   - attendance polling
-============================================================ */
-
-export async function GET(
-  request:
-    NextRequest,
-) {
+export async function GET(request: NextRequest) {
   try {
-    const bookingId =
-      request.nextUrl
-        .searchParams
-        .get(
-          'bookingId',
-        )
-        ?.trim();
-
-    if (!bookingId) {
-      return NextResponse.json(
-        {
-          success:
-            false,
-
-          message:
-            'Booking ID is required.',
-        },
-        {
-          status:
-            400,
-        },
-      );
-    }
-
-    if (
-      !hasBookingAccess(
-        request,
-        bookingId,
-      )
-    ) {
-      return NextResponse.json(
-        {
-          success:
-            false,
-          message:
-            'Booking access could not be verified.',
-        },
-        {
-          status:
-            403,
-        },
-      );
-    }
-
+    const bookingId = request.nextUrl.searchParams.get('bookingId')?.trim();
+    if (!bookingId) throw new BookingError(400, 'Booking reference is required.');
+    if (!hasBookingAccess(request, bookingId)) throw new BookingError(403, 'Open My Tickets and enter your booking reference and full mobile number.');
     await connectDB();
+    const booking = await loadPublicBooking(bookingId);
+    if (!booking) throw new BookingError(404, 'Booking not found.');
+    return withBookingAccess(NextResponse.json({ success: true, booking }, { headers: { 'Cache-Control': 'no-store' } }), bookingId);
+  } catch (error) { return failure(error, 'Unable to retrieve booking.'); }
+}
 
-    const booking =
-      await Booking.findOne({
-        bookingId,
-      })
-        .select({
-          _id: 1,
-          bookingId: 1,
-          eventId: 1,
-          attendanceStatus:
-            1,
-          checkedInAt:
-            1,
-        })
-        .lean();
-
-    if (!booking) {
-      return NextResponse.json(
-        {
-          success:
-            false,
-
-          message:
-            'Booking not found.',
-        },
-        {
-          status:
-            404,
-        },
-      );
-    }
-
-    return NextResponse.json(
-      {
-        success:
-          true,
-
-        booking:
-          normalizeBookingResponse(
-            booking,
-          ),
-      },
-      {
-        status:
-          200,
-      },
-    );
-  } catch (error) {
-    console.error(
-      'GET /api/bookings failed:',
-      error,
-    );
-
-    return NextResponse.json(
-      {
-        success:
-          false,
-
-        message:
-          'Unable to retrieve booking.',
-      },
-      {
-        status:
-          500,
-      },
-    );
+function readDetails(input: unknown): BookingDetails {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BookingError(400, 'Valid attendee details are required.');
+  const details: Record<string, string> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (!key || key.startsWith('$') || key.includes('.') || ['__proto__', 'constructor', 'prototype'].includes(key)) continue;
+    if (typeof value === 'string') details[key] = value.trim();
   }
+  if (!details.fullName) throw new BookingError(400, 'Full name is required.');
+  if (!isValidEmail(details.email)) throw new BookingError(400, 'Enter a valid email address.');
+  if (!isValidPhone(details.mobile, details.countryCode)) throw new BookingError(400, 'Enter a valid full mobile number.');
+  details.email = normalizeEmail(details.email);
+  details.mobile = (details.mobile.startsWith('+') ? '+' : '') + normalizePhone(details.mobile);
+  return details as BookingDetails;
 }
 
-/* ============================================================
-   POST BOOKING
-============================================================ */
-
-export async function POST(
-  request:
-    NextRequest,
-) {
-  let reservedSlotId:
-    mongoose.Types.ObjectId | null =
-    null;
-
+export async function POST(request: NextRequest) {
   try {
-    const body =
-      (await request.json()) as {
-        eventId?: string;
-
-        slotId?: string;
-
-        dayScheduleId?: string;
-
-        details?:
-          BookingDetailsInput;
-      };
-
-    const eventId =
-      body.eventId
-        ?.trim();
-
-    const slotId =
-      body.slotId
-        ?.trim();
-
-    const dayScheduleId =
-      body.dayScheduleId
-        ?.trim();
-
-    /* ========================================================
-       BASIC VALIDATION
-    ======================================================== */
-
-    if (
-      !eventId ||
-      !slotId ||
-      !dayScheduleId
-    ) {
-      return NextResponse.json(
-        {
-          success:
-            false,
-
-          error:
-            'Event, schedule and slot are required.',
-        },
-        {
-          status:
-            400,
-        },
-      );
+    const body = await request.json().catch(() => null);
+    const eventId = typeof body?.eventId === 'string' ? body.eventId.trim() : '';
+    const slotId = typeof body?.slotId === 'string' ? body.slotId.trim() : '';
+    const dayScheduleId = typeof body?.dayScheduleId === 'string' ? body.dayScheduleId.trim() : '';
+    if (![eventId, slotId, dayScheduleId].every(id => mongoose.Types.ObjectId.isValid(id))) {
+      throw new BookingError(400, 'Valid event, schedule and slot references are required.');
     }
-
-    if (
-      !mongoose.Types
-        .ObjectId
-        .isValid(
-          eventId,
-        ) ||
-      !mongoose.Types
-        .ObjectId
-        .isValid(
-          slotId,
-        ) ||
-      !mongoose.Types
-        .ObjectId
-        .isValid(
-          dayScheduleId,
-        )
-    ) {
-      return NextResponse.json(
-        {
-          success:
-            false,
-
-          error:
-            'Invalid booking reference.',
-        },
-        {
-          status:
-            400,
-        },
-      );
+    if (typeof body.idempotencyKey !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(body.idempotencyKey)) {
+      throw new BookingError(400, 'A valid booking retry key is required. Reopen the booking form.');
     }
-
-    const details =
-      normalizeDetails(
-        body.details ??
-          {},
-      );
-
-    if (
-      !details.fullName
-        ?.trim()
-    ) {
-      return NextResponse.json(
-        {
-          success:
-            false,
-
-          error:
-            'Full name is required.',
-        },
-        {
-          status:
-            400,
-        },
-      );
-    }
-
-    if (
-      !details.email
-        ?.trim()
-    ) {
-      return NextResponse.json(
-        {
-          success:
-            false,
-
-          error:
-            'Email address is required.',
-        },
-        {
-          status:
-            400,
-        },
-      );
-    }
-
-    if (
-      !details.mobile
-        ?.trim()
-    ) {
-      return NextResponse.json(
-        {
-          success:
-            false,
-
-          error:
-            'Mobile number is required.',
-        },
-        {
-          status:
-            400,
-        },
-      );
-    }
-
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(details.email.trim())) {
-      return NextResponse.json(
-        { success: false, error: 'Enter a valid email address.' },
-        { status: 400 },
-      );
-    }
-
-    const mobileDigits = details.mobile.replace(/\D/g, '');
-    if (mobileDigits.length < 7 || mobileDigits.length > 15 || /[^\d\s()+-]/.test(details.mobile)) {
-      return NextResponse.json(
-        { success: false, error: 'Enter a valid mobile number.' },
-        { status: 400 },
-      );
-    }
-
-    details.fullName =
-      details.fullName
-        .trim();
-
-    details.email =
-      details.email
-        .trim()
-        .toLowerCase();
-
-    details.mobile =
-      details.mobile
-        .trim();
-
+    const details = readDetails(body.details);
+    const requestKeyHash = hash(body.idempotencyKey);
+    const requestFingerprint = hash(bookingRequestData(eventId, dayScheduleId, slotId, details));
     await connectDB();
+    await Booking.init();
 
-    /* ========================================================
-       VERIFY EVENT
-    ======================================================== */
-
-    const event =
-      await Event.findById(
-        eventId,
-      )
-        .select({
-          _id: 1,
-          eventName: 1,
-          startDate: 1,
-          endDate: 1,
-        })
-        .lean();
-
-    if (!event) {
-      return NextResponse.json(
-        {
-          success:
-            false,
-
-          error:
-            'Event not found.',
-        },
-        {
-          status:
-            404,
-        },
-      );
-    }
-
-    if (
-      getEventStatus(
-        new Date(event.startDate),
-        new Date(event.endDate),
-      ) === 'COMPLETED'
-    ) {
-      return NextResponse.json(
-        {
-          success:
-            false,
-          error:
-            'This event is not currently accepting bookings.',
-        },
-        {
-          status:
-            409,
-        },
-      );
-    }
-
-    /* ========================================================
-       VERIFY DAY SCHEDULE
-    ======================================================== */
-
-    const schedule =
-      await DaySchedule.findOne({
-        _id:
-          dayScheduleId,
-
-        eventId:
-          eventId,
-      })
-        .select({
-          _id: 1,
-          date: 1,
-        })
-        .lean();
-
-    if (!schedule) {
-      return NextResponse.json(
-        {
-          success:
-            false,
-
-          error:
-            'Selected schedule is invalid.',
-        },
-        {
-          status:
-            400,
-        },
-      );
-    }
-
-    /* ========================================================
-       VERIFY SLOT
-    ======================================================== */
-
-    const slot =
-      await Slot.findOne({
-        _id:
-          slotId,
-
-        eventId:
-          eventId,
-
-        dayScheduleId:
-          dayScheduleId,
-      })
-        .select({
-          _id: 1,
-          capacity: 1,
-          bookedCount: 1,
-          startTime: 1,
-          endTime: 1,
-        })
-        .lean();
-
-    if (!slot) {
-      return NextResponse.json(
-        {
-          success:
-            false,
-
-          error:
-            'Selected slot is invalid.',
-        },
-        {
-          status:
-            400,
-        },
-      );
-    }
-
-    /* ========================================================
-       EXISTING BOOKING
-
-       Important:
-       prevents confirmation page retries from creating
-       duplicate MongoDB records.
-    ======================================================== */
-
-    const existing =
-      await Booking.findOne({
-        eventId:
-          eventId,
-
-        slotId:
-          slotId,
-
-        dayScheduleId:
-          dayScheduleId,
-
-        $or: [
-          {
-            'details.email':
-              details.email,
-          },
-
-          {
-            'details.mobile':
-              details.mobile,
-          },
-        ],
-      })
-        .select({
-          _id: 1,
-          bookingId: 1,
-          eventId: 1,
-          attendanceStatus:
-            1,
-          checkedInAt:
-            1,
-        })
-        .lean();
-
-    /*
-     * One booking per person per event: a retry for the same slot returns
-     * the existing booking above; a different slot is rejected.
-     */
-    const otherSlotBooking =
-      !existing &&
-      (await Booking.exists({
-        eventId,
-        $or: [
-          { 'details.email': details.email },
-          { 'details.mobile': details.mobile },
-        ],
-      }));
-
-    if (otherSlotBooking) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'You already have a booking for this event. Use "My Tickets" to view it.',
-        },
-        { status: 409 },
-      );
-    }
-
-    if (existing) {
-      return withBookingAccess(
-        NextResponse.json(
-          {
-            success:
-              true,
-
-            existing:
-              true,
-
-            booking:
-              normalizeBookingResponse(
-                existing,
-              ),
-          },
-          {
-            status:
-              200,
-          },
-        ),
-        existing.bookingId,
-      );
-    }
-
-    /* ========================================================
-       RESERVE SLOT ATOMICALLY
-    ======================================================== */
-
-    if (hasSlotEnded(schedule.date, slot.endTime)) {
-      return NextResponse.json(
-        { success: false, error: 'This time slot has already ended. Please choose another slot.' },
-        { status: 409 },
-      );
-    }
-
-    const reservedSlot =
-      await Slot.findOneAndUpdate(
-        {
-          _id:
-            slotId,
-
-          eventId:
-            eventId,
-
-          dayScheduleId:
-            dayScheduleId,
-
-          $expr: {
-            $lt: [
-              '$bookedCount',
-              '$capacity',
-            ],
-          },
-        },
-        {
-          $inc: {
-            bookedCount:
-              1,
-          },
-        },
-        {
-          new:
-            true,
-        },
-      );
-
-    if (!reservedSlot) {
-      return NextResponse.json(
-        {
-          success:
-            false,
-
-          error:
-            'This slot is no longer available.',
-        },
-        {
-          status:
-            409,
-        },
-      );
-    }
-
-    reservedSlotId =
-      reservedSlot._id;
-
-    /* ========================================================
-       SERVER BOOKING ID
-    ======================================================== */
-
-    const bookingId =
-      await generateBookingId();
-
-    /* ========================================================
-       CREATE REAL MONGODB BOOKING
-    ======================================================== */
-
-    const booking =
-      await Booking.create({
-        bookingId,
-
-        eventId,
-
-        slotId,
-
-        dayScheduleId,
-
-        details,
-
-        attendanceStatus:
-          'NOT_PRESENT',
-
-        checkedInAt:
-          null,
-      });
-
-    /*
-     * Slot reservation now belongs permanently
-     * to this booking. Prevent rollback.
-     */
-    reservedSlotId =
-      null;
-
-    emitRealtimeChange({
-      resource: 'bookings',
-      action: 'created',
-      id: booking.eventId.toString(),
+    const result = await mongoose.connection.transaction(async session => {
+      const event = await lockBookingEvent(eventId, session);
+      if (!event) throw new BookingError(404, 'Event not found.');
+      const existing = await Booking.findOne({ eventId, requestKeyHash }).session(session);
+      if (existing) {
+        if (existing.requestFingerprint !== requestFingerprint) throw new BookingError(409, 'This retry key belongs to different booking details. Start a new booking.');
+        return { bookingId: existing.bookingId, existing: true };
+      }
+      if (event.status === 'CANCELLED') throw new BookingError(409, 'This event has been cancelled. Tickets are not valid for admission.');
+      if (getEventStatus(event.startDate, event.endDate, new Date(), event.timeZone, event.status) === 'COMPLETED') {
+        throw new BookingError(409, 'This event is not currently accepting bookings.');
+      }
+      const schedule = await DaySchedule.findOne({ _id: dayScheduleId, eventId }).session(session);
+      const slot = await Slot.findOne({ _id: slotId, eventId, dayScheduleId }).session(session);
+      if (!schedule || !slot) throw new BookingError(400, 'Selected schedule or slot is invalid.');
+      if (hasSlotEnded(schedule.date, slot.endTime, new Date(), event.timeZone)) throw new BookingError(409, 'This time slot has already ended. Please choose another slot.');
+      if (await contactConflict(eventId, details, session)) {
+        throw new BookingError(409, 'A booking already uses this email or mobile for this event. Recover it in My Tickets using its reference and full mobile number, or contact event staff.');
+      }
+      const occupied = await Booking.countDocuments({ slotId }).session(session);
+      if (occupied >= slot.capacity) throw new BookingError(409, 'This slot is no longer available.');
+      await Slot.updateOne({ _id: slotId }, { $set: { bookedCount: occupied + 1 } }, { session });
+      const bookingId = `SSI-MC-${zonedDate(new Date(), event.timeZone).slice(0, 4)}-${randomBytes(6).toString('hex').toUpperCase()}`;
+      await Booking.create([{ bookingId, eventId, slotId, dayScheduleId, details, requestKeyHash, requestFingerprint,
+        attendanceStatus: 'NOT_PRESENT', checkedInAt: null }], { session });
+      return { bookingId, existing: false };
     });
 
+    const booking = await loadPublicBooking(result.bookingId);
+    if (!booking) throw new BookingError(409, 'This booking is no longer available. Contact event staff.');
     let emailSent = false;
-    try {
-      emailSent = await sendBookingEmail({
-        bookingId: booking.bookingId,
-        eventName: event.eventName,
-        date: schedule.date,
-        startTime: reservedSlot.startTime,
-        endTime: reservedSlot.endTime,
-        details,
-      });
-    } catch (error) {
-      console.error(
-        `Confirmation email failed for booking ${booking.bookingId}:`,
-        error,
-      );
-    }
-
-    return withBookingAccess(
-      NextResponse.json(
-        {
-          success:
-            true,
-
-          existing:
-            false,
-
-          emailSent,
-
-          booking: {
-          id:
-            booking._id.toString(),
-
-          bookingId:
-            booking.bookingId,
-
-          eventId:
-            booking.eventId.toString(),
-
-          attendanceStatus:
-            booking.attendanceStatus,
-
-          checkedInAt:
-            booking.checkedInAt
-              ? booking.checkedInAt.toISOString()
-              : null,
-          },
-        },
-        {
-          status:
-            201,
-        },
-      ),
-      booking.bookingId,
-    );
-  } catch (error) {
-    console.error(
-      'POST /api/bookings failed:',
-      error,
-    );
-
-    /* ========================================================
-       ROLLBACK RESERVED SLOT IF BOOKING CREATION FAILED
-    ======================================================== */
-
-    if (
-      reservedSlotId
-    ) {
+    if (!result.existing) {
+      emitRealtimeChange({ resource: 'bookings', action: 'created', id: eventId });
       try {
-        await Slot.updateOne(
-          {
-            _id:
-              reservedSlotId,
-
-            bookedCount: {
-              $gt:
-                0,
-            },
-          },
-          {
-            $inc: {
-              bookedCount:
-                -1,
-            },
-          },
-        );
-      } catch (
-        rollbackError
-      ) {
-        console.error(
-          'Booking slot rollback failed:',
-          rollbackError,
-        );
-      }
+        emailSent = await sendBookingEmail({ bookingId: booking.bookingId, eventName: booking.eventName,
+          timeZone: eventTimeZone(booking.timeZone), date: booking.date, startTime: booking.startTime, endTime: booking.endTime, details });
+      } catch (error) { console.error('Optional booking email failed:', error); }
     }
-
-    return NextResponse.json(
-      {
-        success:
-          false,
-
-        error:
-          'Unable to complete the booking.',
-      },
-      {
-        status:
-          500,
-      },
-    );
-  }
-}
-
-/* ============================================================
-   NORMALIZE DETAILS
-============================================================ */
-
-function normalizeDetails(
-  input:
-    BookingDetailsInput,
-) {
-  const output:
-    Record<
-      string,
-      string
-    > = {};
-
-  for (
-    const [
-      rawKey,
-      rawValue,
-    ] of Object.entries(
-      input,
-    )
-  ) {
-    const key =
-      rawKey.trim();
-
-    if (
-      !key ||
-      key.startsWith(
-        '$',
-      ) ||
-      key.includes(
-        '.',
-      ) ||
-      key ===
-        '__proto__' ||
-      key ===
-        'constructor' ||
-      key ===
-        'prototype'
-    ) {
-      continue;
-    }
-
-    if (
-      rawValue ===
-        undefined ||
-      rawValue ===
-        null
-    ) {
-      output[key] =
-        '';
-
-      continue;
-    }
-
-    if (
-      typeof rawValue ===
-      'string'
-    ) {
-      output[key] =
-        rawValue.trim();
-
-      continue;
-    }
-
-    output[key] =
-      String(
-        rawValue,
-      );
-  }
-
-  return output;
-}
-
-/* ============================================================
-   GENERATE BOOKING ID
-============================================================ */
-
-async function generateBookingId() {
-  const year =
-    new Date()
-      .getFullYear();
-
-  for (
-    let attempt =
-      0;
-    attempt <
-    30;
-    attempt++
-  ) {
-    const number =
-      randomInt(
-        10000,
-        100000,
-      );
-
-    const bookingId =
-      `SSI-MC-${year}-${number}`;
-
-    const exists =
-      await Booking.exists({
-        bookingId,
-      });
-
-    if (!exists) {
-      return bookingId;
-    }
-  }
-
-  throw new Error(
-    'Unable to generate a unique booking ID.',
-  );
+    return withBookingAccess(NextResponse.json({ success: true, existing: result.existing, emailSent, booking },
+      { status: result.existing ? 200 : 201, headers: { 'Cache-Control': 'no-store' } }), booking.bookingId);
+  } catch (error) { return failure(error, 'Unable to complete the booking. Please retry.'); }
 }

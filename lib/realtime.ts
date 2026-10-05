@@ -20,8 +20,8 @@ export type RealtimeChange = {
 export const REALTIME_RESOURCES = ['events', 'bookings', 'attendance'] as const;
 
 /*
- * One tiny document holding the last-change time per resource.
- * Clients poll /api/realtime (CDN-cached) and refresh when a time moves,
+ * One tiny document holding an atomic revision counter per resource.
+ * Clients poll /api/realtime (CDN-cached) and refresh when a revision moves,
  * so live updates work on Vercel without a third-party socket service.
  */
 const RealtimeVersion =
@@ -55,7 +55,7 @@ export function emitRealtimeChange(change: RealtimeChange) {
     .then(() =>
       RealtimeVersion.updateOne(
         { _id: 'global' },
-        { $set: { [change.resource]: Date.now() } },
+        { $inc: { [change.resource]: 1 } },
         { upsert: true },
       ),
     )

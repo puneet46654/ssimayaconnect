@@ -1,3 +1,8 @@
+import { adminAccessError } from '@/lib/admin-api-auth';
+import { BookingError, lockBookingEvent, contactConflict, deleteBooking } from '@/lib/bookings/mutations';
+import { emitRealtimeChange } from '@/lib/realtime';
+import { getEventStatus } from '@/lib/events/status';
+import { isValidEmail, isValidPhone, normalizeEmail, normalizePhone, phoneIdentity } from '@/lib/phone';
 import {
   NextRequest,
   NextResponse,
@@ -10,9 +15,6 @@ import {
 } from '@/lib/db';
 
 import {
-  requireAdminSession,
-  requireAdminWriteSession,
-  requireAdminDeleteSession,
   logAdminActivity,
 } from '@/lib/admin-server-auth';
 
@@ -20,9 +22,7 @@ import {
   Booking,
 } from '@/models/Booking';
 
-import {
-  Slot,
-} from '@/models/Slot';
+import '@/models/Slot';
 
 import { Feedback } from '@/models/Feedback';
 
@@ -77,16 +77,6 @@ type BookingFeedback = {
    AUTH
 ============================================================ */
 
-async function authorize() {
-  return await requireAdminSession();
-}
-
-async function authorizeWrite() {
-  const isAuth = await requireAdminSession();
-  if (!isAuth) return false;
-  return await requireAdminWriteSession();
-}
-
 /* ============================================================
    GET
 ============================================================ */
@@ -96,20 +86,8 @@ export async function GET(
   context: RouteContext,
 ) {
   try {
-    if (
-      !(await authorize())
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            'Unauthorized.',
-        },
-        {
-          status: 401,
-        },
-      );
-    }
+    const denied = await adminAccessError('bookings', 'read');
+    if (denied) return denied;
 
     const {
       id,
@@ -202,37 +180,8 @@ export async function PATCH(
   context: RouteContext,
 ) {
   try {
-    if (
-      !(await authorize())
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-
-          message:
-            'Unauthorized.',
-        },
-        {
-          status: 401,
-        },
-      );
-    }
-
-    if (
-      !(await authorizeWrite())
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-
-          message:
-            'Forbidden. You have View-Only access and cannot modify bookings.',
-        },
-        {
-          status: 403,
-        },
-      );
-    }
+    const denied = await adminAccessError('bookings', 'write');
+    if (denied) return denied;
 
     const {
       id,
@@ -309,30 +258,14 @@ export async function PATCH(
     }
 
     if (
-      !details.email?.trim()
+      !isValidEmail(details.email)
     ) {
       return NextResponse.json(
         {
           success: false,
 
           message:
-            'Email cannot be empty.',
-        },
-        {
-          status: 400,
-        },
-      );
-    }
-
-    if (
-      !details.mobile?.trim()
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-
-          message:
-            'Mobile cannot be empty.',
+            'Enter a valid email address.',
         },
         {
           status: 400,
@@ -361,13 +294,23 @@ export async function PATCH(
       );
     }
 
-    booking.details = {
-      ...(booking.details ||
-        {}),
-      ...details,
-    };
-
-    await booking.save();
+    await mongoose.connection.transaction(async session => {
+      await lockBookingEvent(String(booking.eventId), session);
+      const current = await Booking.findById(id).session(session);
+      if (!current) throw new BookingError(404, 'Booking not found.');
+      const merged = { ...current.details, ...details };
+      if (!isValidPhone(merged.mobile, merged.countryCode)) throw new BookingError(400, 'Enter a valid full mobile number.');
+      merged.email = normalizeEmail(merged.email);
+      merged.mobile = (merged.mobile.trim().startsWith('+') ? '+' : '') + normalizePhone(merged.mobile);
+      const contactChanged = merged.email !== normalizeEmail(current.details.email)
+        || phoneIdentity(merged.mobile, merged.countryCode) !== phoneIdentity(current.details.mobile, current.details.countryCode);
+      if (contactChanged && await contactConflict(String(current.eventId), merged, session, id)) {
+        throw new BookingError(409, 'Another booking for this event uses that email or mobile number.');
+      }
+      current.details = merged;
+      await current.save({ session });
+    });
+    emitRealtimeChange({ resource: 'bookings', action: 'updated', id: String(booking.eventId) });
 
     await logAdminActivity({
       action: 'update',
@@ -432,10 +375,10 @@ export async function PATCH(
         success: false,
 
         message:
-          'Unable to update booking.',
+          error instanceof BookingError ? error.message : 'Unable to update booking.',
       },
       {
-        status: 500,
+        status: error instanceof BookingError ? error.status : 500,
       },
     );
   }
@@ -450,31 +393,8 @@ export async function DELETE(
   context: RouteContext,
 ) {
   try {
-    if (
-      !(await authorize())
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-
-          message:
-            'Unauthorized.',
-        },
-        {
-          status: 401,
-        },
-      );
-    }
-
-    if (!(await requireAdminDeleteSession())) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: 'Forbidden. You do not have permission to delete bookings.',
-        },
-        { status: 403 },
-      );
-    }
+    const denied = await adminAccessError('bookings', 'delete');
+    if (denied) return denied;
 
     const {
       id,
@@ -501,68 +421,10 @@ export async function DELETE(
 
     await connectDB();
 
-    const booking =
-      await Booking.findById(
-        id,
-      );
-
-    if (!booking) {
-      return NextResponse.json(
-        {
-          success: false,
-
-          message:
-            'Booking not found.',
-        },
-        {
-          status: 404,
-        },
-      );
-    }
-
-    const slotId =
-      booking.slotId;
-
-    await Booking.deleteOne({
-      _id:
-        booking._id,
-    });
-
-    await logAdminActivity({
-      action: 'delete',
-      resource: 'booking',
-      resourceId: booking._id.toString(),
-      details: { bookingId: booking.bookingId },
-    });
-
-    /*
-     * Return one capacity unit
-     * to the slot.
-     */
-    if (
-      slotId &&
-      mongoose.Types.ObjectId.isValid(
-        String(
-          slotId,
-        ),
-      )
-    ) {
-      await Slot.updateOne(
-        {
-          _id:
-            slotId,
-
-          bookedCount: {
-            $gt: 0,
-          },
-        },
-        {
-          $inc: {
-            bookedCount:
-              -1,
-          },
-        },
-      );
+    const booking = await deleteBooking(id);
+    if (booking) {
+      emitRealtimeChange({ resource: 'bookings', action: 'deleted', id: String(booking.eventId) });
+      await logAdminActivity({ action: 'delete', resource: 'booking', resourceId: String(booking._id), details: { bookingId: booking.bookingId } });
     }
 
     return NextResponse.json(
@@ -603,7 +465,7 @@ export async function DELETE(
 async function getBooking(
   id: string,
 ) {
-  return Booking.findById(
+  const booking = await Booking.findById(
     id,
   )
     .populate({
@@ -619,6 +481,11 @@ async function getBooking(
         'dayScheduleId',
     })
     .lean();
+  if (booking && isRecord(booking.eventId)) {
+    const event = booking.eventId;
+    if (event.startDate && event.endDate) event.status = getEventStatus(new Date(String(event.startDate)), new Date(String(event.endDate)), new Date(), String(event.timeZone || 'Asia/Kolkata'), String(event.status));
+  }
+  return booking;
 }
 
 /* ============================================================

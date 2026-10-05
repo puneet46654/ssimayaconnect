@@ -1,5 +1,10 @@
 'use client';
 
+import { type BookingDetails as SharedBookingDetails, type ServerBooking, type BookingApiResponse, bookingStorage, ticketStorage } from '@/lib/booking-contracts';
+
+import { attendeeIdentity, bookingRequestData } from '@/lib/bookings/identity';
+import { calendarDateFormatter, eventTimeZone } from '@/lib/events/dates';
+
 import {
   useCallback,
   useEffect,
@@ -34,44 +39,10 @@ import {
    TYPES
 ============================================================ */
 
-type BookingDetails = {
-  eventId?: string;
-
-  eventName?: string;
-
-  template?: string;
-
-  designation?: string;
-
-  title?: string;
-
-  fullName?: string;
-
-  specialty?: string;
-
-  mobile?: string;
-
-  countryCode?: string;
-
-  phoneCountry?: string;
-
-  email?: string;
-
-  hospitalName?: string;
-
-  country?: string;
-
-  countryIso2?: string;
-
-  state?: string;
-
-  city?: string;
-
-  [key: string]:
-    string | undefined;
-};
+type BookingDetails = Partial<SharedBookingDetails>;
 
 type SlotSelection = {
+  timeZone?: string;
   eventId?: string;
 
   dayScheduleId?: string;
@@ -85,42 +56,13 @@ type SlotSelection = {
   endTime?: string;
 };
 
-type AttendanceStatus =
-  | 'NOT_PRESENT'
-  | 'PRESENT';
+
 
 type BookingState =
   | 'loading'
   | 'creating'
   | 'ready'
   | 'error';
-
-type ServerBooking = {
-  id: string;
-
-  bookingId: string;
-
-  eventId: string;
-
-  attendanceStatus:
-    AttendanceStatus;
-
-  checkedInAt:
-    string | null;
-};
-
-type BookingApiResponse = {
-  success?: boolean;
-
-  existing?: boolean;
-
-  error?: string;
-
-  message?: string;
-
-  booking?:
-    ServerBooking;
-};
 
 /* ============================================================
    CONSTANTS
@@ -133,818 +75,143 @@ const EASE = [
   1,
 ] as const;
 
-function buildBookingSlotStorageKey(
-  eventId: string,
-  slotSelection?:
-    Pick<
-      SlotSelection,
-      'dayScheduleId' |
-        'slotId'
-    > | null,
-) {
-  if (
-    slotSelection?.dayScheduleId &&
-    slotSelection?.slotId
-  ) {
-    return `ssi-booking-slot:${eventId}:${slotSelection.dayScheduleId}:${slotSelection.slotId}`;
-  }
+type BookingIntent = { key: string; fingerprint: string; bookingId?: string };
 
-  return `ssi-booking-slot:${eventId}:latest`;
+function readBookingIntent(eventId: string, fingerprint: string): BookingIntent {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(bookingStorage.intent(eventId)) || 'null') as BookingIntent | null;
+    if (saved?.fingerprint === fingerprint && saved.key) return saved;
+  } catch { /* Invalid caches are not proof of a booking. */ }
+  const intent = { key: crypto.randomUUID(), fingerprint };
+  sessionStorage.setItem(bookingStorage.intent(eventId), JSON.stringify(intent));
+  return intent;
 }
-
-function readBookingSlotFromStorage(
-  eventId: string,
-) {
-  return (
-    sessionStorage.getItem(
-      `ssi-booking-slot:${eventId}:latest`,
-    ) ||
-    sessionStorage.getItem(
-      `ssi-booking-slot:${eventId}`,
-    ) ||
-    ''
-  );
-}
-
-function buildServerBookingStorageKey(
-  eventId: string,
-  slotSelection?:
-    Pick<
-      SlotSelection,
-      'dayScheduleId' |
-        'slotId'
-    > | null,
-) {
-  if (
-    slotSelection?.dayScheduleId &&
-    slotSelection?.slotId
-  ) {
-    return `ssi-server-booking-id:${eventId}:${slotSelection.dayScheduleId}:${slotSelection.slotId}`;
-  }
-
-  return `ssi-server-booking-id:${eventId}:latest`;
-}
-
-function buildServerBookingMongoStorageKey(
-  eventId: string,
-  slotSelection?:
-    Pick<
-      SlotSelection,
-      'dayScheduleId' |
-        'slotId'
-    > | null,
-) {
-  if (
-    slotSelection?.dayScheduleId &&
-    slotSelection?.slotId
-  ) {
-    return `ssi-server-booking-mongo-id:${eventId}:${slotSelection.dayScheduleId}:${slotSelection.slotId}`;
-  }
-
-  return `ssi-server-booking-mongo-id:${eventId}:latest`;
-}
-
-/* ============================================================
-   PAGE
-============================================================ */
 
 export default function BookingConfirmationPage() {
-  const params =
-    useParams<{
-      id: string;
-    }>();
-
-  const router =
-    useRouter();
-
-  const searchParams =
-    useSearchParams();
-
-  const eventId =
-    params.id;
-
-  const ticketRef =
-    useRef<HTMLDivElement | null>(
-      null,
-    );
-
-  const bookingStartedRef =
-    useRef(false);
-
-  /* ==========================================================
-     BOOKING DATA
-  ========================================================== */
-
-  const [
-    bookingDetails,
-    setBookingDetails,
-  ] =
-    useState<BookingDetails | null>(
-      null,
-    );
-
-  const [
-    slotSelection,
-    setSlotSelection,
-  ] =
-    useState<SlotSelection | null>(
-      null,
-    );
-
-  const [
-    dataLoaded,
-    setDataLoaded,
-  ] = useState(false);
-
-  /* ==========================================================
-     SERVER BOOKING
-  ========================================================== */
-
-  const [
-    bookingState,
-    setBookingState,
-  ] =
-    useState<BookingState>(
-      'loading',
-    );
-
-  const [
-    bookingId,
-    setBookingId,
-  ] = useState('');
-
-  const [
-    bookingMongoId,
-    setBookingMongoId,
-  ] = useState('');
-
-  const [
-    bookingError,
-    setBookingError,
-  ] = useState('');
-
-  /* ==========================================================
-     ATTENDANCE
-  ========================================================== */
-
-  const [
-    attendanceStatus,
-    setAttendanceStatus,
-  ] =
-    useState<AttendanceStatus>(
-      'NOT_PRESENT',
-    );
-
-  /* ==========================================================
-     DOWNLOAD
-  ========================================================== */
-
-  const [
-    downloading,
-    setDownloading,
-  ] = useState(false);
-
-  const [
-    downloaded,
-    setDownloaded,
-  ] = useState(false);
-
-  /* ==========================================================
-     ACTIVITY
-  ========================================================== */
-
-
-  /* ==========================================================
-     LOAD BOOKING FORM DATA
-
-     IMPORTANT:
-     No fake / demo booking is used.
-  ========================================================== */
+  const { id: eventId } = useParams<{ id: string }>();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedReference = searchParams.get('bookingId') || '';
+  const ticketRef = useRef<HTMLDivElement | null>(null);
+  const [serverBooking, setServerBooking] = useState<ServerBooking | null>(null);
+  const [bookingState, setBookingState] = useState<BookingState>('loading');
+  const [bookingError, setBookingError] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  const [downloading, setDownloading] = useState(false);
+  const [downloaded, setDownloaded] = useState(false);
+  const bookingId = serverBooking?.bookingId || '';
+  const bookingMongoId = serverBooking?.id || '';
+  const bookingDetails = serverBooking?.details || null;
+  const slotSelection = serverBooking;
+  const attendanceStatus = serverBooking?.attendanceStatus || 'NOT_PRESENT';
 
   useEffect(() => {
-    if (!eventId) {
-      return;
-    }
-
-    try {
-      const detailsRaw =
-        sessionStorage.getItem(
-          `ssi-booking-details:${eventId}`,
-        );
-
-      const slotRaw =
-        readBookingSlotFromStorage(
-          eventId,
-        );
-
-      if (
-        !detailsRaw ||
-        !slotRaw
-      ) {
-        setBookingError(
-          'Booking information could not be found. Please complete the booking form again.',
-        );
-
-        setBookingState(
-          'error',
-        );
-
-        setDataLoaded(
-          true,
-        );
-
-        return;
-      }
-
-      const parsedDetails =
-        JSON.parse(
-          detailsRaw,
-        ) as BookingDetails;
-
-      const parsedSlot =
-        JSON.parse(
-          slotRaw,
-        ) as SlotSelection;
-
-      setBookingDetails(
-        parsedDetails,
-      );
-
-      setSlotSelection(
-        parsedSlot,
-      );
-
-      setDataLoaded(
-        true,
-      );
-    } catch (error) {
-      console.error(
-        'Unable to restore booking data:',
-        error,
-      );
-
-      setBookingError(
-        'Booking information is invalid. Please complete the booking form again.',
-      );
-
-      setBookingState(
-        'error',
-      );
-
-      setDataLoaded(
-        true,
-      );
-    }
-  }, [
-    eventId,
-  ]);
-
-  /* ==========================================================
-     APPLY SERVER BOOKING
-  ========================================================== */
-
-  const applyServerBooking =
-    useCallback(
-      (
-        booking:
-          ServerBooking,
-      ) => {
-        setBookingId(
-          booking.bookingId,
-        );
-
-        setBookingMongoId(
-          booking.id,
-        );
-
-        setAttendanceStatus(
-          booking.attendanceStatus ||
-            'NOT_PRESENT',
-        );
-
-        setBookingState(
-          'ready',
-        );
-
-        setBookingError(
-          '',
-        );
-
-        const nextBookingKey =
-          buildServerBookingStorageKey(
-            eventId,
-            slotSelection,
-          );
-
-        const nextMongoKey =
-          buildServerBookingMongoStorageKey(
-            eventId,
-            slotSelection,
-          );
-
-        sessionStorage.setItem(
-          nextBookingKey,
-          booking.bookingId,
-        );
-
-        sessionStorage.setItem(
-          `ssi-server-booking-id:${eventId}:latest`,
-          booking.bookingId,
-        );
-
-        sessionStorage.setItem(
-          nextMongoKey,
-          booking.id,
-        );
-
-        sessionStorage.setItem(
-          `ssi-server-booking-mongo-id:${eventId}:latest`,
-          booking.id,
-        );
-
-        // Remove old per-event keys from previous versions.
-        sessionStorage.removeItem(
-          `ssi-server-booking-id:${eventId}`,
-        );
-        sessionStorage.removeItem(
-          `ssi-server-booking-mongo-id:${eventId}`,
-        );
-        sessionStorage.removeItem(
-          `ssi-booking-id:${eventId}`,
-        );
-      },
-      [
-        eventId,
-        slotSelection,
-      ],
-    );
-
-  /* ==========================================================
-     CREATE BOOKING
-  ========================================================== */
-
-  const createServerBooking =
-    useCallback(
-      async () => {
-        if (
-          !bookingDetails ||
-          !slotSelection
-        ) {
-          throw new Error(
-            'Booking details are not available.',
-          );
-        }
-
-        if (
-          !bookingDetails.fullName ||
-          !bookingDetails.email ||
-          !bookingDetails.mobile
-        ) {
-          throw new Error(
-            'Attendee information is incomplete.',
-          );
-        }
-
-        if (
-          !slotSelection.slotId ||
-          !slotSelection.dayScheduleId
-        ) {
-          throw new Error(
-            'Selected booking slot is incomplete.',
-          );
-        }
-
-        setBookingState(
-          'creating',
-        );
-
-        setBookingError(
-          '',
-        );
-
-        const response =
-          await fetch(
-            '/api/bookings',
-            {
-              method:
-                'POST',
-
-              credentials:
-                'include',
-
-              cache:
-                'no-store',
-
-              headers: {
-                'Content-Type':
-                  'application/json',
-              },
-
-              body:
-                JSON.stringify({
-                  eventId,
-
-                  slotId:
-                    slotSelection.slotId,
-
-                  dayScheduleId:
-                    slotSelection.dayScheduleId,
-
-                  details:
-                    bookingDetails,
-                }),
-            },
-          );
-
-        const data =
-          (await response.json()) as BookingApiResponse;
-
-        if (
-          !response.ok ||
-          !data.success ||
-          !data.booking
-        ) {
-          throw new Error(
-            data.error ||
-              data.message ||
-              'Unable to create booking.',
-          );
-        }
-
-        applyServerBooking(
-          data.booking,
-        );
-
-        return data.booking;
-      },
-      [
-        applyServerBooking,
-        bookingDetails,
-        eventId,
-        slotSelection,
-      ],
-    );
-
-  /* ==========================================================
-     VERIFY EXISTING BOOKING
-
-     This fixes the main bug.
-
-     Browser storage is NEVER considered proof of a booking.
-     MongoDB must confirm it first.
-  ========================================================== */
-
-  const restoreOrCreateBooking =
-    useCallback(
-      async () => {
-        if (
-          !dataLoaded ||
-          !bookingDetails ||
-          !slotSelection
-        ) {
-          return;
-        }
-
-        setBookingError(
-          '',
-        );
-
-        setBookingState(
-          'loading',
-        );
-
-        const serverBookingKey =
-          buildServerBookingStorageKey(
-            eventId,
-            slotSelection,
-          );
-
-        const serverMongoKey =
-          buildServerBookingMongoStorageKey(
-            eventId,
-            slotSelection,
-          );
-
-        /*
-         * Legacy frontend-only ID.
-         *
-         * Never use this as a real booking.
-         */
-        sessionStorage.removeItem(
-          `ssi-booking-id:${eventId}`,
-        );
-
-        const storedBookingId =
-          sessionStorage.getItem(
-            serverBookingKey,
-          );
-
-        /* ====================================================
-           NO STORED SERVER BOOKING
-        ==================================================== */
-
-        if (
-          !storedBookingId
-        ) {
-          await createServerBooking();
-
-          return;
-        }
-
-        /* ====================================================
-           VERIFY STORED BOOKING AGAINST MONGODB
-        ==================================================== */
-
-        try {
-          const response =
-            await fetch(
-              `/api/bookings?bookingId=${encodeURIComponent(
-                storedBookingId,
-              )}`,
-              {
-                method:
-                  'GET',
-
-                cache:
-                  'no-store',
-              },
-            );
-
-          /*
-           * Stale browser booking.
-           *
-           * Mongo says it does not exist.
-           */
-          if (
-            response.status ===
-            404
-          ) {
-            sessionStorage.removeItem(
-              serverBookingKey,
-            );
-            sessionStorage.removeItem(
-              `ssi-server-booking-id:${eventId}:latest`,
-            );
-            sessionStorage.removeItem(
-              `ssi-server-booking-id:${eventId}`,
-            );
-
-            sessionStorage.removeItem(
-              serverMongoKey,
-            );
-            sessionStorage.removeItem(
-              `ssi-server-booking-mongo-id:${eventId}:latest`,
-            );
-            sessionStorage.removeItem(
-              `ssi-server-booking-mongo-id:${eventId}`,
-            );
-
-            setBookingId(
-              '',
-            );
-
-            setBookingMongoId(
-              '',
-            );
-
-            await createServerBooking();
-
-            return;
-          }
-
-          const data =
-            (await response.json()) as BookingApiResponse;
-
-          if (
-            !response.ok ||
-            !data.success ||
-            !data.booking
-          ) {
-            throw new Error(
-              data.message ||
-                data.error ||
-                'Unable to verify booking.',
-            );
-          }
-
-          /*
-           * MongoDB confirmed booking.
-           */
-          applyServerBooking(
-            data.booking,
-          );
-        } catch (error) {
-          /*
-           * Do NOT silently display stored ID when
-           * database verification fails.
-           */
-          throw error;
-        }
-      },
-      [
-        applyServerBooking,
-        bookingDetails,
-        createServerBooking,
-        dataLoaded,
-        eventId,
-        slotSelection,
-      ],
-    );
-
-  /* ==========================================================
-     INITIAL BOOKING SYNC
-  ========================================================== */
-
-  useEffect(() => {
-    if (
-      !dataLoaded ||
-      !bookingDetails ||
-      !slotSelection ||
-      bookingStartedRef.current
-    ) {
-      return;
-    }
-
-    bookingStartedRef.current =
-      true;
-
-    let cancelled =
-      false;
-
-    async function start() {
+    const controller = new AbortController();
+    const { signal } = controller;
+    async function load() {
+      setServerBooking(null);
+      setBookingState('loading');
+      setBookingError('');
       try {
-        await restoreOrCreateBooking();
-      } catch (error) {
-        if (cancelled) {
-          return;
+        let intent: BookingIntent | undefined;
+        let details: BookingDetails | undefined;
+        let slot: SlotSelection | undefined;
+        let reference = requestedReference;
+        if (!reference) {
+          details = JSON.parse(sessionStorage.getItem(bookingStorage.details(eventId)) || 'null') as BookingDetails;
+          slot = JSON.parse(sessionStorage.getItem(`ssi-booking-slot:${eventId}:latest`)
+            || sessionStorage.getItem(`ssi-booking-slot:${eventId}`) || 'null') as SlotSelection;
+          if (!details?.fullName || !details.email || !details.mobile || !slot?.slotId || !slot.dayScheduleId) {
+            throw new Error('Booking information could not be found. Complete the form again, or recover your ticket in My Tickets.');
+          }
+          const fingerprint = bookingRequestData(eventId, slot.dayScheduleId, slot.slotId, details);
+          intent = readBookingIntent(eventId, fingerprint);
+          reference = intent.bookingId || sessionStorage.getItem(`ssi-server-booking-id:${eventId}:${slot.dayScheduleId}:${slot.slotId}`) || '';
         }
-
-        console.error(
-          'Booking confirmation failed:',
-          error,
-        );
-
-        setBookingState(
-          'error',
-        );
-
-        setBookingError(
-          error instanceof
-            Error
-            ? error.message
-            : 'Unable to confirm booking.',
-        );
+        let confirmed: ServerBooking | undefined;
+        if (reference) {
+          const response = await fetch(`/api/bookings?bookingId=${encodeURIComponent(reference)}`, { cache: 'no-store', signal });
+          const data: BookingApiResponse = await response.json();
+          if (signal.aborted) return;
+          if (response.ok && data.booking) {
+            const sameAttendee = !details || attendeeIdentity(data.booking.details) === attendeeIdentity(details);
+            const sameSlot = !slot || data.booking.slotId === slot.slotId && data.booking.dayScheduleId === slot.dayScheduleId;
+            if (data.booking.eventId === eventId && sameAttendee && sameSlot) confirmed = data.booking;
+            else if (requestedReference) throw new Error('This ticket belongs to another event. Open it in My Tickets.');
+          } else if (requestedReference || ![403, 404].includes(response.status)) {
+            throw new Error(data.error || data.message || 'Unable to verify your ticket.');
+          }
+        }
+        if (!confirmed) {
+          if (!intent || !details || !slot) throw new Error('Recover this booking in My Tickets.');
+          setBookingState('creating');
+          const response = await fetch('/api/bookings', {
+            method: 'POST', credentials: 'include', cache: 'no-store', signal,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ eventId, slotId: slot.slotId, dayScheduleId: slot.dayScheduleId, details, idempotencyKey: intent.key }),
+          });
+          const data: BookingApiResponse = await response.json();
+          if (signal.aborted) return;
+          if (!response.ok || !data.success || !data.booking) throw new Error(data.error || data.message || 'Unable to confirm booking.');
+          confirmed = data.booking;
+        }
+        if (signal.aborted) return;
+        setServerBooking(confirmed);
+        setBookingState('ready');
+        setBookingError('');
+        try {
+          if (intent) sessionStorage.setItem(bookingStorage.intent(eventId), JSON.stringify({ ...intent, bookingId: confirmed.bookingId }));
+          if (!requestedReference) {
+            sessionStorage.removeItem(bookingStorage.draft(eventId));
+            sessionStorage.removeItem(bookingStorage.country(eventId));
+          }
+          const cachedTickets = JSON.parse(sessionStorage.getItem(ticketStorage.tickets) || '[]');
+          sessionStorage.setItem(ticketStorage.tickets, JSON.stringify([
+            ...(Array.isArray(cachedTickets) ? cachedTickets.filter(ticket => ticket.bookingId !== confirmed.bookingId) : []), confirmed,
+          ]));
+          // Retain references for existing feedback URLs and earlier browser versions.
+          sessionStorage.setItem(`ssi-server-booking-id:${eventId}:latest`, confirmed.bookingId);
+          sessionStorage.setItem(`ssi-server-booking-mongo-id:${eventId}:latest`, confirmed.id);
+          sessionStorage.setItem(`ssi-server-booking-id:${eventId}:${confirmed.dayScheduleId}:${confirmed.slotId}`, confirmed.bookingId);
+        } catch { /* Cache failure must not hide a confirmed booking. */ }
+      } catch (error) {
+        if (signal.aborted) return;
+        setServerBooking(null);
+        setBookingState('error');
+        setBookingError(error instanceof Error ? error.message : 'Unable to confirm booking. Please retry.');
       }
     }
+    const timer = window.setTimeout(() => { void load(); }, 0);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [eventId, requestedReference, attempt]);
 
-    void start();
-
-    return () => {
-      cancelled =
-        true;
-    };
-  }, [
-    bookingDetails,
-    dataLoaded,
-    restoreOrCreateBooking,
-    slotSelection,
-  ]);
-
-  /* ==========================================================
-     RETRY
-  ========================================================== */
-
-  async function retryBooking() {
-    bookingStartedRef.current =
-      true;
-
-    try {
-      await restoreOrCreateBooking();
-    } catch (error) {
-      console.error(
-        'Booking retry failed:',
-        error,
-      );
-
-      setBookingState(
-        'error',
-      );
-
-      setBookingError(
-        error instanceof
-          Error
-          ? error.message
-          : 'Unable to confirm booking.',
-      );
-    }
+  function retryBooking() {
+    setBookingState('loading');
+    setBookingError('');
+    setAttempt(value => value + 1);
   }
 
-  /* ==========================================================
-     BOOKING COMPLETE ACTIVITY
+  const checkAttendance = useCallback(async () => {
+    if (!bookingId) return;
+    try {
+      const response = await fetch(`/api/bookings?bookingId=${encodeURIComponent(bookingId)}`, { cache: 'no-store' });
+      const data: BookingApiResponse = await response.json();
+      if (response.ok && data.booking) {
+        const updated = data.booking;
+        setServerBooking(current => current?.bookingId === updated.bookingId ? updated : current);
+      }
+    } catch { /* A temporary refresh failure does not erase the verified ticket. */ }
+  }, [bookingId]);
 
-     Track only after MongoDB has confirmed it.
-  ========================================================== */
-
-  const checkAttendance =
-    useCallback(
-      async () => {
-        if (
-          !bookingId
-        ) {
-          return;
-        }
-
-        try {
-          const response =
-            await fetch(
-              `/api/bookings?bookingId=${encodeURIComponent(
-                bookingId,
-              )}`,
-              {
-                method:
-                  'GET',
-                cache:
-                  'no-store',
-              },
-            );
-
-          const data =
-            (await response.json()) as BookingApiResponse;
-
-          if (
-            !response.ok ||
-            !data.success ||
-            !data.booking
-          ) {
-            return;
-          }
-
-          setBookingMongoId(
-            data.booking.id,
-          );
-          setAttendanceStatus(
-            data.booking.attendanceStatus ||
-              'NOT_PRESENT',
-          );
-        } catch {
-          // A transient status refresh failure should not hide a confirmed ticket.
-        }
-      },
-      [
-        bookingId,
-      ],
-    );
-
-
-  /*
-   * Fallback when the realtime socket is disconnected (mobile
-   * sleep, flaky network): re-check when the tab regains focus
-   * and poll lightly until the ticket turns PRESENT.
-   */
   useEffect(() => {
-    if (
-      bookingState !== 'ready' ||
-      !bookingId ||
-      attendanceStatus === 'PRESENT'
-    ) {
-      return;
-    }
-
-    const refreshIfVisible = () => {
-      if (document.visibilityState === 'visible') {
-        void checkAttendance();
-      }
-    };
-
-    const interval = window.setInterval(refreshIfVisible, 5000);
-    document.addEventListener('visibilitychange', refreshIfVisible);
-
-    return () => {
-      window.clearInterval(interval);
-      document.removeEventListener('visibilitychange', refreshIfVisible);
-    };
-  }, [attendanceStatus, bookingId, bookingState, checkAttendance]);
-
-  useRealtimeRefresh(
-    'attendance',
-    () => {
-      if (
-        bookingState ===
-          'ready' &&
-        bookingId
-      ) {
-        void checkAttendance();
-      }
-    },
-  );
-
-  /* ==========================================================
-     FEEDBACK REDIRECT
-
-     Only after MongoDB confirms booking.
-  ========================================================== */
-
-  // No automatic redirect: users open feedback themselves via "Give Feedback".
+    if (bookingState !== 'ready') return;
+    const refresh = () => { if (!document.hidden) void checkAttendance(); };
+    const interval = window.setInterval(refresh, 15000);
+    document.addEventListener('visibilitychange', refresh);
+    return () => { window.clearInterval(interval); document.removeEventListener('visibilitychange', refresh); };
+  }, [bookingState, checkAttendance]);
+  useRealtimeRefresh('attendance', checkAttendance);
+  useRealtimeRefresh('bookings', checkAttendance);
 
   /* ==========================================================
      COMPUTED
@@ -960,7 +227,8 @@ export default function BookingConfirmationPage() {
       bookingMongoId,
     );
 
-  const active =
+  const cancelled = serverBooking?.status === 'CANCELLED';
+  const active = !cancelled &&
     attendanceStatus ===
     'PRESENT';
 
@@ -1020,7 +288,7 @@ export default function BookingConfirmationPage() {
         return slotSelection.date;
       }
 
-      return new Intl.DateTimeFormat(
+      return calendarDateFormatter(
         'en-GB',
         {
           weekday:
@@ -1059,7 +327,7 @@ export default function BookingConfirmationPage() {
         return '—';
       }
 
-      return `${start} – ${end}`;
+      return `${start} – ${end} (${eventTimeZone(slotSelection?.timeZone)})`;
     }, [
       slotSelection,
     ]);
@@ -1243,7 +511,7 @@ export default function BookingConfirmationPage() {
               0,
           }}
           className={`
-            ${bookingReady ? 'max-md:hidden' : ''}
+            ${bookingReady && !cancelled ? 'max-md:hidden' : ''}
             flex
 
             items-center
@@ -1325,10 +593,10 @@ export default function BookingConfirmationPage() {
               "
             >
               {bookingReady
-                ? 'Booking Confirmed!'
+                ? cancelled ? 'Event Cancelled' : 'Booking Confirmed!'
                 : bookingState ===
                     'error'
-                  ? 'Booking Not Confirmed'
+                  ? 'Unable to Verify Booking'
                   : 'Confirming Booking...'}
             </h1>
 
@@ -1345,10 +613,10 @@ export default function BookingConfirmationPage() {
               "
             >
               {bookingReady
-                ? 'Your booking has been saved successfully.'
+                ? cancelled ? 'Booking history is retained. This ticket is not valid for admission.' : 'Your booking has been saved successfully.'
                 : bookingState ===
                     'error'
-                  ? 'Your booking could not be completed.'
+                  ? 'Please retry or recover your ticket in My Tickets.'
                   : 'Saving your registration securely...'}
             </p>
           </div>
@@ -1398,7 +666,7 @@ export default function BookingConfirmationPage() {
               "
             >
               {/* Point the user at the action that can actually fix the error */}
-              {/already have a booking/i.test(bookingError) ? (
+              {/booking already uses|recover|My Tickets/i.test(bookingError) ? (
                 <button
                   type="button"
                   onClick={() =>
@@ -1427,8 +695,6 @@ export default function BookingConfirmationPage() {
                   Choose Another Time
                 </button>
               ) : (
-                bookingDetails &&
-                slotSelection && (
                   <button
                     type="button"
                     onClick={() =>
@@ -1441,7 +707,6 @@ export default function BookingConfirmationPage() {
                   >
                     Try Again
                   </button>
-                )
               )}
 
               <button
@@ -1644,7 +909,7 @@ export default function BookingConfirmationPage() {
                       }
                     `}
                   >
-                    <QRCodeSVG
+                    {cancelled ? <p className="max-w-[170px] font-semibold text-red-700">Event cancelled. Not valid for admission.</p> : (<QRCodeSVG
                       value={
                         qrValue
                       }
@@ -1658,7 +923,7 @@ export default function BookingConfirmationPage() {
                       bgColor="#FFFFFF"
                       fgColor="#000000"
                       className="max-md:h-[136px] max-md:w-[136px]"
-                    />
+                    />)}
                   </div>
 
                   <p
@@ -1678,7 +943,7 @@ export default function BookingConfirmationPage() {
                       text-amber-700
                     "
                   >
-                    Your Entry Pass
+                    {cancelled ? 'Cancelled booking' : 'Your Entry Pass'}
                   </p>
 
                   <p
@@ -1748,7 +1013,7 @@ export default function BookingConfirmationPage() {
                       `}
                     />
 
-                    {active
+                    {cancelled ? 'Cancelled' : active
                       ? 'Checked In'
                       : 'Ready for Venue Scan'}
                   </span>
@@ -1768,7 +1033,7 @@ export default function BookingConfirmationPage() {
                       text-gray-500
                     "
                   >
-                    {active
+                    {cancelled ? 'Contact event staff for assistance.' : active
                       ? 'Attendance verified successfully.'
                       : 'Present this QR code at the venue for attendance verification.'}
                   </p>
@@ -1900,7 +1165,7 @@ export default function BookingConfirmationPage() {
                         `}
                       />
 
-                      {active
+                      {cancelled ? 'Cancelled' : active
                         ? 'Checked in'
                         : 'Ready'}
                     </span>
@@ -2060,7 +1325,7 @@ export default function BookingConfirmationPage() {
                   md:flex
                 "
               >
-                <DownloadButton
+                {!cancelled && (<DownloadButton
                   downloading={
                     downloading
                   }
@@ -2070,7 +1335,7 @@ export default function BookingConfirmationPage() {
                   onClick={
                     handleDownload
                   }
-                />
+                />)}
 
                 <BackButton
                   onClick={() =>
@@ -2120,7 +1385,7 @@ export default function BookingConfirmationPage() {
                     [&>*]:flex-1
                   "
                 >
-                  <DownloadButton
+                  {!cancelled && (<DownloadButton
                     downloading={
                       downloading
                     }
@@ -2130,7 +1395,7 @@ export default function BookingConfirmationPage() {
                     onClick={
                       handleDownload
                     }
-                  />
+                  />)}
 
                   <BackButton
                     onClick={() =>

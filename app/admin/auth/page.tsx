@@ -1,5 +1,13 @@
 'use client';
 
+import { useDialog } from '@/lib/use-dialog';
+
+import { useAdminSession } from '@/components/admin/AdminSessionContext';
+
+import { adminFetch as fetch } from '@/lib/admin-auth';
+
+import { eventDateFormatter, zonedDayStart, calendarDate, DAY_MS, deviceTimeZone } from '@/lib/events/dates';
+
 import { useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -23,10 +31,8 @@ import {
   Check,
 } from 'lucide-react';
 import {
-  getAdminTokenPayload,
   canAdminCreate,
   canAdminDelete,
-  type AdminTokenPayload,
   type AdminPermission,
   type AdminRole,
 } from '@/lib/admin-auth';
@@ -106,7 +112,7 @@ const ACTIVITY_ACTIONS: { id: string; label: string; className: string }[] = [
 const EASE = [0.16, 1, 0.3, 1] as const;
 
 export default function AdminAuthManagementPage() {
-  const [currentUser, setCurrentUser] = useState<AdminTokenPayload | null>(null);
+  const currentUser = useAdminSession();
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -149,6 +155,10 @@ export default function AdminAuthManagementPage() {
   const [savedCredentials, setSavedCredentials] = useState<{ username: string; password: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
+  const editDialog = useDialog(isModalOpen, () => { if (!isSaving) setIsModalOpen(false); }, editingUserId ? 'Edit user' : 'Add user');
+  const credentialsDialog = useDialog(!!savedCredentials, () => setSavedCredentials(null), 'Login details');
+  const deleteDialog = useDialog(!!userToDelete, () => { if (!isDeleting) setUserToDelete(null); }, 'Delete user');
+
   async function copyCredentials() {
     if (!savedCredentials) return;
     try {
@@ -172,9 +182,8 @@ export default function AdminAuthManagementPage() {
   const [logToDate, setLogToDate] = useState('');
 
   useEffect(() => {
-    const payload = getAdminTokenPayload();
-    setCurrentUser(payload);
-    loadUsers();
+    const timer = window.setTimeout(() => { void loadUsers(); }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -189,9 +198,9 @@ export default function AdminAuthManagementPage() {
       const params = new URLSearchParams();
       if (logAdminFilter) params.set('admin', logAdminFilter);
       if (logActionFilter) params.set('action', logActionFilter);
-      // Send local-day boundaries as ISO timestamps so the server's timezone doesn't matter
-      if (logFromDate) params.set('from', new Date(`${logFromDate}T00:00:00`).toISOString());
-      if (logToDate) params.set('to', new Date(`${logToDate}T23:59:59.999`).toISOString());
+      // Send boundaries in the device timezone used to display activity timestamps.
+      if (logFromDate) params.set('from', zonedDayStart(logFromDate, deviceTimeZone()).toISOString());
+      if (logToDate) params.set('to', new Date(zonedDayStart(calendarDate(new Date(new Date(logToDate).getTime() + DAY_MS)), deviceTimeZone()).getTime() - 1).toISOString());
 
       const response = await fetch(`/api/admin/activity?${params.toString()}`);
       const data = await response.json();
@@ -496,6 +505,7 @@ export default function AdminAuthManagementPage() {
           <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
+            aria-label="Search users"
             placeholder="Search by name or @username..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -505,7 +515,7 @@ export default function AdminAuthManagementPage() {
 
         <div className="flex flex-wrap items-center gap-2">
           {/* Privilege filter */}
-          <select
+          <select aria-label="Filter users by privileges"
             value={privilegeFilter}
             onChange={(e) => setPrivilegeFilter(e.target.value as 'all' | 'view_only' | 'can_create' | 'can_delete')}
             className="h-9 rounded-xl border border-gray-200 bg-[#F6F8FB] px-3 text-xs font-semibold text-secondary outline-none transition focus:border-primary/50 focus:bg-white"
@@ -517,7 +527,7 @@ export default function AdminAuthManagementPage() {
           </select>
 
           {/* Role filter */}
-          <select
+          <select aria-label="Filter users by role"
             value={roleFilter}
             onChange={(e) => setRoleFilter(e.target.value as 'all' | AdminRole)}
             className="h-9 rounded-xl border border-gray-200 bg-[#F6F8FB] px-3 text-xs font-semibold text-secondary outline-none transition focus:border-primary/50 focus:bg-white"
@@ -704,7 +714,7 @@ export default function AdminAuthManagementPage() {
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-2 rounded-2xl border border-gray-200/90 bg-white p-3.5 shadow-sm">
-          <select
+          <select aria-label="Filter activity by admin"
             value={logAdminFilter}
             onChange={(e) => setLogAdminFilter(e.target.value)}
             className="h-9 rounded-xl border border-gray-200 bg-[#F6F8FB] px-3 text-xs font-semibold text-secondary outline-none transition focus:border-primary/50 focus:bg-white"
@@ -717,7 +727,7 @@ export default function AdminAuthManagementPage() {
             ))}
           </select>
 
-          <select
+          <select aria-label="Filter activity by action"
             value={logActionFilter}
             onChange={(e) => setLogActionFilter(e.target.value)}
             className="h-9 rounded-xl border border-gray-200 bg-[#F6F8FB] px-3 text-xs font-semibold text-secondary outline-none transition focus:border-primary/50 focus:bg-white"
@@ -798,7 +808,7 @@ export default function AdminAuthManagementPage() {
                     return (
                       <tr key={log._id} className="hover:bg-gray-50/70">
                         <td className="whitespace-nowrap px-4 py-2.5 text-gray-500">
-                          {new Date(log.createdAt).toLocaleString()}
+                          {eventDateFormatter('en-IN', { dateStyle: 'medium', timeStyle: 'long' }).format(new Date(log.createdAt))}
                         </td>
                         <td className="whitespace-nowrap px-4 py-2.5 font-semibold text-secondary">
                           @{log.admin}
@@ -828,7 +838,7 @@ export default function AdminAuthManagementPage() {
       ============================================================ */}
       <AnimatePresence>
         {isModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div {...editDialog} className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -853,6 +863,7 @@ export default function AdminAuthManagementPage() {
                 </div>
                 <button
                   type="button"
+                  aria-label="Close user dialog"
                   onClick={() => setIsModalOpen(false)}
                   className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-secondary"
                 >
@@ -870,10 +881,10 @@ export default function AdminAuthManagementPage() {
                 {/* Full Name & Username */}
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-[0.08em] text-secondary/70">
+                    <label htmlFor="user-full-name" className="block text-[11px] font-bold uppercase tracking-[0.08em] text-secondary/70">
                       Full Name
                     </label>
-                    <input
+                    <input id="user-full-name"
                       type="text"
                       required
                       placeholder="e.g. Puneet Shukla"
@@ -884,10 +895,10 @@ export default function AdminAuthManagementPage() {
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-[0.08em] text-secondary/70">
+                    <label htmlFor="user-username" className="block text-[11px] font-bold uppercase tracking-[0.08em] text-secondary/70">
                       Login ID / Username
                     </label>
-                    <input
+                    <input id="user-username"
                       type="text"
                       required
                       placeholder="e.g. puneet"
@@ -906,7 +917,7 @@ export default function AdminAuthManagementPage() {
                 {/* Password */}
                 <div>
                   <div className="flex items-center justify-between">
-                    <label className="block text-[11px] font-bold uppercase tracking-[0.08em] text-secondary/70">
+                    <label htmlFor="user-password" className="block text-[11px] font-bold uppercase tracking-[0.08em] text-secondary/70">
                       {editingUserId ? 'New Password (optional)' : 'Password'}
                     </label>
                     <button
@@ -918,7 +929,7 @@ export default function AdminAuthManagementPage() {
                     </button>
                   </div>
                   <div className="relative mt-1">
-                    <input
+                    <input id="user-password"
                       type={showPassword ? 'text' : 'password'}
                       required={!editingUserId}
                       placeholder={editingUserId ? 'Enter a new password to change it' : 'Min 6 characters'}
@@ -928,6 +939,7 @@ export default function AdminAuthManagementPage() {
                     />
                     <button
                       type="button"
+                      aria-label={showPassword ? "Hide password" : "Show password"}
                       onClick={() => setShowPassword(!showPassword)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-secondary"
                     >
@@ -938,14 +950,15 @@ export default function AdminAuthManagementPage() {
 
                 {/* Role */}
                 <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-[0.08em] text-secondary/70">
+                  <p id="user-role-label" className="block text-[11px] font-bold uppercase tracking-[0.08em] text-secondary/70">
                     User Role
-                  </label>
-                  <div className="mt-1 grid grid-cols-2 gap-2">
+                  </p>
+                  <div role="group" aria-labelledby="user-role-label" className="mt-1 grid grid-cols-2 gap-2">
                     {(['admin', 'staff'] as AdminRole[]).map((r) => (
                       <button
                         key={r}
                         type="button"
+                        aria-pressed={formData.role === r}
                         onClick={() => handleRoleChange(r)}
                         className={`rounded-xl border py-2 text-xs font-semibold capitalize transition ${
                           formData.role === r
@@ -995,6 +1008,7 @@ export default function AdminAuthManagementPage() {
                         </div>
                         <button
                           type="button"
+                          role="switch" aria-label="Can create and edit" aria-checked={formData.canCreate}
                           onClick={() => setFormData({ ...formData, canCreate: !formData.canCreate })}
                           className={`relative flex h-5 w-10 shrink-0 items-center rounded-full transition-colors ${
                             formData.canCreate ? 'bg-primary' : 'bg-gray-300'
@@ -1018,6 +1032,7 @@ export default function AdminAuthManagementPage() {
                         </div>
                         <button
                           type="button"
+                          role="switch" aria-label="Can delete" aria-checked={formData.canDelete}
                           onClick={() => setFormData({ ...formData, canDelete: !formData.canDelete })}
                           className={`relative flex h-5 w-10 shrink-0 items-center rounded-full transition-colors ${
                             formData.canDelete ? 'bg-primary' : 'bg-gray-300'
@@ -1039,9 +1054,9 @@ export default function AdminAuthManagementPage() {
                 ============================================================ */}
                 <div>
                   <div className="flex items-center justify-between">
-                    <label className="block text-[11px] font-bold uppercase tracking-[0.08em] text-secondary/70">
+                    <p className="block text-[11px] font-bold uppercase tracking-[0.08em] text-secondary/70">
                       Page access
-                    </label>
+                    </p>
                     {formData.role !== 'superadmin' && (
                       <div className="flex items-center gap-2">
                         <button
@@ -1121,6 +1136,7 @@ export default function AdminAuthManagementPage() {
                   </div>
                   <button
                     type="button"
+                    role="switch" aria-label="Account active" aria-checked={formData.isActive}
                     onClick={() => setFormData({ ...formData, isActive: !formData.isActive })}
                     className={`relative flex h-5 w-10 shrink-0 items-center rounded-full transition-colors ${
                       formData.isActive ? 'bg-primary' : 'bg-gray-300'
@@ -1165,7 +1181,7 @@ export default function AdminAuthManagementPage() {
           LOGIN DETAILS (shown once)
       ============================================================ */}
       {savedCredentials && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div {...credentialsDialog} className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
             onClick={() => setSavedCredentials(null)}
             className="absolute inset-0 bg-[#07151F]/45"
@@ -1212,7 +1228,7 @@ export default function AdminAuthManagementPage() {
       ============================================================ */}
       <AnimatePresence>
         {userToDelete && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div {...deleteDialog} className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}

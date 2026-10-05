@@ -1,343 +1,75 @@
-import {
-  NextRequest,
-  NextResponse,
-} from 'next/server';
-
-import crypto from 'node:crypto';
-
+import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'node:crypto';
+import mongoose from 'mongoose';
 import { connectDB } from '@/lib/db';
-
-import {
-  Feedback,
-  type FeedbackScope,
-} from '@/models/Feedback';
+import { Feedback, type FeedbackScope } from '@/models/Feedback';
+import { Booking } from '@/models/Booking';
+import { Event } from '@/models/Event';
+import { hasBookingAccess } from '@/lib/bookings/access';
+import { BookingError } from '@/lib/bookings/mutations';
+import { emitRealtimeChange } from '@/lib/realtime';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
-
 const SESSION_COOKIE = 'ssimaya_session_id';
-
-type FeedbackRequest = {
-  scope?: unknown;
-  eventId?: unknown;
-  rating?: unknown;
-  message?: unknown;
-  suggestedFeature?: unknown;
-  bookingId?: unknown;
-  bookingMongoId?: unknown;
-};
-
-function getSessionId(request: NextRequest) {
-  return (
-    request.cookies.get(SESSION_COOKIE)?.value ||
-    crypto.randomUUID()
-  );
-}
-
-function applyCookie(
-  response: NextResponse,
-  sessionId: string,
-) {
-  response.cookies.set({
-    name: SESSION_COOKIE,
-    value: sessionId,
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    path: '/',
-    maxAge: 60 * 60 * 24 * 30,
-  });
-
+const text = (value: unknown) => typeof value === 'string' ? value.trim() : '';
+function sessionId(request: NextRequest) { return request.cookies.get(SESSION_COOKIE)?.value || randomUUID(); }
+function reply(session: string, body: Record<string, unknown>, status = 200) {
+  const response = NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
+  response.cookies.set(SESSION_COOKIE, session, { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/', maxAge: 2592000 });
   return response;
 }
-
-/* ============================================================
-   POST  —  Submit feedback
-============================================================ */
-
-export async function POST(
-  request: NextRequest,
-) {
-  const sessionId = getSessionId(request);
-
+async function identity(request: NextRequest, input: Record<string, unknown>) {
+  const scope = text(input.scope) as FeedbackScope;
+  if (scope !== 'application' && scope !== 'event') throw new BookingError(400, 'Invalid feedback scope.');
+  if (scope === 'application') return { scope }; // General app feedback never identifies an attendee.
+  const eventId = text(input.eventId), bookingId = text(input.bookingId).toUpperCase();
+  if (!mongoose.Types.ObjectId.isValid(eventId) || !bookingId) throw new BookingError(400, 'Select a ticket in My Tickets before leaving event feedback.');
+  if (!hasBookingAccess(request, bookingId)) throw new BookingError(403, 'Recover this ticket in My Tickets before leaving event feedback.');
+  const booking = await Booking.findOne({ bookingId, eventId }).select('_id eventId bookingId').lean();
+  if (!booking || !await Event.exists({ _id: eventId })) throw new BookingError(404, 'The ticket does not belong to this event or is no longer available.');
+  if (input.bookingMongoId && text(input.bookingMongoId) !== String(booking._id)) throw new BookingError(400, 'The booking identifiers do not match.');
+  return { scope, eventId, bookingId: booking.bookingId, bookingMongoId: String(booking._id) };
+}
+function duplicateMessage(scope: FeedbackScope) {
+  return scope === 'application' ? 'You have already submitted application feedback.' : 'You have already submitted feedback for this event.';
+}
+export async function POST(request: NextRequest) {
+  const session = sessionId(request);
   try {
-    const body =
-      (await request.json()) as FeedbackRequest;
-
-    /* ---- Validate scope ---- */
-
-    const scope = String(
-      body.scope || '',
-    ) as FeedbackScope;
-
-    if (
-      scope !== 'application' &&
-      scope !== 'event'
-    ) {
-      return applyCookie(
-        NextResponse.json(
-          {
-            success: false,
-            error: 'Invalid feedback scope.',
-          },
-          { status: 400 },
-        ),
-        sessionId,
-      );
-    }
-
-    /* ---- Validate rating ---- */
-
-    const rating = Number(body.rating);
-
-    if (
-      !Number.isInteger(rating) ||
-      rating < 1 ||
-      rating > 5
-    ) {
-      return applyCookie(
-        NextResponse.json(
-          {
-            success: false,
-            error:
-              'Rating must be an integer between 1 and 5.',
-          },
-          { status: 400 },
-        ),
-        sessionId,
-      );
-    }
-
-    /* ---- Validate eventId for event scope ---- */
-
-    const eventId = body.eventId
-      ? String(body.eventId).trim()
-      : undefined;
-
-    if (scope === 'event' && !eventId) {
-      return applyCookie(
-        NextResponse.json(
-          {
-            success: false,
-            error:
-              'Event ID is required for event feedback.',
-          },
-          { status: 400 },
-        ),
-        sessionId,
-      );
-    }
-
-    /* ---- Optional fields ---- */
-
-    const message =
-      typeof body.message === 'string'
-        ? body.message.trim().slice(0, 500)
-        : undefined;
-
-    const suggestedFeature =
-      typeof body.suggestedFeature === 'string'
-        ? body.suggestedFeature
-            .trim()
-            .slice(0, 200)
-        : undefined;
-
-    const bookingId =
-      typeof body.bookingId === 'string'
-        ? body.bookingId.trim()
-        : undefined;
-
-    const bookingMongoId =
-      typeof body.bookingMongoId === 'string'
-        ? body.bookingMongoId.trim()
-        : undefined;
-
+    const input = await request.json();
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BookingError(400, 'Invalid feedback request.');
+    const rating = Number(input.rating);
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) throw new BookingError(400, 'Rating must be an integer between 1 and 5.');
     await connectDB();
-
-    /* ---- Pre-check for duplicate submission ---- */
-
-    const existing = await Feedback.findOne({
-      sessionId,
-      scope,
-      ...(scope === 'event' ? { eventId } : {}),
-    })
-      .select({ _id: 1 })
-      .lean();
-
-    if (existing) {
-      return applyCookie(
-        NextResponse.json(
-          {
-            success: false,
-            duplicate: true,
-            error:
-              scope === 'application'
-                ? 'You have already submitted application feedback.'
-                : 'You have already submitted feedback for this event.',
-          },
-          { status: 409 },
-        ),
-        sessionId,
-      );
-    }
-
-    /* ---- Insert with duplicate prevention via index ---- */
-
+    const verified = await identity(request, input);
+    const query = { sessionId: session, scope: verified.scope, ...(verified.eventId ? { eventId: verified.eventId } : {}) };
+    if (await Feedback.exists(query)) return reply(session, { success: false, duplicate: true, error: duplicateMessage(verified.scope) }, 409);
     try {
-      await Feedback.create({
-        sessionId,
-        scope,
-        eventId:
-          scope === 'event'
-            ? eventId
-            : undefined,
-        rating,
-        message,
-        suggestedFeature,
-        bookingId,
-        bookingMongoId,
-        submittedAt: new Date(),
-      });
+      await Feedback.create({ sessionId: session, ...verified, rating, message: text(input.message).slice(0, 500),
+        suggestedFeature: text(input.suggestedFeature).slice(0, 200), submittedAt: new Date() });
     } catch (error) {
-      if (
-        error &&
-        typeof error === 'object' &&
-        'code' in error &&
-        error.code === 11000
-      ) {
-        return applyCookie(
-          NextResponse.json(
-            {
-              success: false,
-              duplicate: true,
-              error:
-                scope === 'application'
-                  ? 'You have already submitted application feedback.'
-                  : 'You have already submitted feedback for this event.',
-            },
-            { status: 409 },
-          ),
-          sessionId,
-        );
+      if (error && typeof error === 'object' && 'code' in error && error.code === 11000) {
+        return reply(session, { success: false, duplicate: true, error: duplicateMessage(verified.scope) }, 409);
       }
-
       throw error;
     }
-
-    return applyCookie(
-      NextResponse.json({
-        success: true,
-        sessionId,
-      }),
-      sessionId,
-    );
+    emitRealtimeChange({ resource: 'bookings', action: 'updated', id: verified.eventId });
+    return reply(session, { success: true });
   } catch (error) {
-    console.error(
-      'Failed to submit feedback:',
-      error,
-    );
-
-    return applyCookie(
-      NextResponse.json(
-        {
-          success: false,
-          error:
-            'Unable to submit feedback.',
-        },
-        { status: 500 },
-      ),
-      sessionId,
-    );
+    if (!(error instanceof BookingError)) console.error('Feedback submission failed:', error);
+    return reply(session, { success: false, error: error instanceof BookingError ? error.message : 'Unable to submit feedback. Please retry.' }, error instanceof BookingError ? error.status : 500);
   }
 }
-
-/* ============================================================
-   GET  —  Check if feedback already submitted
-============================================================ */
-
-export async function GET(
-  request: NextRequest,
-) {
-  const sessionId = getSessionId(request);
-
+export async function GET(request: NextRequest) {
+  const session = sessionId(request);
   try {
-    const url = new URL(request.url);
-    const scope = url.searchParams.get(
-      'scope',
-    ) as FeedbackScope | null;
-    const eventId =
-      url.searchParams.get('eventId');
-
-    if (
-      scope !== 'application' &&
-      scope !== 'event'
-    ) {
-      return applyCookie(
-        NextResponse.json(
-          {
-            success: false,
-            error: 'Invalid scope.',
-          },
-          { status: 400 },
-        ),
-        sessionId,
-      );
-    }
-
-    if (scope === 'event' && !eventId) {
-      return applyCookie(
-        NextResponse.json(
-          {
-            success: false,
-            error:
-              'Event ID is required for event feedback.',
-          },
-          { status: 400 },
-        ),
-        sessionId,
-      );
-    }
-
     await connectDB();
-
-    const query: Record<string, unknown> =
-      {
-        sessionId,
-        scope,
-      };
-
-    if (scope === 'event') {
-      query.eventId = eventId;
-    }
-
-    const existing =
-      await Feedback.findOne(query)
-        .select({ _id: 1 })
-        .lean();
-
-    return applyCookie(
-      NextResponse.json({
-        success: true,
-        submitted: Boolean(existing),
-      }),
-      sessionId,
-    );
+    const verified = await identity(request, Object.fromEntries(request.nextUrl.searchParams));
+    const submitted = await Feedback.exists({ sessionId: session, scope: verified.scope, ...(verified.eventId ? { eventId: verified.eventId } : {}) });
+    return reply(session, { success: true, submitted: Boolean(submitted) });
   } catch (error) {
-    console.error(
-      'Failed to check feedback status:',
-      error,
-    );
-
-    return applyCookie(
-      NextResponse.json(
-        {
-          success: false,
-          error:
-            'Unable to check feedback status.',
-        },
-        { status: 500 },
-      ),
-      sessionId,
-    );
+    if (!(error instanceof BookingError)) console.error('Feedback status failed:', error);
+    return reply(session, { success: false, error: error instanceof BookingError ? error.message : 'Unable to check feedback status. Please retry.' }, error instanceof BookingError ? error.status : 500);
   }
 }

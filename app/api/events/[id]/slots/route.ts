@@ -1,3 +1,4 @@
+import { eventTimeZone } from '@/lib/events/dates';
 import {
   NextRequest,
   NextResponse,
@@ -8,7 +9,7 @@ import mongoose from 'mongoose';
 import { connectDB } from '@/lib/db';
 
 import { Event } from '@/models/Event';
-import { hasSlotEnded } from '@/lib/events/status';
+import { hasSlotEnded, getEventStatus } from '@/lib/events/status';
 
 import {
   DaySchedule,
@@ -66,7 +67,7 @@ export async function GET(
             'venue',
             'description',
             'startDate',
-            'endDate',
+            'endDate', 'timeZone',
             'status',
             'imageUrl',
           ].join(' '),
@@ -202,12 +203,12 @@ export async function GET(
 
                     ended:
 
-                      hasSlotEnded(schedule.date, slot.endTime),
+                      hasSlotEnded(schedule.date, slot.endTime, new Date(), event.timeZone),
 
 
                     available:
-                      remaining > 0 &&
-                      !hasSlotEnded(schedule.date, slot.endTime),
+                      event.status !== 'CANCELLED' && remaining > 0 &&
+                      !hasSlotEnded(schedule.date, slot.endTime, new Date(), event.timeZone),
                   };
                 },
               ),
@@ -220,6 +221,7 @@ export async function GET(
         success: true,
 
         event: {
+          timeZone: eventTimeZone(event.timeZone),
           _id:
             event._id.toString(),
 
@@ -239,7 +241,7 @@ export async function GET(
             event.endDate,
 
           status:
-            event.status,
+            getEventStatus(event.startDate, event.endDate, new Date(), event.timeZone, event.status),
         },
 
         days,

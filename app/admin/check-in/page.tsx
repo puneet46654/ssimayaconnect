@@ -1,5 +1,10 @@
 'use client';
 
+import { adminFetch as fetch } from '@/lib/admin-auth';
+
+import { eventDateFormatter, eventTimeZone } from '@/lib/events/dates';
+import { startQrScanner } from '@/lib/qr-scanner';
+
 import type {
   FormEvent,
 } from 'react';
@@ -11,9 +16,6 @@ import {
   useState,
 } from 'react';
 
-import {
-  BrowserQRCodeReader,
-} from '@zxing/browser';
 
 import {
   AnimatePresence,
@@ -33,6 +35,7 @@ type LiveEvent = {
   venue?: string;
   startDate?: string;
   endDate?: string;
+  timeZone?: string;
 };
 
 type AttendanceStats = {
@@ -113,21 +116,6 @@ type ScannerState =
   | 'processing'
   | 'error';
 
-type NativeBarcodeDetector = {
-  detect: (
-    source: HTMLVideoElement,
-  ) => Promise<
-    Array<{
-      rawValue?: string;
-    }>
-  >;
-};
-
-type NativeBarcodeDetectorConstructor =
-  new (options?: {
-    formats?: string[];
-  }) => NativeBarcodeDetector;
-
 /* ============================================================
    CONSTANTS
 ============================================================ */
@@ -152,1078 +140,173 @@ const EMPTY_STATS:
 ============================================================ */
 
 export default function CheckInPage() {
-  const videoRef =
-    useRef<HTMLVideoElement | null>(
-      null,
-    );
-
-  const controlsRef =
-    useRef<{
-      stop: () => void;
-    } | null>(
-      null,
-    );
-
-  const nativeScanRef =
-    useRef<{
-      frame: number | null;
-      cancelled: boolean;
-    } | null>(null);
-
-  const processingRef =
-    useRef(false);
-
-  const lastScanRef =
-    useRef<{
-      text: string;
-      time: number;
-    } | null>(
-      null,
-    );
-
-  /* ==========================================================
-     EVENT STATE
-  ========================================================== */
-
-  const [
-    events,
-    setEvents,
-  ] =
-    useState<LiveEvent[]>(
-      [],
-    );
-
-  const [
-    selectedEventId,
-    setSelectedEventId,
-  ] = useState('');
-
-  const [
-    eventsLoading,
-    setEventsLoading,
-  ] = useState(true);
-
-  /* ==========================================================
-     ATTENDANCE STATE
-  ========================================================== */
-
-  const [
-    stats,
-    setStats,
-  ] =
-    useState<AttendanceStats>(
-      EMPTY_STATS,
-    );
-
-  const [
-    recent,
-    setRecent,
-  ] =
-    useState<RecentScan[]>(
-      [],
-    );
-
-  const [
-    dashboardLoading,
-    setDashboardLoading,
-  ] = useState(false);
-
-  /* ==========================================================
-     SCANNER STATE
-  ========================================================== */
-
-  const [
-    scannerState,
-    setScannerState,
-  ] =
-    useState<ScannerState>(
-      'idle',
-    );
-
-  const [
-    scannerText,
-    setScannerText,
-  ] =
-    useState(
-      'Select a live event to begin scanning.',
-    );
-
-  /* ==========================================================
-     MANUAL
-  ========================================================== */
-
-  const [
-    manualBookingId,
-    setManualBookingId,
-  ] = useState('');
-
-  const [
-    manualLoading,
-    setManualLoading,
-  ] = useState(false);
-
-  /* ==========================================================
-     RESULT
-  ========================================================== */
-
-  const [
-    scanMessage,
-    setScanMessage,
-  ] =
-    useState<ScanMessage | null>(
-      null,
-    );
-
-  /* ==========================================================
-     STOP CAMERA
-  ========================================================== */
-
-  const stopCamera =
-    useCallback(() => {
-      if (
-        nativeScanRef.current
-      ) {
-        nativeScanRef.current.cancelled =
-          true;
-
-        if (
-          nativeScanRef.current.frame !==
-          null
-        ) {
-          window.cancelAnimationFrame(
-            nativeScanRef.current.frame,
-          );
-        }
-
-        nativeScanRef.current =
-          null;
-      }
-
-      if (
-        controlsRef.current
-      ) {
-        try {
-          controlsRef.current.stop();
-        } catch {
-          // Scanner is already stopped.
-        }
-
-        controlsRef.current =
-          null;
-      }
-
-      const video =
-        videoRef.current;
-
-      if (
-        video?.srcObject
-      ) {
-        const stream =
-          video.srcObject as MediaStream;
-
-        stream
-          .getTracks()
-          .forEach(
-            (
-              track,
-            ) =>
-              track.stop(),
-          );
-
-        video.srcObject =
-          null;
-      }
-    }, []);
-
-  /* ==========================================================
-     LOAD LIVE EVENTS
-  ========================================================== */
-
-  const loadLiveEvents =
-    useCallback(
-      async () => {
-        setEventsLoading(
-          true,
-        );
-
-        try {
-          const response =
-            await fetch(
-              '/api/admin/attendance',
-              {
-                method:
-                  'GET',
-
-                credentials:
-                  'include',
-
-                cache:
-                  'no-store',
-              },
-            );
-
-          const data =
-            (await response.json()) as DashboardResponse;
-
-          if (
-            !response.ok ||
-            !data.success
-          ) {
-            throw new Error(
-              data.message ||
-                'Unable to load live events.',
-            );
-          }
-
-          const nextEvents =
-            data.events ??
-            [];
-
-          setEvents(
-            nextEvents,
-          );
-
-          setSelectedEventId(
-            (
-              current,
-            ) => {
-              if (
-                current &&
-                nextEvents.some(
-                  (
-                    event,
-                  ) =>
-                    event.id ===
-                    current,
-                )
-              ) {
-                return current;
-              }
-
-              return (
-                nextEvents[0]
-                  ?.id ??
-                ''
-              );
-            },
-          );
-        } catch (error) {
-          console.error(
-            'Live events error:',
-            error,
-          );
-
-          setScanMessage({
-            type:
-              'error',
-
-            title:
-              'Unable to load events',
-
-            message:
-              error instanceof
-                Error
-                ? error.message
-                : 'Unable to load live events.',
-          });
-        } finally {
-          setEventsLoading(
-            false,
-          );
-        }
-      },
-      [],
-    );
-
-  useRealtimeRefresh(
-    'attendance',
-    () => {
-      if (selectedEventId) {
-        void loadAttendance(
-          selectedEventId,
-          true,
-        );
-      }
-    },
-  );
-
-  /* ==========================================================
-     LOAD EVENT ATTENDANCE
-  ========================================================== */
-
-  const loadAttendance =
-    useCallback(
-      async (
-        eventId: string,
-        quiet = false,
-      ) => {
-        if (!eventId) {
-          setStats(
-            EMPTY_STATS,
-          );
-
-          setRecent(
-            [],
-          );
-
-          return;
-        }
-
-        if (!quiet) {
-          setDashboardLoading(
-            true,
-          );
-        }
-
-        try {
-          const response =
-            await fetch(
-              `/api/admin/attendance?eventId=${encodeURIComponent(
-                eventId,
-              )}`,
-              {
-                method:
-                  'GET',
-
-                credentials:
-                  'include',
-
-                cache:
-                  'no-store',
-              },
-            );
-
-          const data =
-            (await response.json()) as DashboardResponse;
-
-          if (
-            !response.ok ||
-            !data.success
-          ) {
-            throw new Error(
-              data.message ||
-                'Unable to load attendance.',
-            );
-          }
-
-          setStats(
-            data.stats ??
-              EMPTY_STATS,
-          );
-
-          setRecent(
-            data.recent ??
-              [],
-          );
-
-          if (
-            data.events
-          ) {
-            setEvents(
-              data.events,
-            );
-          }
-        } catch (error) {
-          console.error(
-            'Attendance error:',
-            error,
-          );
-
-          if (!quiet) {
-            setScanMessage({
-              type:
-                'error',
-
-              title:
-                'Attendance unavailable',
-
-              message:
-                error instanceof
-                  Error
-                  ? error.message
-                  : 'Unable to load attendance.',
-            });
-          }
-        } finally {
-          if (!quiet) {
-            setDashboardLoading(
-              false,
-            );
-          }
-        }
-      },
-      [],
-    );
-
-  /* ==========================================================
-     INITIAL EVENTS
-  ========================================================== */
-
-  useEffect(() => {
-    const timer =
-      window.setTimeout(() => {
-        void loadLiveEvents();
-      }, 0);
-
-    return () => {
-      window.clearTimeout(
-        timer,
-      );
-    };
-  }, [
-    loadLiveEvents,
-  ]);
-
-  /* ==========================================================
-     ATTENDANCE POLLING
-  ========================================================== */
-
-  useEffect(() => {
-    if (
-      !selectedEventId
-    ) {
-      const timer =
-        window.setTimeout(() => {
-          setStats(
-            EMPTY_STATS,
-          );
-
-          setRecent(
-            [],
-          );
-        }, 0);
-
-      return () => {
-        window.clearTimeout(
-          timer,
-        );
-      };
-    }
-
-    const initialLoadId =
-      window.setTimeout(() => {
-        void loadAttendance(
-          selectedEventId,
-        );
-      }, 0);
-
-    const interval =
-      window.setInterval(
-        () => {
-          void loadAttendance(
-            selectedEventId,
-            true,
-          );
-        },
-        5000,
-      );
-
-    return () => {
-      window.clearTimeout(
-        initialLoadId,
-      );
-      window.clearInterval(
-        interval,
-      );
-    };
-  }, [
-    selectedEventId,
-    loadAttendance,
-  ]);
-
-  /* ==========================================================
-     CHECK IN REQUEST
-  ========================================================== */
-
-  const checkIn =
-    useCallback(
-      async ({
-        code,
-        bookingId,
-        method,
-      }: {
-        code?: string;
-
-        bookingId?: string;
-
-        method:
-          | 'QR'
-          | 'MANUAL';
-      }) => {
-        if (
-          !selectedEventId
-        ) {
-          throw new Error(
-            'Select a live event before checking in an attendee.',
-          );
-        }
-
-        const response =
-          await fetch(
-            '/api/admin/attendance',
-            {
-              method:
-                'POST',
-
-              credentials:
-                'include',
-
-              headers: {
-                'Content-Type':
-                  'application/json',
-              },
-
-              body:
-                JSON.stringify({
-                  eventId:
-                    selectedEventId,
-
-                  code,
-
-                  bookingId,
-
-                  method,
-                }),
-            },
-          );
-
-        const data =
-          (await response.json()) as CheckInResponse;
-
-        if (
-          !response.ok ||
-          !data.success
-        ) {
-          throw new Error(
-            data.message ||
-              'Unable to record attendance.',
-          );
-        }
-
-        if (
-          data.alreadyPresent
-        ) {
-          setScanMessage({
-            type:
-              'success',
-
-            title:
-              'Ticket verified',
-
-            message:
-              'This ticket is valid. Attendance was already recorded.',
-
-            bookingId:
-              data.booking
-                ?.bookingId,
-
-            fullName:
-              data.booking
-                ?.fullName,
-          });
-        } else {
-          setScanMessage({
-            type:
-              'success',
-
-            title:
-              'Marked Present',
-
-            message:
-              'Ticket verified and attendance recorded successfully.',
-
-            bookingId:
-              data.booking
-                ?.bookingId,
-
-            fullName:
-              data.booking
-                ?.fullName,
-          });
-        }
-
-        await loadAttendance(
-          selectedEventId,
-          true,
-        );
-
-        /* ==========================================================
-           PHONE HAPTIC FEEDBACK
-           Vibrates only after database verification succeeds.
-        ========================================================== */
-
-        if (
-          typeof navigator !== 'undefined' &&
-          'vibrate' in navigator
-        ) {
-          if (data.alreadyPresent) {
-            // Short vibration = valid ticket, already checked in
-            navigator.vibrate([
-              80,
-              60,
-              80,
-            ]);
-          } else {
-            // Strong success vibration = booking matched + marked present
-            navigator.vibrate([
-              120,
-              70,
-              180,
-            ]);
-          }
-        }
-
-        return data;
-      },
-      [
-        selectedEventId,
-        loadAttendance,
-      ],
-    );
-
-  /* ==========================================================
-     QR PROCESSING
-  ========================================================== */
-
-  const processQr =
-    useCallback(
-      async (
-        text: string,
-      ) => {
-        if (
-          !text ||
-          processingRef.current
-        ) {
-          return;
-        }
-
-        const now =
-          Date.now();
-
-        const previous =
-          lastScanRef.current;
-
-        if (
-          previous &&
-          previous.text ===
-            text &&
-          now -
-            previous.time <
-            3500
-        ) {
-          return;
-        }
-
-        lastScanRef.current =
-          {
-            text,
-            time:
-              now,
-          };
-
-        processingRef.current =
-          true;
-
-        setScannerState(
-          'processing',
-        );
-
-        setScannerText(
-          'Verifying ticket...',
-        );
-
-        try {
-          await checkIn({
-            code:
-              text,
-
-            method:
-              'QR',
-          });
-
-          setScannerState(
-            'scanning',
-          );
-
-          setScannerText(
-            'Ready for the next ticket',
-          );
-        } catch (error) {
-          setScanMessage({
-            type:
-              'error',
-
-            title:
-              'Ticket not accepted',
-
-            message:
-              error instanceof
-                Error
-                ? error.message
-                : 'Unable to verify ticket.',
-          });
-
-          setScannerState(
-            'scanning',
-          );
-
-          setScannerText(
-            'Ready to scan again',
-          );
-        } finally {
-          window.setTimeout(
-            () => {
-              processingRef.current =
-                false;
-            },
-            900,
-          );
-        }
-      },
-      [
-        checkIn,
-      ],
-    );
-
-  /* ==========================================================
-     START CAMERA
-  ========================================================== */
-
-  const startCamera =
-    useCallback(
-      async () => {
-        if (
-          !selectedEventId
-        ) {
-          const timer =
-            window.setTimeout(() => {
-              setScannerState(
-                'idle',
-              );
-
-              setScannerText(
-                'Select a live event to begin scanning.',
-              );
-            }, 0);
-
-          return () => {
-            window.clearTimeout(
-              timer,
-            );
-
-            stopCamera();
-          };
-        }
-
-        if (
-          !videoRef.current
-        ) {
-          return;
-        }
-
-        stopCamera();
-
-        setScannerState(
-          'starting',
-        );
-
-        setScannerText(
-          'Starting camera...',
-        );
-
-        try {
-          const NativeDetector =
-            (
-              window as Window & {
-                BarcodeDetector?: NativeBarcodeDetectorConstructor;
-              }
-            ).BarcodeDetector;
-
-          if (NativeDetector) {
-            const stream =
-              await navigator.mediaDevices.getUserMedia({
-                audio: false,
-                video: {
-                  facingMode: {
-                    ideal: 'environment',
-                  },
-                  width: {
-                    ideal: 1280,
-                  },
-                  height: {
-                    ideal: 720,
-                  },
-                  focusMode: 'continuous',
-                } as MediaTrackConstraints,
-              });
-
-            const video =
-              videoRef.current;
-
-            if (!video) {
-              stream
-                .getTracks()
-                .forEach((track) =>
-                  track.stop(),
-                );
-              return;
-            }
-
-            video.srcObject = stream;
-            await video.play();
-
-            const detector =
-              new NativeDetector({
-                formats: ['qr_code'],
-              });
-
-            const nativeScan = {
-              frame: null as number | null,
-              cancelled: false,
-            };
-
-            nativeScanRef.current =
-              nativeScan;
-
-            const scanFrame = async () => {
-              if (
-                nativeScan.cancelled ||
-                !videoRef.current
-              ) {
-                return;
-              }
-
-              try {
-                const results =
-                  await detector.detect(
-                    videoRef.current,
-                  );
-
-                const text =
-                  results[0]?.rawValue;
-
-                if (text) {
-                  void processQr(text);
-                }
-              } catch (error) {
-                console.error(
-                  'Native QR detection error:',
-                  error,
-                );
-              } finally {
-                if (
-                  !nativeScan.cancelled
-                ) {
-                  nativeScan.frame =
-                    window.requestAnimationFrame(
-                      scanFrame,
-                    );
-                }
-              }
-            };
-
-            setScannerState(
-              'scanning',
-            );
-
-            setScannerText(
-              'Camera ready — align the QR code inside the frame',
-            );
-
-            nativeScan.frame =
-              window.requestAnimationFrame(
-                scanFrame,
-              );
-
-            return;
-          }
-
-          const reader =
-            new BrowserQRCodeReader(
-              undefined,
-              {
-                delayBetweenScanAttempts: 40,
-                delayBetweenScanSuccess: 100,
-                tryPlayVideoTimeout: 1500,
-              },
-            );
-
-          const controls =
-            await reader.decodeFromConstraints(
-              {
-                audio: false,
-                video: {
-                  facingMode: {
-                    ideal: 'environment',
-                  },
-                  width: {
-                    ideal: 1280,
-                  },
-                  height: {
-                    ideal: 720,
-                  },
-                  focusMode: 'continuous',
-                } as MediaTrackConstraints,
-              },
-              videoRef.current,
-              (
-                result,
-              ) => {
-                if (
-                  result
-                ) {
-                  void processQr(
-                    result.getText(),
-                  );
-                }
-              },
-            );
-
-          controlsRef.current =
-            controls;
-
-          setScannerState(
-            'scanning',
-          );
-
-          setScannerText(
-            'Camera ready — align the QR code inside the frame',
-          );
-        } catch (error) {
-          console.error(
-            'Camera error:',
-            error,
-          );
-
-          setScannerState(
-            'error',
-          );
-
-          setScannerText(
-            'Camera access is unavailable. Allow camera permission or use manual check-in.',
-          );
-        }
-      },
-      [
-        selectedEventId,
-        processQr,
-        stopCamera,
-      ],
-    );
-
-  /* ==========================================================
-     START / RESTART CAMERA ON EVENT CHANGE
-  ========================================================== */
-
-  useEffect(() => {
-    stopCamera();
-
-    if (
-      !selectedEventId
-    ) {
-      const timer =
-        window.setTimeout(() => {
-          setScannerState(
-            'idle',
-          );
-
-          setScannerText(
-            'Select a live event to begin scanning.',
-          );
-        }, 0);
-
-      return () => {
-        window.clearTimeout(
-          timer,
-        );
-        stopCamera();
-      };
-    }
-
-    const timer =
-      window.setTimeout(
-        () => {
-          void startCamera();
-        },
-        250,
-      );
-
-    return () => {
-      window.clearTimeout(
-        timer,
-      );
-
-      stopCamera();
-    };
-  }, [
-    selectedEventId,
-    startCamera,
-    stopCamera,
-  ]);
-
-  /* ==========================================================
-     MANUAL CHECK IN
-  ========================================================== */
-
-  async function handleManualCheckIn(
-    event:
-      FormEvent<HTMLFormElement>,
-  ) {
-    event.preventDefault();
-
-    const value =
-      manualBookingId.trim();
-
-    if (!value) {
-      setScanMessage({
-        type:
-          'error',
-
-        title:
-          'Registration ID required',
-
-        message:
-          'Enter a valid Booking ID or MongoDB booking ID.',
-      });
-
-      return;
-    }
-
-    setManualLoading(
-      true,
-    );
-
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const cameraRef = useRef<AbortController | null>(null);
+  const attendanceRequest = useRef<AbortController | null>(null);
+  const eventsRequest = useRef<AbortController | null>(null);
+  const checkInRequest = useRef<AbortController | null>(null);
+  const activeEvent = useRef('');
+  const selectionRevision = useRef(0);
+  const processingRef = useRef(false);
+  const lastScanRef = useRef<{ text: string; time: number } | null>(null);
+  const [events, setEvents] = useState<LiveEvent[]>([]);
+  const [selectedEventId, updateSelectedEventId] = useState('');
+  const [eventsLoading, setEventsLoading] = useState(true);
+  const [eventsError, setEventsError] = useState('');
+  const [attendanceError, setAttendanceError] = useState('');
+  const [stats, setStats] = useState<AttendanceStats>(EMPTY_STATS);
+  const [recent, setRecent] = useState<RecentScan[]>([]);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [scannerState, setScannerState] = useState<ScannerState>('idle');
+  const [scannerText, setScannerText] = useState('Select a live event to begin scanning.');
+  const [manualBookingId, setManualBookingId] = useState('');
+  const [manualLoading, setManualLoading] = useState(false);
+  const [scanMessage, setScanMessage] = useState<ScanMessage | null>(null);
+
+  const stopCamera = useCallback(() => {
+    cameraRef.current?.abort(); cameraRef.current = null;
+    processingRef.current = false; lastScanRef.current = null;
+  }, []);
+  const setSelectedEventId = useCallback((id: string) => {
+    if (activeEvent.current === id) return;
+    selectionRevision.current++;
+    stopCamera(); attendanceRequest.current?.abort(); checkInRequest.current?.abort();
+    activeEvent.current = id; updateSelectedEventId(id);
+    setStats(EMPTY_STATS); setRecent([]); setAttendanceError(''); setScanMessage(null);
+    setManualBookingId(''); setManualLoading(false); setDashboardLoading(!!id);
+  }, [stopCamera]);
+
+  const loadLiveEvents = useCallback(async () => {
+    eventsRequest.current?.abort();
+    const controller = new AbortController(); eventsRequest.current = controller;
+    setEventsLoading(true);
     try {
-      await checkIn({
-        bookingId:
-          value,
-
-        method:
-          'MANUAL',
-      });
-
-      setManualBookingId(
-        '',
-      );
+      const response = await fetch('/api/admin/attendance', { cache: 'no-store',
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]) });
+      const data = await response.json() as DashboardResponse;
+      if (controller.signal.aborted) return;
+      if (!response.ok || !data.success) throw new Error(data.message || 'Unable to load live events.');
+      const next = data.events || [];
+      setEvents(next); setEventsError('');
+      if (!next.some(event => event.id === activeEvent.current)) setSelectedEventId(next[0]?.id || '');
     } catch (error) {
-      setScanMessage({
-        type:
-          'error',
+      if (!controller.signal.aborted) setEventsError(error instanceof Error ? error.message : 'Unable to load live events.');
+    } finally { if (!controller.signal.aborted) setEventsLoading(false); }
+  }, [setSelectedEventId]);
 
-        title:
-          'Check-in failed',
-
-        message:
-          error instanceof
-            Error
-            ? error.message
-            : 'Unable to check in attendee.',
-      });
+  const loadAttendance = useCallback(async (eventId: string, quiet = false) => {
+    if (!eventId || activeEvent.current !== eventId) return;
+    if (quiet && attendanceRequest.current && !attendanceRequest.current.signal.aborted) return;
+    attendanceRequest.current?.abort();
+    const controller = new AbortController(); attendanceRequest.current = controller;
+    if (!quiet) setDashboardLoading(true);
+    try {
+      const response = await fetch(`/api/admin/attendance?eventId=${encodeURIComponent(eventId)}`, { cache: 'no-store',
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]) });
+      const data = await response.json() as DashboardResponse;
+      if (controller.signal.aborted || activeEvent.current !== eventId) return;
+      if (!response.ok || !data.success) throw new Error(data.message || 'Unable to load attendance.');
+      setStats(data.stats || EMPTY_STATS); setRecent(data.recent || []); setAttendanceError('');
+    } catch (error) {
+      if (!controller.signal.aborted && activeEvent.current === eventId) {
+        setAttendanceError(error instanceof Error ? error.message : 'Unable to load attendance.');
+      }
     } finally {
-      setManualLoading(
-        false,
-      );
+      if (!controller.signal.aborted && activeEvent.current === eventId) setDashboardLoading(false);
+      if (attendanceRequest.current === controller) attendanceRequest.current = null;
     }
+  }, []);
+
+  useRealtimeRefresh('attendance', () => { void loadAttendance(activeEvent.current); });
+  useRealtimeRefresh('bookings', () => { void loadAttendance(activeEvent.current); });
+  useRealtimeRefresh('events', () => { void loadLiveEvents(); });
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void loadLiveEvents(); }, 0);
+    return () => {
+      clearTimeout(timer); eventsRequest.current?.abort(); attendanceRequest.current?.abort();
+      checkInRequest.current?.abort(); stopCamera();
+    };
+  }, [loadLiveEvents, stopCamera]);
+  useEffect(() => {
+    if (!selectedEventId) return;
+    const timer = window.setTimeout(() => { void loadAttendance(selectedEventId); }, 0);
+    const interval = window.setInterval(() => { void loadAttendance(selectedEventId, true); }, 5000);
+    return () => { clearTimeout(timer); clearInterval(interval); attendanceRequest.current?.abort(); };
+  }, [selectedEventId, loadAttendance]);
+
+  const checkIn = useCallback(async (input: { code?: string; bookingId?: string; method: 'QR' | 'MANUAL' }) => {
+    const eventId = activeEvent.current;
+    if (!eventId || eventId !== selectedEventId) return;
+    if (checkInRequest.current && !checkInRequest.current.signal.aborted) return;
+    const controller = new AbortController(); checkInRequest.current = controller;
+    try {
+      const response = await fetch('/api/admin/attendance', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]), body: JSON.stringify({ ...input, eventId }) });
+      const data = await response.json() as CheckInResponse;
+      if (controller.signal.aborted || activeEvent.current !== eventId) return;
+      if (!response.ok || !data.success) throw new Error(data.message || 'Unable to record attendance.');
+      setScanMessage({ type: 'success', title: data.alreadyPresent ? 'Ticket verified' : 'Marked Present',
+        message: data.message || 'Attendance recorded successfully.', bookingId: data.booking?.bookingId, fullName: data.booking?.fullName });
+      void loadAttendance(eventId);
+      if ('vibrate' in navigator) navigator.vibrate(data.alreadyPresent ? [80, 60, 80] : [120, 70, 180]);
+      return data;
+    } catch (error) {
+      if (!controller.signal.aborted && activeEvent.current === eventId) throw error;
+    } finally { if (checkInRequest.current === controller) checkInRequest.current = null; }
+  }, [selectedEventId, loadAttendance]);
+
+  const processQr = useCallback(async (text: string, signal: AbortSignal) => {
+    if (!text || signal.aborted || processingRef.current || activeEvent.current !== selectedEventId) return;
+    const now = Date.now(), previous = lastScanRef.current;
+    if (previous?.text === text && now - previous.time < 3500) return;
+    lastScanRef.current = { text, time: now }; processingRef.current = true;
+    setScannerState('processing'); setScannerText('Verifying ticket...');
+    try { await checkIn({ code: text, method: 'QR' }); }
+    catch (error) {
+      if (!signal.aborted) setScanMessage({ type: 'error', title: 'Ticket not accepted',
+        message: error instanceof Error ? error.message : 'Unable to verify ticket.' });
+    } finally {
+      if (!signal.aborted) {
+        processingRef.current = false; setScannerState('scanning'); setScannerText('Ready for the next ticket');
+      }
+    }
+  }, [checkIn, selectedEventId]);
+
+  const startCamera = useCallback(async () => {
+    stopCamera();
+    if (!selectedEventId || activeEvent.current !== selectedEventId || !videoRef.current) return;
+    const controller = new AbortController(); cameraRef.current = controller;
+    setScannerState('starting'); setScannerText('Starting camera...');
+    try {
+      await startQrScanner(videoRef.current, controller.signal, text => { void processQr(text, controller.signal); });
+      if (controller.signal.aborted) return;
+      setScannerState('scanning'); setScannerText('Camera ready - align the QR code inside the frame');
+    } catch {
+      if (!controller.signal.aborted) {
+        setScannerState('error'); setScannerText('Camera access is unavailable. Allow camera permission or use manual check-in.');
+      }
+    }
+  }, [selectedEventId, stopCamera, processQr]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (selectedEventId) void startCamera();
+      else { setScannerState('idle'); setScannerText('Select a live event to begin scanning.'); }
+    }, 250);
+    return () => { clearTimeout(timer); stopCamera(); };
+  }, [selectedEventId, startCamera, stopCamera]);
+
+  async function handleManualCheckIn(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const value = manualBookingId.trim(), revision = selectionRevision.current;
+    if (!value) { setScanMessage({ type: 'error', title: 'Registration ID required', message: 'Enter a valid Booking ID.' }); return; }
+    setManualLoading(true);
+    try {
+      const result = await checkIn({ bookingId: value, method: 'MANUAL' });
+      if (result && selectionRevision.current === revision) setManualBookingId('');
+    } catch (error) {
+      if (selectionRevision.current === revision) setScanMessage({ type: 'error', title: 'Check-in failed',
+        message: error instanceof Error ? error.message : 'Unable to check in attendee.' });
+    } finally { if (selectionRevision.current === revision) setManualLoading(false); }
   }
 
   /* ==========================================================
@@ -1418,7 +501,7 @@ export default function CheckInPage() {
               Live Event
             </label>
 
-            {eventsLoading ? (
+            {eventsLoading && !events.length ? (
               <div
                 className="
                   h-[41px]
@@ -1450,7 +533,7 @@ export default function CheckInPage() {
                 {events.length ===
                   0 && (
                   <option value="">
-                    No live events available
+                    {eventsError ? 'Live events could not be loaded' : 'No live events available'}
                   </option>
                 )}
 
@@ -1503,6 +586,14 @@ export default function CheckInPage() {
           )}
         </div>
       </section>
+
+      {selectedEvent && <p className="mt-2 text-sm text-gray-500">Event timezone: {eventTimeZone(selectedEvent.timeZone)}. Admission is limited to the ticket&apos;s booked date and slot.</p>}
+      {(eventsError || attendanceError) && <div role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+        {eventsError || attendanceError} <button type="button" className="ml-3 underline" onClick={() => {
+          if (eventsError) void loadLiveEvents();
+          if (attendanceError) void loadAttendance(selectedEventId);
+        }}>Try again</button>
+      </div>}
 
       {/* ======================================================
           MOBILE SUCCESS / ERROR
@@ -2604,7 +1695,7 @@ export default function CheckInPage() {
                     text-secondary
                   "
                 >
-                  No check-ins yet
+                  {attendanceError ? 'Attendance could not be loaded' : 'No check-ins yet'}
                 </p>
 
                 <p
@@ -2736,7 +1827,7 @@ export default function CheckInPage() {
                         >
                           {
                             formatTime(
-                              item.checkedInAt,
+                              item.checkedInAt, selectedEvent?.timeZone,
                             )
                           }
                         </p>
@@ -3427,6 +2518,7 @@ function RecentSkeleton() {
 function formatTime(
   value:
     string | null,
+  timeZone?: string,
 ) {
   if (!value) {
     return '—';
@@ -3445,7 +2537,7 @@ function formatTime(
     return '—';
   }
 
-  return new Intl.DateTimeFormat(
+  return eventDateFormatter(
     'en-IN',
     {
       hour:
@@ -3456,7 +2548,7 @@ function formatTime(
 
       hour12:
         true,
-    },
+    }, timeZone,
   ).format(
     date,
   );

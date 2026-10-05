@@ -1,3 +1,4 @@
+import { sanitizeImage, ImageValidationError } from '@/lib/image-validation';
 import {
   NextRequest,
   NextResponse,
@@ -86,15 +87,18 @@ export async function GET(
         event.imageUrl,
       );
 
+    const safe = await sanitizeImage(image.body);
     return new NextResponse(
-      image.body,
+      new Uint8Array(safe.body),
       {
         status: 200,
 
         headers: {
           'Content-Type':
-            image.contentType ||
-            'application/octet-stream',
+            safe.contentType,
+          'X-Content-Type-Options': 'nosniff',
+          'Content-Security-Policy': "default-src 'none'; sandbox",
+          'Content-Disposition': 'inline',
 
           'Cache-Control':
             'public, max-age=31536000, immutable',
@@ -102,6 +106,7 @@ export async function GET(
       },
     );
   } catch (error) {
+    if (error instanceof ImageValidationError) return NextResponse.json({ success: false, error: 'This event image is not a supported raster image.' }, { status: 415, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
     console.error(
       'Failed to fetch event image:',
       error,

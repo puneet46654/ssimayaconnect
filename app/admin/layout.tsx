@@ -1,5 +1,7 @@
 'use client';
 
+import { useDialog } from '@/lib/use-dialog';
+
 import type {
   ReactNode,
 } from 'react';
@@ -22,21 +24,18 @@ import {
 } from 'framer-motion';
 
 import Sidebar from '@/components/admin/Sidebar';
+import { AdminSessionContext } from '@/components/admin/AdminSessionContext';
 
 import {
-  getAdminTokenPayload,
+  ADMIN_SESSION_EVENT,
+  clearAdminSession,
+  saveAdminSession,
+  firstAdminRoute,
+  canAdminCreate,
+  type AdminTokenPayload,
   hasAdminPermission,
   type AdminPermission,
 } from '@/lib/admin-auth';
-
-const PERMISSION_ROUTES: Record<AdminPermission, string> = {
-  dashboard: '/admin/landing',
-  events: '/admin/eventmanagement',
-  bookings: '/admin/bookings',
-  'check-in': '/admin/check-in',
-  reports: '/admin/reports',
-  auth: '/admin/auth',
-};
 
 function getRequiredPermissionForPath(path: string): AdminPermission | null {
   if (path === '/admin/landing') return 'dashboard';
@@ -64,82 +63,74 @@ export default function AdminLayout({
   const router =
     useRouter();
 
-  const [
-    authChecked,
-    setAuthChecked,
-  ] = useState(false);
+  const [verified, setVerified] = useState<{ path: string; user: AdminTokenPayload | null; error: string } | null>(null);
+  const [retry, setRetry] = useState(0);
+  const currentUser = verified?.path === pathname ? verified.user : null;
+  const authChecked = !!currentUser;
 
   const [
     mobileSidebarOpen,
     setMobileSidebarOpen,
   ] = useState(false);
 
+  const navigationDialog = useDialog(mobileSidebarOpen, () => setMobileSidebarOpen(false), 'Admin navigation');
+
   /* ==========================================================
      AUTH & PERMISSION CHECK
   ========================================================== */
 
   useEffect(() => {
-    if (
-      pathname ===
-        '/admin' ||
-      pathname ===
-        '/admin/login'
-    ) {
-      setAuthChecked(
-        true,
-      );
-
-      return;
-    }
-
-    setAuthChecked(
-      false,
-    );
-
-    const payload =
-      getAdminTokenPayload();
-
-    if (!payload) {
-      router.replace(
-        '/admin/login',
-      );
-
-      return;
-    }
-
-    // Check permission for current route
-    const requiredPermission = getRequiredPermissionForPath(pathname);
-    if (requiredPermission && !hasAdminPermission(payload, requiredPermission)) {
-      // User is not authorized for this specific feature; redirect to first allowed route
-      const firstAllowed = Object.entries(PERMISSION_ROUTES).find(([perm]) =>
-        hasAdminPermission(payload, perm as AdminPermission),
-      );
-
-      if (firstAllowed && firstAllowed[1] !== pathname) {
-        router.replace(firstAllowed[1]);
-        return;
+    if (pathname === '/admin' || pathname === '/admin/login') return;
+    let controller: AbortController | null = null;
+    let stopped = false;
+    async function checkSession() {
+      controller?.abort();
+      const current = new AbortController(); controller = current;
+      try {
+        const response = await fetch('/api/admin/session', { cache: 'no-store', signal: AbortSignal.any([current.signal, AbortSignal.timeout(15000)]) });
+        const data = await response.json();
+        if (stopped || current.signal.aborted) return;
+        if (response.status === 401) {
+          clearAdminSession();
+          setVerified({ path: pathname, user: null, error: '' });
+          router.replace('/admin/login');
+          return;
+        }
+        if (!response.ok || !data.user) throw new Error(data.message || 'Unable to check your session.');
+        const user = data.user as AdminTokenPayload;
+        saveAdminSession(user);
+        const permission = getRequiredPermissionForPath(pathname);
+        if (permission && !hasAdminPermission(user, permission)) {
+          const route = firstAdminRoute(user);
+          if (route) { router.replace(route); return; }
+        }
+        setVerified({ path: pathname, user, error: '' });
+      } catch (error) {
+        if (!stopped && !current.signal.aborted) setVerified({ path: pathname, user: null,
+          error: error instanceof Error ? error.message : 'Unable to check your session. Please retry.' });
       }
     }
-
-    setAuthChecked(
-      true,
-    );
-  }, [
-    pathname,
-    router,
-  ]);
-
-  /* ==========================================================
-     CLOSE DRAWER ON ROUTE CHANGE
-  ========================================================== */
+    const refresh = () => { if (!document.hidden) void checkSession(); };
+    void checkSession();
+    const interval = window.setInterval(refresh, 60000);
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener(ADMIN_SESSION_EVENT, refresh);
+    window.addEventListener('storage', refresh);
+    return () => {
+      stopped = true; controller?.abort(); window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener(ADMIN_SESSION_EVENT, refresh);
+      window.removeEventListener('storage', refresh);
+    };
+  }, [pathname, router, retry]);
 
   useEffect(() => {
-    setMobileSidebarOpen(
-      false,
-    );
-  }, [
-    pathname,
-  ]);
+    const timer = window.setTimeout(() => {
+      setMobileSidebarOpen(false);
+      if (pathname === '/admin' || pathname === '/admin/login') setVerified(null);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [pathname]);
 
   /* ==========================================================
      LOCK BODY
@@ -251,6 +242,20 @@ export default function AdminLayout({
      AUTH LOADER
   ========================================================== */
 
+  const requiredPermission = getRequiredPermissionForPath(pathname);
+  const moduleDenied = currentUser && requiredPermission && !hasAdminPermission(currentUser, requiredPermission);
+  const writePage = pathname.startsWith('/admin/eventmanagement/') && (pathname.endsWith('/new') || pathname.endsWith('/edit'));
+  const actionDenied = currentUser && writePage && !canAdminCreate(currentUser);
+  if (verified?.path === pathname && verified.error || moduleDenied || actionDenied) {
+    return <div className="grid min-h-dvh place-items-center bg-gray-50 p-6">
+      <div className="max-w-md text-center">
+        <p role="alert">{verified?.error || (actionDenied ? 'You have view-only access to events.' : 'No admin modules are assigned to this account. Contact your administrator.')}</p>
+        {verified?.error && <button className="btn btn-primary mt-4" onClick={() => setRetry(value => value + 1)}>Retry session check</button>}
+        <button className="btn btn-secondary mt-4" onClick={() => router.push(actionDenied ? '/admin/eventmanagement' : '/admin/login')}>{actionDenied ? 'Back to events' : 'Go to login'}</button>
+      </div>
+    </div>;
+  }
+
   if (!authChecked) {
     return (
       <div
@@ -304,6 +309,7 @@ export default function AdminLayout({
   ========================================================== */
 
   return (
+    <AdminSessionContext.Provider value={currentUser}>
     <div
       className="
         min-h-dvh
@@ -382,7 +388,7 @@ export default function AdminLayout({
           type="button"
           onClick={() =>
             router.push(
-              '/admin/landing',
+              currentUser ? firstAdminRoute(currentUser) || '/admin/login' : '/admin/login',
             )
           }
           className="
@@ -564,7 +570,7 @@ export default function AdminLayout({
 
             {/* DRAWER */}
 
-            <motion.aside
+            <motion.aside {...navigationDialog}
               initial={{
                 x:
                   '-100%',
@@ -716,6 +722,7 @@ export default function AdminLayout({
         </div>
       </main>
     </div>
+    </AdminSessionContext.Provider>
   );
 }
 

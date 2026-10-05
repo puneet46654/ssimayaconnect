@@ -1,48 +1,21 @@
-export function getEventStatus(
-  startDate: Date,
-  endDate: Date,
-  now = new Date(),
-) {
-  const today = new Date(
-    Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      now.getUTCDate(),
-    ),
-  );
-  const start = new Date(
-    Date.UTC(
-      startDate.getUTCFullYear(),
-      startDate.getUTCMonth(),
-      startDate.getUTCDate(),
-    ),
-  );
-  const end = new Date(
-    Date.UTC(
-      endDate.getUTCFullYear(),
-      endDate.getUTCMonth(),
-      endDate.getUTCDate(),
-    ),
-  );
+import { calendarDate, zonedDate, slotInstant, DEFAULT_TIME_ZONE } from '@/lib/events/dates';
 
-  if (today > end) return 'COMPLETED' as const;
-  if (today >= start) return 'LIVE' as const;
+export function getEventStatus(startDate: Date | string, endDate: Date | string, now = new Date(), timeZone = DEFAULT_TIME_ZONE, storedStatus?: string) {
+  if (storedStatus === 'CANCELLED') return 'CANCELLED' as const;
+  const today = zonedDate(now, timeZone);
+  if (today > calendarDate(endDate)) return 'COMPLETED' as const;
+  if (today >= calendarDate(startDate)) return 'LIVE' as const;
   return 'UPCOMING' as const;
 }
 
-/*
- * Schedule dates are stored as UTC midnight and slot times
- * are India (IST) wall-clock times.
- */
-export function hasSlotEnded(
-  scheduleDate: Date | string,
-  endTime: string,
-  now = new Date(),
-) {
-  const date = new Date(scheduleDate);
-  if (Number.isNaN(date.getTime()) || !/^\d{2}:\d{2}$/.test(endTime)) {
-    return false;
-  }
-  const day = date.toISOString().slice(0, 10);
-  return now.getTime() > new Date(`${day}T${endTime}:00+05:30`).getTime();
+export function hasSlotEnded(scheduleDate: Date | string, endTime: string, now = new Date(), timeZone = DEFAULT_TIME_ZONE) {
+  const end = slotInstant(scheduleDate, endTime, timeZone).getTime();
+  // Invalid schedules must not advertise bookable tickets.
+  return !Number.isFinite(end) || now.getTime() >= end;
+}
+
+export function withCurrentEventStatus<T extends { startDate?: Date | string; endDate?: Date | string; status?: string; timeZone?: string }>(event: T): T {
+  return event.startDate && event.endDate
+    ? { ...event, status: getEventStatus(event.startDate, event.endDate, new Date(), event.timeZone, event.status) }
+    : event;
 }

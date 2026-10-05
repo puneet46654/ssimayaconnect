@@ -1,5 +1,13 @@
 'use client';
 
+import { useDialog } from '@/lib/use-dialog';
+
+import { AdminAccess, useAdminSession } from '@/components/admin/AdminSessionContext';
+
+import { canAdminDelete, adminFetch as fetch } from '@/lib/admin-auth';
+
+import { calendarDateFormatter, todayCalendarDate, eventTimeZone } from '@/lib/events/dates';
+
 import type {
   FormEvent,
   ReactNode,
@@ -8,6 +16,7 @@ import type {
 import {
   useCallback,
   useEffect,
+  useRef,
   useMemo,
   useState,
 } from 'react';
@@ -39,6 +48,7 @@ type BookingRow = {
   };
 
   event: {
+    timeZone?: string;
     _id: string;
     eventName: string;
     venue: string;
@@ -113,6 +123,7 @@ const EASE = [
 ============================================================ */
 
 export default function AdminBookingsPage() {
+  const currentUser = useAdminSession();
   const router =
     useRouter();
 
@@ -218,16 +229,6 @@ export default function AdminBookingsPage() {
     setError,
   ] = useState('');
 
-  useRealtimeRefresh(
-    'bookings',
-    () => {
-      void loadBookings(
-        undefined,
-        true,
-      );
-    },
-  );
-
   /* ==========================================================
      DELETE
   ========================================================== */
@@ -249,12 +250,19 @@ export default function AdminBookingsPage() {
      LOAD BOOKINGS
   ========================================================== */
 
+  const deleteDialog = useDialog(!!deleteTarget, () => { if (!deleting) setDeleteTarget(null); }, 'Delete booking');
+
+  const bookingRequest = useRef<AbortController | null>(null);
   const loadBookings =
     useCallback(
       async (
         signal?: AbortSignal,
         refresh = false,
       ) => {
+        bookingRequest.current?.abort();
+        const controller = new AbortController(); bookingRequest.current = controller;
+        const externalSignal = signal;
+        signal = AbortSignal.any([controller.signal, ...(externalSignal ? [externalSignal] : []), AbortSignal.timeout(15000)]);
         if (refresh) {
           setRefreshing(
             true,
@@ -327,6 +335,7 @@ export default function AdminBookingsPage() {
           const data =
             (await response.json()) as BookingsResponse;
 
+          if (controller.signal.aborted || externalSignal?.aborted) return;
           if (
             !response.ok ||
             !data.success
@@ -370,6 +379,7 @@ export default function AdminBookingsPage() {
               0,
           );
         } catch (err) {
+          if (controller.signal.aborted || externalSignal?.aborted) return;
           if (
             err instanceof
               DOMException &&
@@ -392,7 +402,7 @@ export default function AdminBookingsPage() {
           );
         } finally {
           if (
-            !signal?.aborted
+            !controller.signal.aborted && !externalSignal?.aborted
           ) {
             setLoading(
               false,
@@ -412,16 +422,27 @@ export default function AdminBookingsPage() {
       ],
     );
 
+  useRealtimeRefresh(
+    'bookings',
+    () => {
+      void loadBookings(
+        undefined,
+        true,
+      );
+    },
+  );
+
+  useRealtimeRefresh('attendance', () => { void loadBookings(undefined, true); });
+  useRealtimeRefresh('events', () => { void loadBookings(undefined, true); });
+
   useEffect(() => {
     const controller =
       new AbortController();
 
-    void loadBookings(
-      controller.signal,
-    );
+    const timer = window.setTimeout(() => { void loadBookings(controller.signal); }, 0);
 
     return () => {
-      controller.abort();
+      clearTimeout(timer); controller.abort(); bookingRequest.current?.abort();
     };
   }, [
     loadBookings,
@@ -1166,16 +1187,15 @@ export default function AdminBookingsPage() {
 
               <button
                 type="button"
-                onClick={() =>
-                  setError('')
-                }
+                onClick={() => { void loadBookings(undefined, true); }}
+                aria-label="Retry loading bookings"
                 className="
                   shrink-0
                   cursor-pointer
                   text-red-500
                 "
               >
-                <CloseIcon />
+                Retry
               </button>
             </motion.div>
           )}
@@ -1329,7 +1349,7 @@ export default function AdminBookingsPage() {
               <tbody>
                 {loading ? (
                   <DesktopTableSkeleton />
-                ) : bookings.length ===
+                ) : error && !bookings.length ? null : bookings.length ===
                   0 ? (
                   <tr>
                     <td
@@ -1521,7 +1541,7 @@ export default function AdminBookingsPage() {
                         >
                           {
                             formatSlot(
-                              booking.slot,
+                              booking.slot, booking.event?.timeZone,
                             )
                           }
                         </td>
@@ -1553,7 +1573,7 @@ export default function AdminBookingsPage() {
                               <EyeIcon />
                             </IconButton>
 
-                            <IconButton
+                            <AdminAccess permission="bookings" action="write"><IconButton
                               title="Edit booking"
                               onClick={() =>
                                 editBooking(
@@ -1562,9 +1582,9 @@ export default function AdminBookingsPage() {
                               }
                             >
                               <EditIcon />
-                            </IconButton>
+                            </IconButton></AdminAccess>
 
-                            <IconButton
+                            <AdminAccess permission="bookings" action="delete"><IconButton
                               danger
                               title="Delete booking"
                               onClick={() =>
@@ -1585,7 +1605,7 @@ export default function AdminBookingsPage() {
                               }
                             >
                               <TrashIcon />
-                            </IconButton>
+                            </IconButton></AdminAccess>
                           </div>
                         </td>
                       </tr>
@@ -1642,7 +1662,7 @@ export default function AdminBookingsPage() {
               <MobileCardSkeleton />
               <MobileCardSkeleton />
             </>
-          ) : bookings.length ===
+          ) : error && !bookings.length ? null : bookings.length ===
             0 ? (
             <div
               className="
@@ -1885,7 +1905,7 @@ export default function AdminBookingsPage() {
                         label="Time Slot"
                         value={
                           formatSlot(
-                            booking.slot,
+                            booking.slot, booking.event?.timeZone,
                           )
                         }
                       />
@@ -1911,7 +1931,7 @@ export default function AdminBookingsPage() {
                         }
                       />
 
-                      <MobileAction
+                      <AdminAccess permission="bookings" action="write"><MobileAction
                         icon={
                           <EditIcon />
                         }
@@ -1921,9 +1941,9 @@ export default function AdminBookingsPage() {
                             booking._id,
                           )
                         }
-                      />
+                      /></AdminAccess>
 
-                      <MobileAction
+                      <AdminAccess permission="bookings" action="delete"><MobileAction
                         danger
                         icon={
                           <TrashIcon />
@@ -1945,7 +1965,7 @@ export default function AdminBookingsPage() {
                             },
                           )
                         }
-                      />
+                      /></AdminAccess>
                     </div>
                   </div>
                 </motion.article>
@@ -2000,7 +2020,7 @@ export default function AdminBookingsPage() {
       ====================================================== */}
 
       <AnimatePresence>
-        {deleteTarget && (
+        {deleteTarget && canAdminDelete(currentUser) && (
           <motion.div
             initial={{
               opacity: 0,
@@ -2035,7 +2055,7 @@ export default function AdminBookingsPage() {
               backdrop-blur-[2px]
             "
           >
-            <motion.div
+            <motion.div {...deleteDialog}
               initial={{
                 opacity: 0,
                 scale: 0.97,
@@ -2506,7 +2526,7 @@ function BookingStatus({
   const upcoming =
     date
       ? date.getTime() >=
-        startOfToday()
+        startOfToday(booking.event?.timeZone)
       : true;
 
   return (
@@ -2783,7 +2803,7 @@ function Pagination({
           gap-1
         "
       >
-        <PaginationButton
+        <PaginationButton label="Previous page"
           disabled={
             page <= 1
           }
@@ -2886,7 +2906,7 @@ function Pagination({
           </>
         )}
 
-        <PaginationButton
+        <PaginationButton label="Next page"
           disabled={
             page >=
             totalPages
@@ -2906,11 +2926,13 @@ function Pagination({
 
 function PaginationButton({
   children,
+  label,
   onClick,
   active = false,
   disabled = false,
 }: {
   children: ReactNode;
+  label?: string;
   onClick: () => void;
   active?: boolean;
   disabled?: boolean;
@@ -2918,6 +2940,8 @@ function PaginationButton({
   return (
     <button
       type="button"
+      aria-label={label}
+      aria-current={active ? "page" : undefined}
       disabled={
         disabled
       }
@@ -3323,7 +3347,7 @@ function formatDate(
     return '—';
   }
 
-  return new Intl.DateTimeFormat(
+  return calendarDateFormatter(
     'en-GB',
     {
       day:
@@ -3341,6 +3365,7 @@ function formatDate(
 function formatSlot(
   slot:
     BookingRow['slot'],
+  timeZone?: string,
 ) {
   if (
     !slot?.startTime ||
@@ -3349,22 +3374,10 @@ function formatSlot(
     return '—';
   }
 
-  return `${slot.startTime} - ${slot.endTime}`;
+  return `${slot.startTime} - ${slot.endTime} (${eventTimeZone(timeZone)})`;
 }
 
-function startOfToday() {
-  const date =
-    new Date();
-
-  date.setHours(
-    0,
-    0,
-    0,
-    0,
-  );
-
-  return date.getTime();
-}
+function startOfToday(timeZone?: string) { return todayCalendarDate(new Date(), timeZone).getTime(); }
 
 /* ============================================================
    ICONS
@@ -3630,22 +3643,6 @@ function AlertIcon() {
   );
 }
 
-function CloseIcon() {
-  return (
-    <svg
-      className="h-4 w-4"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth={2}
-    >
-      <path
-        strokeLinecap="round"
-        d="m7 7 10 10M17 7 7 17"
-      />
-    </svg>
-  );
-}
 
 function SpinnerIcon() {
   return (

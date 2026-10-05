@@ -83,6 +83,12 @@ const itemVariants = {
 ============================================================ */
 
 export default function FeedbackPage() {
+  const { id } = useParams<{ id: string }>();
+  const search = useSearchParams();
+  return <FeedbackForm key={`${id}:${search.toString()}`} />;
+}
+
+function FeedbackForm() {
   const params =
     useParams<{
       id: string;
@@ -99,8 +105,8 @@ export default function FeedbackPage() {
     'application'
       ? 'application'
       : 'event';
-  const feedbackStorageKey =
-    `ssi-feedback:${feedbackScope}:${eventId}`;
+  const bookingId = feedbackScope === 'event' ? searchParams.get('bookingId') || '' : '';
+  const feedbackStorageKey = `ssi-feedback:${feedbackScope}:${eventId}:${bookingId}`;
 
   const [
     rating,
@@ -158,6 +164,7 @@ export default function FeedbackPage() {
     setCheckingDuplicate,
   ] = useState(true);
 
+  const [accessError, setAccessError] = useState('');
   /* ============================================================
      CHECK FOR EXISTING SUBMISSION
   ============================================================ */
@@ -178,36 +185,32 @@ export default function FeedbackPage() {
         if (
           feedbackScope === 'event'
         ) {
-          params.set(
-            'eventId',
-            eventId,
-          );
+          params.set('eventId', eventId);
+          params.set('bookingId', bookingId);
         }
 
         const response =
           await fetch(
-            `/api/feedback?${params.toString()}`,
+            `/api/feedback?${params.toString()}`, { signal: AbortSignal.timeout(15000), cache: 'no-store' },
           );
 
         if (cancelled) {
           return;
         }
 
-        if (response.ok) {
-          const data =
-            await response.json();
-
-          if (data.submitted) {
-            setAlreadySubmitted(
-              true,
-            );
-          }
+        const data = await response.json();
+        if (cancelled) return;
+        if (!response.ok) { setAccessError(data.error || 'Unable to check feedback access. Please retry.'); return; }
+        if (data.submitted) {
+          setAlreadySubmitted(true);
+          try { sessionStorage.removeItem(feedbackStorageKey); } catch { /* Optional draft. */ }
         }
       } catch (error) {
         console.error(
           'Unable to check feedback status:',
           error,
         );
+        if (!cancelled) setAccessError('Unable to check feedback access. Please retry.');
       } finally {
         if (!cancelled) {
           setCheckingDuplicate(
@@ -225,6 +228,8 @@ export default function FeedbackPage() {
   }, [
     eventId,
     feedbackScope,
+    bookingId,
+    feedbackStorageKey,
   ]);
 
   /* ============================================================
@@ -236,51 +241,22 @@ export default function FeedbackPage() {
       return;
     }
 
-    try {
-      const raw =
-        sessionStorage.getItem(
-          feedbackStorageKey,
-        );
-
-      if (!raw) {
-        return;
-      }
-
-      const cached =
-        JSON.parse(raw) as Partial<FeedbackData>;
-
-      window.setTimeout(() => {
-        setRating(
-          typeof cached.rating === 'number'
-            ? cached.rating
-            : 0,
-        );
-        setMessage(
-          cached.message || '',
-        );
-        setSuggestedFeature(
-          cached.suggestedFeature || '',
-        );
-        setDraftLoaded(true);
-      }, 0);
-    } catch (error) {
-      console.error(
-        'Unable to restore feedback draft:',
-        error,
-      );
-      window.setTimeout(() => {
-        setDraftLoaded(true);
-      }, 0);
-    }
-  }, [
-    eventId,
-    feedbackStorageKey,
-  ]);
+    const timer = window.setTimeout(() => {
+      let cached: Partial<FeedbackData> = {};
+      try { cached = JSON.parse(sessionStorage.getItem(feedbackStorageKey) || '{}') || {}; }
+      catch { /* A malformed draft must not prevent a fresh draft. */ }
+      setRating(typeof cached.rating === 'number' ? cached.rating : 0);
+      setMessage(typeof cached.message === 'string' ? cached.message : '');
+      setSuggestedFeature(typeof cached.suggestedFeature === 'string' ? cached.suggestedFeature : '');
+      setDraftLoaded(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [eventId, feedbackStorageKey]);
 
   useEffect(() => {
     if (
       !eventId ||
-      submitted ||
+      submitted || alreadySubmitted ||
       !draftLoaded
     ) {
       return;
@@ -309,6 +285,7 @@ export default function FeedbackPage() {
     message,
     rating,
     submitted,
+    alreadySubmitted,
     suggestedFeature,
   ]);
 
@@ -355,28 +332,6 @@ export default function FeedbackPage() {
     setSubmitError('');
     setSubmitting(true);
 
-    const bookingId =
-      sessionStorage.getItem(
-        `ssi-feedback-booking-id:${eventId}`,
-      ) ||
-      sessionStorage.getItem(
-        `ssi-server-booking-id:${eventId}:latest`,
-      ) ||
-      sessionStorage.getItem(
-        `ssi-server-booking-id:${eventId}`,
-      ) || undefined;
-
-    const bookingMongoId =
-      sessionStorage.getItem(
-        `ssi-feedback-booking-mongo-id:${eventId}`,
-      ) ||
-      sessionStorage.getItem(
-        `ssi-server-booking-mongo-id:${eventId}:latest`,
-      ) ||
-      sessionStorage.getItem(
-        `ssi-server-booking-mongo-id:${eventId}`,
-      ) || undefined;
-
     try {
       const response = await fetch(
         '/api/feedback',
@@ -396,7 +351,6 @@ export default function FeedbackPage() {
             suggestedFeature:
               suggestedFeature.trim(),
             bookingId,
-            bookingMongoId,
           }),
         },
       );
@@ -407,6 +361,7 @@ export default function FeedbackPage() {
       if (!response.ok) {
         if (data.duplicate) {
           setAlreadySubmitted(true);
+          try { sessionStorage.removeItem(feedbackStorageKey); } catch { /* Optional draft. */ }
           setSubmitError('');
           return;
         }
@@ -418,28 +373,7 @@ export default function FeedbackPage() {
         return;
       }
 
-      /* Store submission state locally */
-      sessionStorage.setItem(
-        feedbackStorageKey,
-        JSON.stringify({
-          eventId,
-          rating,
-          message:
-            message.trim(),
-          suggestedFeature:
-            suggestedFeature.trim(),
-          submittedAt:
-            new Date().toISOString(),
-        }),
-      );
-
-      sessionStorage.setItem(
-        `ssi-feedback-state:${feedbackScope}:${eventId}`,
-        'submitted',
-      );
-
-      /* Also track in activity log */
-
+      try { sessionStorage.removeItem(feedbackStorageKey); } catch { /* Saving feedback succeeded even when storage is unavailable. */ }
       setSubmitted(true);
     } catch (error) {
       console.error(
@@ -462,27 +396,6 @@ export default function FeedbackPage() {
     if (!eventId) {
       return;
     }
-
-    const bookingId =
-      sessionStorage.getItem(
-        `ssi-feedback-booking-id:${eventId}`,
-      ) ||
-      sessionStorage.getItem(
-        `ssi-server-booking-id:${eventId}:latest`,
-      ) ||
-      sessionStorage.getItem(
-        `ssi-server-booking-id:${eventId}`,
-      ) || '';
-    const bookingMongoId =
-      sessionStorage.getItem(
-        `ssi-feedback-booking-mongo-id:${eventId}`,
-      ) ||
-      sessionStorage.getItem(
-        `ssi-server-booking-mongo-id:${eventId}:latest`,
-      ) ||
-      sessionStorage.getItem(
-        `ssi-server-booking-mongo-id:${eventId}`,
-      ) || '';
 
     try {
       sessionStorage.setItem(
@@ -508,121 +421,17 @@ export default function FeedbackPage() {
      HEADER
   ============================================================ */
 
-  function Header() {
-    return (
-      <header
-        className=" max-md:hidden
-          sticky
-          top-0
-          z-50
 
-          border-b
-          border-gray-200/80
-
-          bg-white/95
-
-          backdrop-blur-xl
-        "
-      >
-        <div
-          className="
-            mx-auto
-
-            flex
-            h-[56px]
-            w-full
-            max-w-[1500px]
-
-            items-center
-            justify-between
-
-            gap-4
-
-            px-4
-
-            sm:h-[66px]
-            sm:px-6
-
-            lg:px-10
-          "
-        >
-          {/* BACK */}
-
-          <button
-            type="button"
-            onClick={() =>
-              goBack()
-            }
-            className="
-              inline-flex
-              h-8
-              items-center
-              gap-1.5
-              rounded-lg
-              border
-              border-gray-200
-              bg-white
-              px-2.5
-              text-[10px]
-              font-semibold
-              text-secondary
-              shadow-sm
-              transition-colors
-              hover:border-primary/30
-              hover:text-primary
-            "
-          >
-            <span aria-hidden="true">←</span>
-            Back
-          </button>
-
-          {/* BRAND */}
-
-          <Link
-            href="/events"
-            className="
-              inline-flex
-              items-center
-              gap-2
-              transition-opacity
-              hover:opacity-80
-            "
-          >
-            <Image
-              src="/logos/ssilogo.png"
-              alt="SSI"
-              width={24}
-              height={24}
-              priority
-              className="
-                shrink-0
-                object-contain
-              "
-            />
-
-            <span
-              className="
-                text-[13px]
-                font-semibold
-                text-secondary
-                sm:text-[14px]
-              "
-            >
-              SSI Maya Connect
-            </span>
-          </Link>
-
-          {/* SPACER */}
-
-          <div className="w-[72px]" />
-        </div>
-      </header>
-    );
-  }
 
   /* ============================================================
      ALREADY SUBMITTED VIEW
   ============================================================ */
+
+  if (accessError) return <><FeedbackHeader goBack={goBack} /><main className="mx-auto max-w-xl p-8 text-center">
+    <h1 className="text-xl font-bold">Feedback access</h1><p className="my-4" role="alert">{accessError}</p>
+    <Link href="/events/mytickets" className="mr-5 underline">Recover or select your ticket</Link>
+    <button type="button" onClick={() => window.location.reload()}>Try again</button>
+  </main></>;
 
   if (alreadySubmitted) {
     return (
@@ -632,7 +441,7 @@ export default function FeedbackPage() {
           bg-[#F7F9FB]
         "
       >
-        <Header />
+        <FeedbackHeader goBack={goBack} />
 
         <main
           className="
@@ -789,7 +598,7 @@ export default function FeedbackPage() {
           bg-[#F7F9FB]
         "
       >
-        <Header />
+        <FeedbackHeader goBack={goBack} />
 
         <main
           className="
@@ -1078,7 +887,7 @@ export default function FeedbackPage() {
           bg-[#F7F9FB]
         "
       >
-        <Header />
+        <FeedbackHeader goBack={goBack} />
 
         <main
           className="
@@ -1134,7 +943,7 @@ export default function FeedbackPage() {
         bg-[#F7F9FB]
       "
     >
-      <Header />
+      <FeedbackHeader goBack={goBack} />
 
       <motion.main
         variants={
@@ -1932,3 +1741,114 @@ function getRatingText(
       return '';
   }
 }
+function FeedbackHeader({ goBack }: { goBack: () => void }) {
+    return (
+      <header
+        className=" max-md:hidden
+          sticky
+          top-0
+          z-50
+
+          border-b
+          border-gray-200/80
+
+          bg-white/95
+
+          backdrop-blur-xl
+        "
+      >
+        <div
+          className="
+            mx-auto
+
+            flex
+            h-[56px]
+            w-full
+            max-w-[1500px]
+
+            items-center
+            justify-between
+
+            gap-4
+
+            px-4
+
+            sm:h-[66px]
+            sm:px-6
+
+            lg:px-10
+          "
+        >
+          {/* BACK */}
+
+          <button
+            type="button"
+            onClick={() =>
+              goBack()
+            }
+            className="
+              inline-flex
+              h-8
+              items-center
+              gap-1.5
+              rounded-lg
+              border
+              border-gray-200
+              bg-white
+              px-2.5
+              text-[10px]
+              font-semibold
+              text-secondary
+              shadow-sm
+              transition-colors
+              hover:border-primary/30
+              hover:text-primary
+            "
+          >
+            <span aria-hidden="true">←</span>
+            Back
+          </button>
+
+          {/* BRAND */}
+
+          <Link
+            href="/events"
+            className="
+              inline-flex
+              items-center
+              gap-2
+              transition-opacity
+              hover:opacity-80
+            "
+          >
+            <Image
+              src="/logos/ssilogo.png"
+              alt="SSI"
+              width={24}
+              height={24}
+              priority
+              className="
+                shrink-0
+                object-contain
+              "
+            />
+
+            <span
+              className="
+                text-[13px]
+                font-semibold
+                text-secondary
+                sm:text-[14px]
+              "
+            >
+              SSI Maya Connect
+            </span>
+          </Link>
+
+          {/* SPACER */}
+
+          <div className="w-[72px]" />
+        </div>
+      </header>
+    );
+  }

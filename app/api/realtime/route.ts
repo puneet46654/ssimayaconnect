@@ -4,7 +4,7 @@ import { getRealtimeVersions } from '@/lib/realtime';
 export const dynamic = 'force-dynamic';
 
 /*
- * Last-change time per resource. Cached at the CDN for 2s so thousands of
+ * Revision counter per resource. Cached at the CDN for 2s so thousands of
  * polling clients cost roughly one database read every 2 seconds.
  */
 export async function GET() {

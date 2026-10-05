@@ -36,47 +36,45 @@ export function RealtimeProvider({
       );
     };
 
-    // Local dev runs server.mjs with Socket.IO for instant pushes.
+    // Socket pushes are immediate; polling also covers disconnects and serverless deployments.
+    let socket: Socket | undefined;
     if (process.env.NODE_ENV === 'development') {
-      const socket: Socket = io({
+      socket = io({
         autoConnect: true,
         transports: ['websocket'],
-        reconnection: false,
+        reconnection: true,
         timeout: 2500,
       });
       socket.on('data.changed', handleChange);
-      return () => {
-        socket.off('data.changed', handleChange);
-        socket.disconnect();
-      };
     }
 
-    // Production (Vercel): poll the CDN-cached change feed while the tab is visible.
+    // Poll the CDN-cached feed while visible, including when a socket connection is unavailable.
     let last: Record<string, number> | null = null;
     let stopped = false;
+    let polling = false;
+    const controller = new AbortController();
 
     const poll = async () => {
-      if (stopped || document.visibilityState !== 'visible') return;
+      if (stopped || polling || document.visibilityState !== 'visible') return;
+      polling = true;
       try {
-        const response = await fetch('/api/realtime');
+        const response = await fetch('/api/realtime', { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]) });
         const data = (await response.json()) as {
           versions?: Record<RealtimeChange['resource'], number>;
         };
-        if (!data.versions || stopped) return;
-        if (last) {
-          for (const [resource, version] of Object.entries(data.versions)) {
-            if (version !== last[resource]) {
-              handleChange({
-                resource: resource as RealtimeChange['resource'],
-                action: 'updated',
-              });
-            }
+        if (!response.ok || !data.versions || stopped) return;
+        for (const [resource, version] of Object.entries(data.versions)) {
+          if (!last || version !== last[resource]) {
+            handleChange({
+              resource: resource as RealtimeChange['resource'],
+              action: 'updated',
+            });
           }
         }
         last = data.versions;
       } catch {
         // Network hiccup: try again on the next tick.
-      }
+      } finally { polling = false; }
     };
 
     void poll();
@@ -85,6 +83,9 @@ export function RealtimeProvider({
 
     return () => {
       stopped = true;
+      controller.abort();
+      socket?.off('data.changed', handleChange);
+      socket?.disconnect();
       window.clearInterval(interval);
       document.removeEventListener('visibilitychange', poll);
     };

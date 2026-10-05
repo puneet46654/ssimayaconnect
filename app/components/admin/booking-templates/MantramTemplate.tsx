@@ -1,5 +1,12 @@
 'use client';
 
+import { labelFieldControl } from '@/lib/field-control';
+import { useId } from 'react';
+
+import { bookingStorage } from '@/lib/booking-contracts';
+
+import { isValidPhone, normalizePhone } from '@/lib/phone';
+
 import Image from 'next/image';
 
 import {
@@ -15,6 +22,7 @@ import {
 import { useRouter } from 'next/navigation';
 
 
+import { useBookingCountries } from '@/lib/use-booking-countries';
 import { useFormDraft } from '@/lib/use-form-draft';
 
 interface MantramTemplateProps {
@@ -27,18 +35,6 @@ type CountryOption = {
   iso2: string;
   callingCode: string;
   flag: string;
-};
-
-type StateOption = {
-  name: string;
-  code: string;
-};
-
-const INDIA_FALLBACK: CountryOption = {
-  name: 'India',
-  iso2: 'IN',
-  callingCode: '+91',
-  flag: '🇮🇳',
 };
 
 const inputClass = `
@@ -94,66 +90,6 @@ const labelClass = `
   text-gray-500
 `;
 
-function getCachedBookingDraft(
-  eventId: string,
-): Record<string, unknown> | null {
-  if (
-    typeof window === 'undefined' ||
-    !eventId
-  ) {
-    return null;
-  }
-
-  try {
-    const raw =
-      window.sessionStorage.getItem(
-        `ssi-booking-details:${eventId}`,
-      );
-
-    if (raw) {
-      const parsed =
-        JSON.parse(raw);
-
-      return parsed &&
-        typeof parsed === 'object'
-        ? (parsed as Record<
-            string,
-            unknown
-          >)
-        : null;
-    }
-
-    const draftRaw =
-      window.sessionStorage.getItem(
-        `ssi-booking-draft:${eventId}`,
-      );
-
-    if (!draftRaw) {
-      return null;
-    }
-
-    const draft =
-      JSON.parse(draftRaw) as Record<
-        string,
-        unknown
-      >;
-
-    const stateField =
-      draft.state;
-
-    return {
-      state:
-        stateField &&
-        typeof stateField === 'object' &&
-        'value' in stateField
-          ? stateField.value
-          : '',
-    };
-  } catch {
-    return null;
-  }
-}
-
 export default function MantramTemplate({
   eventId,
   eventName,
@@ -166,8 +102,9 @@ export default function MantramTemplate({
     );
 
   useFormDraft(
-    `ssi-booking-draft:${eventId}`,
+    bookingStorage.draft(eventId),
     formRef,
+    eventId,
   );
 
   const [submitting, setSubmitting] =
@@ -176,52 +113,8 @@ export default function MantramTemplate({
   const [formError, setFormError] =
     useState('');
 
-  const [countries, setCountries] =
-    useState<CountryOption[]>([
-      INDIA_FALLBACK,
-    ]);
-
-  const [
-    countriesLoading,
-    setCountriesLoading,
-  ] = useState(true);
-
-  const [
-    selectedPhoneCountry,
-    setSelectedPhoneCountry,
-  ] = useState<CountryOption>(
-    INDIA_FALLBACK,
-  );
-
-  const [
-    selectedCountry,
-    setSelectedCountry,
-  ] = useState<CountryOption>(
-    INDIA_FALLBACK,
-  );
-
-  const [states, setStates] =
-    useState<StateOption[]>([]);
-
-  const [
-    statesLoading,
-    setStatesLoading,
-  ] = useState(false);
-
-  const [
-    selectedState,
-    setSelectedState,
-  ] = useState(() => {
-    const cached =
-      getCachedBookingDraft(
-        eventId,
-      );
-
-    return typeof cached?.state ===
-      'string'
-      ? cached.state
-      : '';
-  });
+  const { countries, countriesLoading, selectedCountry, setSelectedCountry, selectedPhoneCountry,
+    setSelectedPhoneCountry, selectedState, setSelectedState, states, statesLoading } = useBookingCountries(eventId);
 
   const [
     phoneMenuOpen,
@@ -250,232 +143,7 @@ export default function MantramTemplate({
     useRef<HTMLDivElement>(null);
 
   /* ============================================================
-     LOAD COUNTRIES
-  ============================================================ */
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadCountries() {
-      setCountriesLoading(true);
-
-      try {
-        const response =
-          await fetch(
-            '/api/location/countries',
-            {
-              method: 'GET',
-              cache: 'force-cache',
-            },
-          );
-
-        const data =
-          await response.json();
-
-        if (
-          !response.ok ||
-          !data.success
-        ) {
-          throw new Error(
-            data.error ||
-              'Unable to load countries.',
-          );
-        }
-
-        if (cancelled) {
-          return;
-        }
-
-        const result =
-          Array.isArray(
-            data.countries,
-          )
-            ? (data.countries as CountryOption[])
-            : [];
-
-        if (!result.length) {
-          return;
-        }
-
-        const cached =
-          getCachedBookingDraft(
-            eventId,
-          );
-
-        const preferredCountry =
-          cached &&
-          typeof cached === 'object'
-            ? result.find(
-                (country) =>
-                  country.iso2 ===
-                    String(
-                      cached.countryIso2 ||
-                        cached.phoneCountry ||
-                        '',
-                    ) ||
-                  country.name ===
-                    String(
-                      cached.country ||
-                        '',
-                    ),
-              ) ||
-              result.find(
-                (country) =>
-                  country.iso2 === 'IN',
-              ) ||
-              result[0]
-            : result.find(
-                (country) =>
-                  country.iso2 === 'IN',
-              ) || result[0];
-
-        setCountries(result);
-
-        if (preferredCountry) {
-          setSelectedCountry(
-            preferredCountry,
-          );
-
-          setSelectedPhoneCountry(
-            preferredCountry,
-          );
-        }
-      } catch (
-        error: unknown
-      ) {
-        console.error(
-          'Country loading error:',
-          error,
-        );
-      } finally {
-        if (!cancelled) {
-          setCountriesLoading(
-            false,
-          );
-        }
-      }
-    }
-
-    void loadCountries();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [eventId]);
-
-  /* ============================================================
-     LOAD STATES
-  ============================================================ */
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadStates() {
-      setStatesLoading(true);
-
-      setStates([]);
-
-      const cached =
-        getCachedBookingDraft(
-          eventId,
-        );
-
-      const cachedCountry =
-        String(
-          cached?.countryIso2 ||
-            cached?.phoneCountry ||
-            '',
-        ).toUpperCase();
-
-      const shouldRestoreCachedState =
-        typeof cached?.state ===
-          'string' &&
-        cached.state.trim() &&
-        ((cachedCountry &&
-          cachedCountry ===
-            selectedCountry.iso2.toUpperCase()) ||
-          (!cachedCountry &&
-            String(
-              cached?.country ||
-                '',
-            ).toLowerCase() ===
-              selectedCountry.name.toLowerCase()));
-
-      setSelectedState(
-        shouldRestoreCachedState
-          ? cached.state as string
-          : '',
-      );
-
-      try {
-        const response =
-          await fetch(
-            `/api/location/states?country=${encodeURIComponent(
-              selectedCountry.name,
-            )}`,
-            {
-              method: 'GET',
-              cache: 'no-store',
-            },
-          );
-
-        const data =
-          await response.json();
-
-        if (
-          !response.ok ||
-          !data.success
-        ) {
-          throw new Error(
-            data.error ||
-              'Unable to load states.',
-          );
-        }
-
-        if (cancelled) {
-          return;
-        }
-
-        setStates(
-          Array.isArray(
-            data.states,
-          )
-            ? data.states
-            : [],
-        );
-      } catch (
-        error: unknown
-      ) {
-        console.error(
-          'State loading error:',
-          error,
-        );
-
-        if (!cancelled) {
-          setStates([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setStatesLoading(
-            false,
-          );
-        }
-      }
-    }
-
-    if (
-      selectedCountry.name
-    ) {
-      void loadStates();
-    }
-
-    return () => {
-      cancelled = true;
-    };
-  }, [eventId, selectedCountry]);
-
-  /* ============================================================
-     OUTSIDE CLICK
+     CLOSE COUNTRY MENUS ON OUTSIDE CLICK
   ============================================================ */
 
   useEffect(() => {
@@ -518,107 +186,7 @@ export default function MantramTemplate({
   }, []);
 
   /* ============================================================
-     RESTORE BOOKING DRAFT FROM CACHE
-  ============================================================ */
-
-  useEffect(() => {
-    if (
-      typeof window === 'undefined' ||
-      !eventId
-    ) {
-      return;
-    }
-
-    try {
-      const cached =
-        getCachedBookingDraft(
-          eventId,
-        );
-
-      if (!cached) {
-        return;
-      }
-
-      const form =
-        document.querySelector<
-          HTMLFormElement
-        >(
-          `form[data-booking-form="${eventId}"]`,
-        );
-
-      if (!form) {
-        return;
-      }
-
-      const setFormValue = (
-        name: string,
-        value: unknown,
-      ) => {
-        if (
-          value === undefined ||
-          value === null ||
-          value === ''
-        ) {
-          return;
-        }
-
-        const element =
-          form.querySelector<
-            HTMLInputElement |
-              HTMLSelectElement
-          >(
-            `[name="${name}"]`,
-          );
-
-        if (
-          element &&
-          'value' in element
-        ) {
-          element.value =
-            String(value);
-        }
-      };
-
-      setFormValue(
-        'title',
-        cached.title,
-      );
-      setFormValue(
-        'fullName',
-        cached.fullName,
-      );
-      setFormValue(
-        'specialty',
-        cached.specialty,
-      );
-      setFormValue(
-        'mobile',
-        cached.mobile,
-      );
-      setFormValue(
-        'email',
-        cached.email,
-      );
-      setFormValue(
-        'hospitalName',
-        cached.hospitalName,
-      );
-      setFormValue(
-        'city',
-        cached.city,
-      );
-    } catch (error) {
-      console.error(
-        'Unable to restore booking draft:',
-        error,
-      );
-    }
-  }, [
-    eventId,
-  ]);
-
-  /* ============================================================
-     FILTER PHONE COUNTRIES
+     FILTER COUNTRY OPTIONS
   ============================================================ */
 
   const filteredPhoneCountries =
@@ -687,6 +255,7 @@ export default function MantramTemplate({
   ) {
     event.preventDefault();
 
+    if (countriesLoading) { setFormError('Please wait for the country choices to load.'); return; }
     setFormError('');
 
     const form =
@@ -700,15 +269,10 @@ export default function MantramTemplate({
     const data =
       new FormData(form);
 
-    const mobile =
-      String(
-        data.get('mobile') || '',
-      ).replace(/\D/g, '');
+    const rawMobile = String(data.get('mobile') || '');
+    const mobile = rawMobile.trim().startsWith('+') ? '+' + normalizePhone(rawMobile) : normalizePhone(rawMobile);
 
-    if (
-      mobile.length < 4 ||
-      mobile.length > 14
-    ) {
+    if (!isValidPhone(rawMobile, selectedPhoneCountry.callingCode)) {
       setFormError(
         'Please enter a valid mobile number.',
       );
@@ -811,7 +375,7 @@ export default function MantramTemplate({
       };
 
       sessionStorage.setItem(
-        `ssi-booking-details:${eventId}`,
+        bookingStorage.details(eventId),
         JSON.stringify(
           bookingDetails,
         ),
@@ -1194,8 +758,8 @@ export default function MantramTemplate({
                   required
                   inputMode="tel"
                   autoComplete="tel-national"
-                  maxLength={14}
-                  placeholder="10-digit mobile number"
+                  maxLength={24}
+                  placeholder="Mobile number"
                   className={
                     inputClass
                   }
@@ -1204,7 +768,7 @@ export default function MantramTemplate({
                   ) => {
                     event.currentTarget.value =
                       event.currentTarget.value.replace(
-                        /[^\d\s-]/g,
+                        /[^\d\s()+-]/g,
                         '',
                       );
                   }}
@@ -1299,7 +863,7 @@ export default function MantramTemplate({
                   name="state"
                   required
                   disabled={
-                    statesLoading
+                    statesLoading || countriesLoading
                   }
                   value={
                     selectedState
@@ -1340,7 +904,7 @@ export default function MantramTemplate({
                   type="text"
                   required
                   disabled={
-                    statesLoading
+                    statesLoading || countriesLoading
                   }
                   value={
                     selectedState
@@ -1353,7 +917,7 @@ export default function MantramTemplate({
                     )
                   }
                   placeholder={
-                    statesLoading
+                    statesLoading || countriesLoading
                       ? 'Loading...'
                       : 'e.g. Delhi'
                   }
@@ -1538,6 +1102,7 @@ function PhoneCountrySelector({
       <button
         type="button"
         aria-label="Select phone country code"
+        disabled={loading}
         onClick={
           onToggle
         }
@@ -1732,8 +1297,11 @@ function CountrySelector({
         min-w-0
       "
     >
-      <button
+      <button id="residence-country"
+        aria-label={`Country: ${selected.name}`}
+        aria-expanded={open}
         type="button"
+        disabled={loading}
         onClick={
           onToggle
         }
@@ -1998,7 +1566,7 @@ function SearchBox({
           />
         </svg>
 
-        <input
+        <input aria-label="Search countries"
           type="search"
           autoFocus
           value={
@@ -2135,6 +1703,8 @@ function Field({
   label: string;
   children: ReactNode;
 }) {
+  const generatedId = useId();
+  const fieldId = label === 'Country' ? 'residence-country' : generatedId;
   return (
     <div
       className="
@@ -2142,7 +1712,7 @@ function Field({
         w-full
       "
     >
-      <label
+      <label htmlFor={fieldId}
         className={
           labelClass
         }
@@ -2159,7 +1729,7 @@ function Field({
         </span>
       </label>
 
-      {children}
+      {labelFieldControl(children, fieldId)}
     </div>
   );
 }

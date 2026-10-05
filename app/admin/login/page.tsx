@@ -22,12 +22,10 @@ import {
 
 import { useRouter } from 'next/navigation';
 import {
-  ADMIN_TOKEN_KEY,
-  getAdminTokenPayload,
+  clearAdminSession,
+  firstAdminRoute,
   saveAdminSession,
   type AdminTokenPayload,
-  type AdminRole,
-  type AdminPermission,
 } from '@/lib/admin-auth';
 
 type LoginState =
@@ -76,11 +74,7 @@ const formVariants: Variants = {
 export default function AdminLoginPage() {
   const router = useRouter();
 
-  useEffect(() => {
-    if (getAdminTokenPayload()) {
-      router.replace('/admin/landing');
-    }
-  }, [router]);
+  useEffect(() => { clearAdminSession(); }, []);
 
   const [
     credentials,
@@ -159,82 +153,23 @@ export default function AdminLoginPage() {
     }
 
     setLoginState('loading');
-
-    await new Promise(
-      (resolve) => {
-        window.setTimeout(
-          resolve,
-          950,
-        );
-      },
-    );
-
-    const response = await fetch('/api/admin/login', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ username, password }),
-    });
-
-    if (!response.ok) {
+    try {
+      const response = await fetch('/api/admin/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(15000),
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await response.json().catch(() => { throw new Error('Unable to sign in. Please retry.'); });
+      if (!response.ok || !data.success || !data.user) throw new Error(data.error || 'Unable to sign in. Please retry.');
+      const sessionPayload: AdminTokenPayload = { ...data.user, loggedInAt: data.loggedInAt };
+      saveAdminSession(sessionPayload);
+      router.replace(firstAdminRoute(sessionPayload) || '/admin/landing');
+      router.refresh();
+    } catch (error) {
+      setError(error instanceof Error && !(error instanceof TypeError) ? error.message : 'Unable to sign in. Check your connection and retry.');
+    } finally {
       setLoginState('idle');
-      setError(
-        'Invalid login ID or password.',
-      );
-      return;
     }
-
-    const data = (await response.json()) as {
-      success: boolean;
-      user: {
-        username: string;
-        name: string;
-        role: AdminRole;
-        permissions: AdminPermission[];
-        canCreate?: boolean;
-        canDelete?: boolean;
-      };
-      loggedInAt: number;
-    };
-
-    const isSuper = data.user.role === 'superadmin';
-
-    const sessionPayload: AdminTokenPayload = {
-      username: data.user.username,
-      name: data.user.name,
-      role: data.user.role,
-      permissions: data.user.permissions,
-      canCreate: isSuper ? true : Boolean(data.user.canCreate),
-      canDelete: isSuper ? true : Boolean(data.user.canDelete),
-      loggedInAt: data.loggedInAt,
-    };
-
-    saveAdminSession(sessionPayload);
-    setLoginState('success');
-
-    const targetRoute =
-      data.user.role === 'superadmin' || data.user.permissions.includes('dashboard')
-        ? '/admin/landing'
-        : data.user.permissions.includes('events')
-        ? '/admin/eventmanagement'
-        : data.user.permissions.includes('bookings')
-        ? '/admin/bookings'
-        : data.user.permissions.includes('check-in')
-        ? '/admin/check-in'
-        : data.user.permissions.includes('reports')
-        ? '/admin/reports'
-        : data.user.permissions.includes('auth')
-        ? '/admin/auth'
-        : '/admin/landing';
-
-    window.setTimeout(
-      () => {
-        router.replace(targetRoute);
-        router.refresh();
-      },
-      750,
-    );
   }
 
   return (

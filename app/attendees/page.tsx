@@ -1,5 +1,7 @@
 'use client';
 
+import { eventDateFormatter } from '@/lib/events/dates';
+
 import {
   FormEvent,
   useCallback,
@@ -2336,7 +2338,7 @@ function formatTime(
     return '—';
   }
 
-  return new Intl.DateTimeFormat(
+  return eventDateFormatter(
     'en-IN',
     {
       hour:

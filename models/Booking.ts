@@ -1,3 +1,4 @@
+import type { BookingDetails } from '@/lib/booking-contracts';
 import mongoose, {
   Document,
   Model,
@@ -16,17 +17,13 @@ export type CheckInMethod =
   | 'QR'
   | 'MANUAL';
 
-export interface IBookingDetails {
-  fullName: string;
-  email: string;
-  mobile: string;
-
-  [key: string]: string;
-}
+export type IBookingDetails = BookingDetails;
 
 export interface IBooking
   extends Document {
   bookingId: string;
+  requestKeyHash?: string;
+  requestFingerprint?: string;
 
   eventId:
     mongoose.Types.ObjectId;
@@ -73,6 +70,8 @@ const BookingSchema =
         index: true,
         trim: true,
       },
+      requestKeyHash: { type: String },
+      requestFingerprint: { type: String },
 
       eventId: {
         type:
@@ -192,6 +191,11 @@ BookingSchema.index({
   slotId: 1,
 });
 
+// Existing bookings lack this field and are deliberately excluded from the index.
+BookingSchema.index({ eventId: 1, requestKeyHash: 1 }, {
+  unique: true, partialFilterExpression: { requestKeyHash: { $type: 'string' } },
+});
+
 BookingSchema.index({
   eventId: 1,
   attendanceStatus: 1,
@@ -213,4 +217,3 @@ export const Booking:
     'Booking',
     BookingSchema,
   );
-  

@@ -1,5 +1,11 @@
 'use client';
 
+import { useDialog } from '@/lib/use-dialog';
+
+import { ticketStorage } from '@/lib/booking-contracts';
+
+import { calendarDateFormatter } from '@/lib/events/dates';
+
 import type {
   ReactNode,
 } from 'react';
@@ -14,6 +20,7 @@ import {
   useEffect,
   memo,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 
@@ -54,7 +61,8 @@ interface IEvent {
   status:
     | 'LIVE'
     | 'COMPLETED'
-    | 'UPCOMING';
+    | 'UPCOMING'
+    | 'CANCELLED';
 }
 
 type CachedTicket = {
@@ -94,7 +102,7 @@ const EASE = [
 ] as const;
 
 const TICKET_CACHE =
-  'ssi-my-tickets-data';
+  ticketStorage.tickets;
 
 /* ============================================================
    PAGE
@@ -189,12 +197,16 @@ export default function EventsPage() {
      LOAD EVENTS
   ========================================================== */
 
+  const [loadError, setLoadError] = useState('');
+  const eventRequest = useRef<AbortController | null>(null);
   const fetchEvents =
     useCallback(
       async (
         showInitialLoading =
           true,
       ) => {
+        eventRequest.current?.abort();
+        const controller = new AbortController(); eventRequest.current = controller;
         if (
           showInitialLoading
         ) {
@@ -214,6 +226,7 @@ export default function EventsPage() {
               ? '/api/events'
               : `/api/events?refresh=${Date.now()}`,
             {
+              signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
               method:
                 'GET',
 
@@ -227,6 +240,7 @@ export default function EventsPage() {
           const data =
             await response.json();
 
+          if (controller.signal.aborted) return;
           if (
             !response.ok ||
             !data.success
@@ -237,22 +251,23 @@ export default function EventsPage() {
             );
           }
 
+          setLoadError('');
           setEvents(
             Array.isArray(
               data.events,
             )
-              ? data.events
+              ? data.events.filter((event: IEvent) => event.status !== 'CANCELLED')
               : [],
           );
 
           try {
             window.sessionStorage.setItem(
-              'ssi-events-cache',
+              ticketStorage.events,
               JSON.stringify(
                 Array.isArray(
                   data.events,
                 )
-                  ? data.events
+                  ? data.events.filter((event: IEvent) => event.status !== 'CANCELLED')
                   : [],
               ),
             );
@@ -265,15 +280,15 @@ export default function EventsPage() {
         } catch (
           error
         ) {
+          if (controller.signal.aborted) return;
           console.error(
             'Failed to fetch events:',
             error,
           );
 
-          setEvents(
-            [],
-          );
+          setLoadError(error instanceof Error ? error.message : 'Unable to load events. Please retry.');
         } finally {
+          if (!controller.signal.aborted) {
           setLoading(
             false,
           );
@@ -281,19 +296,21 @@ export default function EventsPage() {
           setRefreshing(
             false,
           );
+          }
         }
       },
       [],
     );
 
   useEffect(() => {
+    const timers: number[] = [];
     let hasCachedEvents =
       false;
 
     try {
       const cached =
         window.sessionStorage.getItem(
-          'ssi-events-cache',
+          ticketStorage.events,
         );
 
       if (cached) {
@@ -303,10 +320,10 @@ export default function EventsPage() {
         if (
           Array.isArray(parsed)
         ) {
-          window.setTimeout(() => {
-            setEvents(parsed as IEvent[]);
+          timers.push(window.setTimeout(() => {
+            setEvents((parsed as IEvent[]).filter(event => event.status !== 'CANCELLED'));
             setLoading(false);
-          }, 0);
+          }, 0));
           hasCachedEvents = true;
         }
       }
@@ -317,11 +334,12 @@ export default function EventsPage() {
       );
     }
 
-    window.setTimeout(() => {
+    timers.push(window.setTimeout(() => {
       void fetchEvents(
         !hasCachedEvents,
       );
-    }, 0);
+    }, 0));
+    return () => { timers.forEach(clearTimeout); eventRequest.current?.abort(); };
   }, [
     fetchEvents,
   ]);
@@ -517,7 +535,7 @@ export default function EventsPage() {
   function openFeedback() {
     try {
       const cached =
-        localStorage.getItem(
+        sessionStorage.getItem(
           TICKET_CACHE,
         );
       const tickets =
@@ -563,27 +581,12 @@ export default function EventsPage() {
       string,
     bookingId:
       string,
-    bookingMongoId:
-      string,
   ) {
     setShowFeedbackPicker(
       false,
     );
 
-    sessionStorage.setItem(
-      `ssi-feedback-booking-id:${eventId}`,
-      bookingId,
-    );
-    sessionStorage.setItem(
-      `ssi-feedback-booking-mongo-id:${eventId}`,
-      bookingMongoId,
-    );
-
-    router.push(
-      `/events/${encodeURIComponent(
-        eventId,
-      )}/book/feedback?scope=event`,
-    );
+    router.push(`/events/${encodeURIComponent(eventId)}/book/feedback?scope=event&bookingId=${encodeURIComponent(bookingId)}`);
   }
 
   /* ==========================================================
@@ -1214,6 +1217,9 @@ export default function EventsPage() {
             LOADING
         ==================================================== */}
 
+        {loadError && <div role="alert" className="my-4 rounded-lg bg-red-50 p-4 text-sm text-red-700">
+          {loadError} <button type="button" className="ml-3 underline" onClick={() => { void fetchEvents(false); }}>Try again</button>
+        </div>}
         {loading ? (
           <div
             className="
@@ -1224,7 +1230,7 @@ export default function EventsPage() {
           >
             <LoadingState />
           </div>
-        ) : events.length ===
+        ) : loadError && events.length === 0 ? null : events.length ===
           0 ? (
           /* ==================================================
              NO EVENTS AT ALL
@@ -1580,7 +1586,7 @@ function SearchBar({
         <SearchIcon />
       </span>
 
-      <input
+      <input aria-label="Search events, venue or type"
         type="search"
         value={
           value
@@ -3006,6 +3012,7 @@ function FeedbackEventPicker({
   onClose:
     () => void;
 }) {
+  const dialog = useDialog(true, onClose, 'Select a ticket for feedback');
   const [
     search,
     setSearch,
@@ -3116,7 +3123,7 @@ function FeedbackEventPicker({
         }
       }}
     >
-      <motion.section
+      <motion.section {...dialog}
         initial={{
           opacity: 0,
           y: 22,
@@ -4172,59 +4179,6 @@ function MetaRow({
    MOBILE NAV ITEM
 ============================================================ */
 
-function MobileNavItem({
-  href,
-  label,
-  icon,
-  active = false,
-}: {
-  href:
-    string;
-
-  label:
-    string;
-
-  icon:
-    ReactNode;
-
-  active?:
-    boolean;
-}) {
-  return (
-    <Link
-      href={
-        href
-      }
-      className={`
-        flex
-        min-h-[54px]
-
-        flex-col
-        items-center
-        justify-center
-        gap-1
-
-        text-[9px]
-        font-medium
-
-        transition-colors
-
-        ${
-          active
-            ? 'text-primary'
-            : 'text-gray-400'
-        }
-      `}
-    >
-      {icon}
-
-      <span>
-        {label}
-      </span>
-    </Link>
-  );
-}
-
 /* ============================================================
    PLACEHOLDER
 ============================================================ */
@@ -4399,7 +4353,7 @@ function formatDate(
     return '';
   }
 
-  return new Intl.DateTimeFormat(
+  return calendarDateFormatter(
     'en-GB',
     {
       day:
@@ -4454,7 +4408,7 @@ function formatDateRange(
   }
 
   const startLabel =
-    new Intl.DateTimeFormat(
+    calendarDateFormatter(
       'en-GB',
       {
         day:
@@ -4468,7 +4422,7 @@ function formatDateRange(
     );
 
   const endLabel =
-    new Intl.DateTimeFormat(
+    calendarDateFormatter(
       'en-GB',
       {
         day:
@@ -4612,24 +4566,6 @@ function TicketIcon() {
       <path
         strokeLinecap="round"
         d="M12 7v10"
-      />
-    </svg>
-  );
-}
-
-function HomeIcon() {
-  return (
-    <svg
-      className="h-[18px] w-[18px]"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth={1.9}
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M3 11l9-8 9 8v9a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1z"
       />
     </svg>
   );

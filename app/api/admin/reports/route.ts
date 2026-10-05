@@ -1,3 +1,6 @@
+import { buildRegistrationTrend } from '@/lib/events/reporting';
+import { zonedDayStart, isCalendarDate, isTimeZone, eventTimeZone, calendarDate, DAY_MS } from '@/lib/events/dates';
+import { withCurrentEventStatus } from '@/lib/events/status';
 import {
   NextRequest,
   NextResponse,
@@ -9,9 +12,7 @@ import {
   connectDB,
 } from '@/lib/db';
 
-import {
-  requireAdminSession,
-} from '@/lib/admin-server-auth';
+import { adminAccessError } from '@/lib/admin-api-auth';
 
 import {
   Booking,
@@ -25,9 +26,7 @@ import {
   Slot,
 } from '@/models/Slot';
 
-import {
-  DaySchedule,
-} from '@/models/DaySchedule';
+import '@/models/DaySchedule'; // Register the populated model.
 
 export const dynamic =
   'force-dynamic';
@@ -83,6 +82,7 @@ type PopulatedBooking = {
     startDate?: Date;
 
     endDate?: Date;
+    timeZone?: string;
   } | null;
 
   slotId?: {
@@ -121,24 +121,8 @@ export async function GET(
        AUTH
     ======================================================== */
 
-    const authenticated =
-      await requireAdminSession();
-
-    if (!authenticated) {
-      return NextResponse.json(
-        {
-          success:
-            false,
-
-          message:
-            'Unauthorized.',
-        },
-        {
-          status:
-            401,
-        },
-      );
-    }
+    const denied = await adminAccessError('reports');
+    if (denied) return denied;
 
     await connectDB();
 
@@ -157,6 +141,13 @@ export async function GET(
         )
         ?.trim() ||
       '';
+
+    const requestedTimeZone = params.get('timeZone');
+    if (requestedTimeZone && !isTimeZone(requestedTimeZone)) {
+      return NextResponse.json({ success: false, message: 'Invalid reporting timezone.' }, { status: 400 });
+    }
+    const selectedEvent = eventId && mongoose.Types.ObjectId.isValid(eventId) ? await Event.findById(eventId).select('timeZone').lean() : null;
+    const timeZone = requestedTimeZone || eventTimeZone(selectedEvent?.timeZone);
 
     const from =
       params
@@ -267,13 +258,17 @@ export async function GET(
 
     const fromDate =
       parseDateStart(
-        from,
+        from, timeZone,
       );
 
     const toExclusive =
       parseDateEndExclusive(
-        to,
+        to, timeZone,
       );
+
+    if ((from && !fromDate) || (to && !toExclusive) || (fromDate && toExclusive && fromDate >= toExclusive)) {
+      return NextResponse.json({ success: false, message: 'Enter a valid report date range.' }, { status: 400 });
+    }
 
     if (fromDate) {
       createdAt.$gte =
@@ -318,12 +313,13 @@ export async function GET(
           status: 1,
           startDate: 1,
           endDate: 1,
+          timeZone: 1,
         })
         .sort({
           startDate:
             1,
         })
-        .lean();
+        .lean().then(rows => rows.map(withCurrentEventStatus));
 
     const eventIds =
       events.map(
@@ -350,7 +346,7 @@ export async function GET(
             'eventId',
 
           select:
-            'eventName eventType venue status startDate endDate',
+            'eventName eventType venue status startDate endDate timeZone',
         })
         .populate({
           path:
@@ -369,8 +365,7 @@ export async function GET(
         .lean();
 
     const bookings =
-      rawBookings as unknown as
-        PopulatedBooking[];
+      (rawBookings as unknown as PopulatedBooking[]).map(booking => ({ ...booking, eventId: booking.eventId ? withCurrentEventStatus(booking.eventId) : null }));
 
     /* ========================================================
        SLOT DATA
@@ -424,12 +419,15 @@ export async function GET(
           _id: 1,
           eventName: 1,
           status: 1,
+          startDate: 1,
+          endDate: 1,
+          timeZone: 1,
         })
         .sort({
           startDate:
             -1,
         })
-        .lean();
+        .lean().then(rows => rows.map(withCurrentEventStatus));
 
     /* ========================================================
        NORMALIZED LEDGER
@@ -445,6 +443,8 @@ export async function GET(
             {};
 
           return {
+            reportingTimeZone: timeZone,
+            eventTimeZone: eventTimeZone(booking.eventId?.timeZone),
             id:
               String(
                 booking._id,
@@ -920,7 +920,7 @@ export async function GET(
       buildRegistrationTrend(
         ledger,
         fromDate,
-        toExclusive,
+        toExclusive, new Date(), timeZone,
       );
 
     /* ========================================================
@@ -1031,7 +1031,9 @@ export async function GET(
           new Date()
             .toISOString(),
 
+        timeZone,
         filters: {
+          timeZone,
           eventId,
           from,
           to,
@@ -1048,6 +1050,7 @@ export async function GET(
                   event._id,
                 ),
 
+              timeZone: eventTimeZone(event.timeZone),
               eventName:
                 event.eventName,
 
@@ -1172,359 +1175,6 @@ export async function GET(
 }
 
 /* ============================================================
-   REGISTRATION TREND
-============================================================ */
-
-function buildRegistrationTrend(
-  bookings: Array<{
-    createdAt: string;
-
-    attendanceStatus:
-      string;
-  }>,
-
-  requestedStart:
-    Date | null,
-
-  requestedEndExclusive:
-    Date | null,
-) {
-  const today =
-    new Date();
-
-  let start =
-    requestedStart;
-
-  let end =
-    requestedEndExclusive
-      ? new Date(
-          requestedEndExclusive.getTime() -
-            1,
-        )
-      : null;
-
-  if (
-    !start &&
-    bookings.length
-  ) {
-    start =
-      new Date(
-        bookings[
-          bookings.length -
-            1
-        ].createdAt,
-      );
-
-    for (
-      const booking of bookings
-    ) {
-      const current =
-        new Date(
-          booking.createdAt,
-        );
-
-      if (
-        current <
-        start
-      ) {
-        start =
-          current;
-      }
-    }
-  }
-
-  if (
-    !end &&
-    bookings.length
-  ) {
-    end =
-      new Date(
-        bookings[0].createdAt,
-      );
-
-    for (
-      const booking of bookings
-    ) {
-      const current =
-        new Date(
-          booking.createdAt,
-        );
-
-      if (
-        current >
-        end
-      ) {
-        end =
-          current;
-      }
-    }
-  }
-
-  if (!start) {
-    start =
-      new Date(
-        today,
-      );
-
-    start.setUTCDate(
-      start.getUTCDate() -
-        6,
-    );
-  }
-
-  if (!end) {
-    end =
-      today;
-  }
-
-  start =
-    startOfUtcDay(
-      start,
-    );
-
-  end =
-    endOfUtcDay(
-      end,
-    );
-
-  const spanDays =
-    Math.max(
-      Math.ceil(
-        (end.getTime() -
-          start.getTime()) /
-          86400000,
-      ),
-      1,
-    );
-
-  const monthly =
-    spanDays >
-    62;
-
-  const buckets =
-    new Map<
-      string,
-      {
-        key: string;
-        label: string;
-        registered: number;
-        present: number;
-        timestamp: number;
-      }
-    >();
-
-  if (monthly) {
-    let cursor =
-      new Date(
-        Date.UTC(
-          start.getUTCFullYear(),
-          start.getUTCMonth(),
-          1,
-        ),
-      );
-
-    const last =
-      new Date(
-        Date.UTC(
-          end.getUTCFullYear(),
-          end.getUTCMonth(),
-          1,
-        ),
-      );
-
-    while (
-      cursor <=
-      last
-    ) {
-      const key =
-        `${cursor.getUTCFullYear()}-${String(
-          cursor.getUTCMonth() +
-            1,
-        ).padStart(
-          2,
-          '0',
-        )}`;
-
-      buckets.set(
-        key,
-        {
-          key,
-
-          label:
-            new Intl.DateTimeFormat(
-              'en-GB',
-              {
-                month:
-                  'short',
-
-                year:
-                  'numeric',
-
-                timeZone:
-                  'UTC',
-              },
-            ).format(
-              cursor,
-            ),
-
-          registered:
-            0,
-
-          present:
-            0,
-
-          timestamp:
-            cursor.getTime(),
-        },
-      );
-
-      cursor =
-        new Date(
-          Date.UTC(
-            cursor.getUTCFullYear(),
-            cursor.getUTCMonth() +
-              1,
-            1,
-          ),
-        );
-    }
-  } else {
-    let cursor =
-      startOfUtcDay(
-        start,
-      );
-
-    const last =
-      startOfUtcDay(
-        end,
-      );
-
-    while (
-      cursor <=
-      last
-    ) {
-      const key =
-        cursor
-          .toISOString()
-          .slice(
-            0,
-            10,
-          );
-
-      buckets.set(
-        key,
-        {
-          key,
-
-          label:
-            new Intl.DateTimeFormat(
-              'en-GB',
-              {
-                day:
-                  '2-digit',
-
-                month:
-                  'short',
-
-                timeZone:
-                  'UTC',
-              },
-            ).format(
-              cursor,
-            ),
-
-          registered:
-            0,
-
-          present:
-            0,
-
-          timestamp:
-            cursor.getTime(),
-        },
-      );
-
-      cursor =
-        new Date(
-          cursor.getTime() +
-            86400000,
-        );
-    }
-  }
-
-  for (
-    const booking of bookings
-  ) {
-    const date =
-      new Date(
-        booking.createdAt,
-      );
-
-    const key =
-      monthly
-        ? `${date.getUTCFullYear()}-${String(
-            date.getUTCMonth() +
-              1,
-          ).padStart(
-            2,
-            '0',
-          )}`
-        : date
-            .toISOString()
-            .slice(
-              0,
-              10,
-            );
-
-    const bucket =
-      buckets.get(
-        key,
-      );
-
-    if (!bucket) {
-      continue;
-    }
-
-    bucket.registered +=
-      1;
-
-    if (
-      booking.attendanceStatus ===
-      'PRESENT'
-    ) {
-      bucket.present +=
-        1;
-    }
-  }
-
-  return [
-    ...buckets.values(),
-  ]
-    .sort(
-      (
-        a,
-        b,
-      ) =>
-        a.timestamp -
-        b.timestamp,
-    )
-    .map(
-      ({
-        label,
-        registered,
-        present,
-      }) => ({
-        period:
-          label,
-
-        registered,
-
-        present,
-      }),
-    );
-}
-
-/* ============================================================
    HELPERS
 ============================================================ */
 
@@ -1538,73 +1188,16 @@ function getString(
     : '';
 }
 
-function parseDateStart(
-  value:
-    string,
-) {
-  if (!value) {
-    return null;
-  }
-
-  const date =
-    new Date(
-      `${value}T00:00:00.000Z`,
-    );
-
-  return Number.isNaN(
-    date.getTime(),
-  )
-    ? null
-    : date;
+function parseDateStart(value: string, timeZone: string) {
+  if (!isCalendarDate(value)) return null;
+  const date = zonedDayStart(value, timeZone);
+  return Number.isFinite(date.getTime()) ? date : null;
 }
 
-function parseDateEndExclusive(
-  value:
-    string,
-) {
-  const start =
-    parseDateStart(
-      value,
-    );
-
-  if (!start) {
-    return null;
-  }
-
-  return new Date(
-    start.getTime() +
-      86400000,
-  );
-}
-
-function startOfUtcDay(
-  date:
-    Date,
-) {
-  return new Date(
-    Date.UTC(
-      date.getUTCFullYear(),
-      date.getUTCMonth(),
-      date.getUTCDate(),
-    ),
-  );
-}
-
-function endOfUtcDay(
-  date:
-    Date,
-) {
-  return new Date(
-    Date.UTC(
-      date.getUTCFullYear(),
-      date.getUTCMonth(),
-      date.getUTCDate(),
-      23,
-      59,
-      59,
-      999,
-    ),
-  );
+function parseDateEndExclusive(value: string, timeZone: string) {
+  if (!isCalendarDate(value)) return null;
+  const tomorrow = calendarDate(new Date(new Date(value).getTime() + DAY_MS));
+  return parseDateStart(tomorrow, timeZone);
 }
 
 function round(

@@ -3,6 +3,7 @@ import mongoose, {
   Document,
   Model,
 } from 'mongoose';
+import { DEFAULT_TIME_ZONE, isTimeZone } from '@/lib/events/dates';
 
 export type EventType =
   | 'conference'
@@ -15,6 +16,7 @@ export type BookingFormTemplate =
   | 'template-3';
 
 export type EventStatus =
+  | 'CANCELLED'
   | 'LIVE'
   | 'COMPLETED'
   | 'UPCOMING';
@@ -39,6 +41,9 @@ export interface IEvent
   startDate: Date;
 
   endDate: Date;
+
+  timeZone: string;
+  bookingRevision: number;
 
   status: EventStatus;
 
@@ -112,10 +117,18 @@ const EventSchema =
         required: true,
       },
 
+      timeZone: {
+        type: String,
+        default: DEFAULT_TIME_ZONE,
+        validate: { validator: isTimeZone, message: 'Invalid event timezone.' },
+      },
+      bookingRevision: { type: Number, default: 0 },
+
       status: {
         type: String,
         enum: [
           'LIVE',
+          'CANCELLED',
           'COMPLETED',
           'UPCOMING',
         ],

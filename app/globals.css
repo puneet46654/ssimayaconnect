@@ -7,6 +7,20 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700&display=swap");
 @import "tailwindcss";
 
+@media print {
+  @page { size: A4 landscape; margin: 10mm; }
+  body:has(.report-page) aside,
+  body:has(.report-page) header { display: none !important; }
+  body:has(.report-page) main { margin: 0 !important; padding: 0 !important; width: 100% !important; }
+  .report-page, .report-page section, .report-page section > div { overflow: visible !important; }
+  .report-page table { width: 100% !important; min-width: 0 !important; table-layout: fixed; font-size: 8pt; }
+  .report-page th, .report-page td { padding: 4pt !important; white-space: normal !important; overflow-wrap: anywhere; }
+  .report-page .truncate { white-space: normal; overflow: visible; max-width: none; }
+  .report-page thead { display: table-header-group; }
+  .report-page tr { break-inside: avoid; }
+  .report-page section { break-inside: auto; box-shadow: none; }
+}
+
 /* ============================================================
    2. DESIGN TOKENS (CSS Custom Properties)
    ============================================================ */

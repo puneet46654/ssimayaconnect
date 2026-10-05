@@ -1,6 +1,9 @@
 'use client';
 
+import { useDialog } from '@/lib/use-dialog';
+
 import Link from 'next/link';
+import { useAdminSession } from './AdminSessionContext';
 
 import {
   usePathname,
@@ -15,15 +18,13 @@ import {
 } from 'framer-motion';
 
 import {
-  useEffect,
   useMemo,
   useState,
 } from 'react';
 
 import {
-  ADMIN_TOKEN_KEY,
   clearAdminSession,
-  decodeAdminToken,
+  firstAdminRoute,
   type AdminPermission,
   hasAdminPermission,
 } from '@/lib/admin-auth';
@@ -120,14 +121,8 @@ export default function Sidebar({
   const router =
     useRouter();
 
-  const [
-    currentUser,
-    setCurrentUser,
-  ] = useState<
-    ReturnType<
-      typeof decodeAdminToken
-    >
-  >(null);
+  const currentUser = useAdminSession();
+  const [logoutError, setLogoutError] = useState('');
 
   const [
     showLogoutModal,
@@ -146,47 +141,6 @@ export default function Sidebar({
   | LOAD CURRENT ADMIN
   |--------------------------------------------------------------------------
   */
-
-  useEffect(() => {
-    const token =
-      localStorage.getItem(
-        ADMIN_TOKEN_KEY,
-      );
-
-    if (!token) {
-      router.replace(
-        '/admin/login',
-      );
-
-      return;
-    }
-
-    const payload =
-      decodeAdminToken(
-        token,
-      );
-
-    if (!payload) {
-      localStorage.removeItem(
-        ADMIN_TOKEN_KEY,
-      );
-
-      router.replace(
-        '/admin/login',
-      );
-
-      return;
-    }
-
-    void Promise.resolve().then(
-      () =>
-        setCurrentUser(
-          payload,
-        ),
-    );
-  }, [
-    router,
-  ]);
 
   const displayName =
     useMemo(() => {
@@ -261,50 +215,24 @@ export default function Sidebar({
     }
   }
 
+  const logoutDialog = useDialog(showLogoutModal, () => { if (!loggingOut) setShowLogoutModal(false); }, 'Log out');
+
   async function handleLogout() {
-    if (
-      loggingOut
-    ) {
-      return;
-    }
-
-    setLoggingOut(
-      true,
-    );
-
-    await new Promise(
-      (resolve) => {
-        window.setTimeout(
-          resolve,
-          400,
-        );
-      },
-    );
-
-    clearAdminSession();
-    await fetch('/api/admin/logout', {
-      method: 'POST',
-    });
-
-    setCurrentUser(
-      null,
-    );
-
-    setShowLogoutModal(
-      false,
-    );
-
-    if (
-      onNavigate
-    ) {
-      onNavigate();
-    }
-
-    router.replace(
-      '/admin/login',
-    );
-
-    router.refresh();
+    if (loggingOut) return;
+    setLoggingOut(true);
+    setLogoutError('');
+    try {
+      const response = await fetch('/api/admin/logout', { method: 'POST', signal: AbortSignal.timeout(15000) });
+      const data = await response.json().catch(() => { throw new Error('Unable to sign out. Please retry.'); });
+      if (!response.ok || !data.success) throw new Error(data.message || 'Unable to sign out. Please retry.');
+      clearAdminSession();
+      setShowLogoutModal(false);
+      onNavigate?.();
+      router.replace('/admin/login');
+      router.refresh();
+    } catch (error) {
+      setLogoutError(error instanceof Error && !(error instanceof TypeError) ? error.message : 'Unable to sign out. Check your connection and retry.');
+    } finally { setLoggingOut(false); }
   }
 
   return (
@@ -349,7 +277,7 @@ export default function Sidebar({
           `}
         >
           <Link
-            href="/admin/landing"
+            href={currentUser ? firstAdminRoute(currentUser) || '/admin/login' : '/admin/login'}
             onClick={
               handleNavigation
             }
@@ -813,7 +741,7 @@ export default function Sidebar({
 
       <AnimatePresence>
         {showLogoutModal && (
-          <motion.div
+          <motion.div {...logoutDialog}
             initial={{
               opacity: 0,
             }}
@@ -975,6 +903,7 @@ export default function Sidebar({
                   gap-2.5
                 "
               >
+                {logoutError && <p role="alert" className="text-sm text-red-600">{logoutError}</p>}
                 <button
                   type="button"
                   disabled={

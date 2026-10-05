@@ -1,5 +1,7 @@
 'use client';
 
+import { calendarDateFormatter, eventTimeZone, formatSlotTime } from '@/lib/events/dates';
+
 import Image from 'next/image';
 import Link from 'next/link';
 
@@ -53,6 +55,7 @@ interface DaySchedule {
 }
 
 interface EventDetails {
+  timeZone?: string;
   _id: string;
 
   eventName: string;
@@ -77,7 +80,8 @@ interface EventDetails {
   status:
     | 'LIVE'
     | 'UPCOMING'
-    | 'COMPLETED';
+    | 'COMPLETED'
+    | 'CANCELLED';
 
   totalSlots: number;
 
@@ -150,6 +154,7 @@ export default function EventDetailsPage() {
      FETCH
   ============================================================ */
 
+  const eventRequest = useRef<AbortController | null>(null);
   const fetchEvent =
     useCallback(
       async (
@@ -159,6 +164,8 @@ export default function EventDetailsPage() {
           return;
         }
 
+        eventRequest.current?.abort();
+        const controller = new AbortController(); eventRequest.current = controller;
         if (showLoading) {
           setLoading(true);
         }
@@ -176,6 +183,7 @@ export default function EventDetailsPage() {
                   : `?refresh=${Date.now()}`
               }`,
               {
+                signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
                 method:
                   'GET',
 
@@ -189,6 +197,8 @@ export default function EventDetailsPage() {
           const data =
             await response.json();
 
+          if (controller.signal.aborted) return;
+          if (response.status === 404) setEvent(null);
           if (
             !response.ok ||
             !data.success ||
@@ -206,6 +216,7 @@ export default function EventDetailsPage() {
         } catch (
           error: unknown
         ) {
+          if (controller.signal.aborted) return;
           console.error(
             'Event loading error:',
             error,
@@ -217,9 +228,8 @@ export default function EventDetailsPage() {
               : 'Failed to load event.',
           );
 
-          setEvent(null);
         } finally {
-          if (showLoading) {
+          if (!controller.signal.aborted) {
             setLoading(
               false,
             );
@@ -237,7 +247,7 @@ export default function EventDetailsPage() {
     }, 0);
 
     return () => {
-      window.clearTimeout(timeoutId);
+      window.clearTimeout(timeoutId); eventRequest.current?.abort();
     };
   }, [
     fetchEvent,
@@ -304,7 +314,6 @@ export default function EventDetailsPage() {
   }
 
   if (
-    error ||
     !event
   ) {
     return (
@@ -392,8 +401,7 @@ export default function EventDetailsPage() {
   }
 
   const canBook =
-    event.status !==
-    'COMPLETED';
+    event.status === 'LIVE' || event.status === 'UPCOMING';
 
   return (
     <main
@@ -405,6 +413,9 @@ export default function EventDetailsPage() {
         md:pb-10
       "
     >
+      {error && <div role="alert" className="m-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+        {error} <button type="button" className="ml-3 underline" onClick={() => { void fetchEvent(false); }}>Try again</button>
+      </div>}
       {/* HEADER */}
 
       <header
@@ -744,7 +755,7 @@ export default function EventDetailsPage() {
             "
           >
             {event.imageUrl ? (
-              <img
+              <Image width={1200} height={600} unoptimized
                 src={
                   event.imageUrl
                 }
@@ -870,6 +881,7 @@ export default function EventDetailsPage() {
                 >
                   {event.eventName}
                 </h1>
+                <p className="mt-1 text-xs text-gray-500">All event times: {eventTimeZone(event.timeZone)}</p>
 
                 <p
                   className="
@@ -1737,7 +1749,7 @@ function formatDateRange(
     start.toDateString() ===
     end.toDateString()
   ) {
-    return new Intl.DateTimeFormat(
+    return calendarDateFormatter(
       'en-GB',
       {
         day: '2-digit',
@@ -1750,7 +1762,7 @@ function formatDateRange(
   }
 
   const startLabel =
-    new Intl.DateTimeFormat(
+    calendarDateFormatter(
       'en-GB',
       {
         day: '2-digit',
@@ -1761,7 +1773,7 @@ function formatDateRange(
     );
 
   const endLabel =
-    new Intl.DateTimeFormat(
+    calendarDateFormatter(
       'en-GB',
       {
         day: '2-digit',
@@ -1788,36 +1800,4 @@ function formatTimeRange(
 
 function formatTime(
   value: string,
-) {
-  if (!value) {
-    return '';
-  }
-
-  const [
-    hour,
-    minute,
-  ] =
-    value.split(':');
-
-  const date =
-    new Date();
-
-  date.setHours(
-    Number(hour),
-    Number(minute),
-    0,
-    0,
-  );
-
-  return new Intl.DateTimeFormat(
-    'en-US',
-    {
-      hour: 'numeric',
-      minute:
-        '2-digit',
-      hour12: true,
-    },
-  ).format(
-    date,
-  );
-}
+) { return value ? formatSlotTime(value) : ""; }

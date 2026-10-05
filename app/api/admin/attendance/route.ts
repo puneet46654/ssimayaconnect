@@ -1,3 +1,9 @@
+import { BookingError, lockBookingEvent } from '@/lib/bookings/mutations';
+import { getEventStatus } from '@/lib/events/status';
+import { liveEventFilter } from '@/lib/events/date-queries';
+import { checkInWindow } from '@/lib/events/check-in';
+import { DaySchedule } from '@/models/DaySchedule';
+import { Slot } from '@/models/Slot';
 import mongoose from 'mongoose';
 
 import {
@@ -42,20 +48,6 @@ type AttendanceQrPayload = {
   eventName?: string;
 };
 
-/*
- * Event.status is only written at creation, so it goes stale.
- * Match LIVE by date (same UTC-day rule as getEventStatus).
- */
-function liveDateFilter() {
-  const now = new Date();
-  const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const tomorrowStart = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
-  return {
-    startDate: { $lt: tomorrowStart },
-    endDate: { $gte: todayStart },
-  };
-}
-
 /* ============================================================
    GET
 ============================================================ */
@@ -78,11 +70,11 @@ export async function GET(
             false,
 
           message:
-            'Unauthorized.',
+            admin ? 'Check-in permission required.' : 'Please sign in again.',
         },
         {
           status:
-            401,
+            admin ? 403 : 401,
         },
       );
     }
@@ -95,7 +87,7 @@ export async function GET(
 
     const liveEvents =
       await Event.find({
-        ...liveDateFilter(),
+        ...liveEventFilter(),
       })
         .select({
           _id: 1,
@@ -103,6 +95,7 @@ export async function GET(
           venue: 1,
           startDate: 1,
           endDate: 1,
+          timeZone: 1,
         })
         .sort({
           startDate:
@@ -131,6 +124,7 @@ export async function GET(
 
           endDate:
             event.endDate,
+          timeZone: event.timeZone,
         }),
       );
 
@@ -197,7 +191,7 @@ export async function GET(
         _id:
           eventId,
 
-        ...liveDateFilter(),
+        ...liveEventFilter(),
       })
         .select(
           '_id eventName',
@@ -387,11 +381,11 @@ export async function POST(
             false,
 
           message:
-            'Unauthorized.',
+            admin ? 'Check-in permission required.' : 'Please sign in again.',
         },
         {
           status:
-            401,
+            admin ? 403 : 401,
         },
       );
     }
@@ -453,7 +447,7 @@ export async function POST(
         _id:
           eventId,
 
-        ...liveDateFilter(),
+        ...liveEventFilter(),
       })
         .select({
           _id: 1,
@@ -663,181 +657,34 @@ export async function POST(
        FIND BOOKING
     ======================================================== */
 
-    const booking =
-      await Booking.findOne(
-        query,
-      );
-
-    if (!booking) {
-      return NextResponse.json(
-        {
-          success:
-            false,
-
-          message:
-            'Ticket not found for the selected event.',
-        },
-        {
-          status:
-            404,
-        },
-      );
-    }
-
-    /* ========================================================
-       ALREADY PRESENT
-    ======================================================== */
-
-    if (
-      booking.attendanceStatus ===
-      'PRESENT'
-    ) {
-      return NextResponse.json(
-        {
-          success:
-            true,
-
-          alreadyPresent:
-            true,
-
-          message:
-            'Attendance was already recorded.',
-
-          booking: {
-            id:
-              booking._id.toString(),
-
-            bookingId:
-              booking.bookingId,
-
-            fullName:
-              booking.details
-                ?.fullName ||
-              'Attendee',
-
-            attendanceStatus:
-              'PRESENT',
-
-            checkedInAt:
-              booking.checkedInAt
-                ? booking.checkedInAt.toISOString()
-                : null,
-          },
-        },
-      );
-    }
-
-    /* ========================================================
-       MARK PRESENT
-    ======================================================== */
-
-    const now =
-      new Date();
-
-    const updatedBooking =
-      await Booking.findOneAndUpdate(
-        {
-          _id:
-            booking._id,
-          eventId:
-            new mongoose.Types.ObjectId(
-              eventId,
-            ),
-          attendanceStatus: {
-            $ne: 'PRESENT',
-          },
-        },
-        {
-          $set: {
-            attendanceStatus:
-              'PRESENT',
-            checkedInAt:
-              now,
-            checkedInBy:
-              admin.username,
-            checkInMethod:
-              method,
-          },
-        },
-        {
-          new: true,
-        },
-      ).lean();
-
-    if (!updatedBooking) {
-      return NextResponse.json(
-        {
-          success: true,
-          alreadyPresent: true,
-          message:
-            'Attendance was already recorded.',
-          booking: {
-            id:
-              booking._id.toString(),
-            bookingId:
-              booking.bookingId,
-            fullName:
-              booking.details
-                ?.fullName ||
-              'Attendee',
-            attendanceStatus:
-              'PRESENT',
-            checkedInAt:
-              booking.checkedInAt
-                ? booking.checkedInAt.toISOString()
-                : null,
-          },
-        },
-      );
-    }
-
-    emitRealtimeChange({
-      resource: 'attendance',
-      action: 'updated',
-      id: eventId,
+    const { booking, alreadyPresent } = await mongoose.connection.transaction(async session => {
+      const event = await lockBookingEvent(eventId, session);
+      if (!event || getEventStatus(event.startDate, event.endDate, new Date(), event.timeZone, event.status) !== 'LIVE') {
+        throw new BookingError(409, 'This event is cancelled or is not live. Admission is unavailable.');
+      }
+      const booking = await Booking.findOne(query).session(session);
+      if (!booking) throw new BookingError(404, 'Ticket not found for the selected event.');
+      const day = await DaySchedule.findOne({ _id: booking.dayScheduleId, eventId }).session(session).lean();
+      const slot = await Slot.findOne({ _id: booking.slotId, eventId, dayScheduleId: booking.dayScheduleId }).session(session).lean();
+      if (!day || !slot) throw new BookingError(409, 'The reserved date or slot is no longer available. Ask event staff for assistance.');
+      const window = checkInWindow(day.date, slot.startTime, slot.endTime, event.timeZone);
+      if (!window.allowed) throw new BookingError(409, window.message);
+      if (booking.attendanceStatus === 'PRESENT') return { booking, alreadyPresent: true };
+      booking.attendanceStatus = 'PRESENT';
+      booking.checkedInAt = new Date();
+      booking.checkedInBy = admin.username;
+      booking.checkInMethod = method;
+      await booking.save({ session });
+      return { booking, alreadyPresent: false };
     });
-
-    return NextResponse.json(
-      {
-        success:
-          true,
-
-        alreadyPresent:
-          false,
-
-        message:
-          'Attendance recorded successfully.',
-
-        booking: {
-          id:
-            booking._id.toString(),
-
-          bookingId:
-            booking.bookingId,
-
-          fullName:
-            booking.details
-              ?.fullName ||
-            'Attendee',
-
-          email:
-            booking.details
-              ?.email ||
-            '',
-
-          attendanceStatus:
-            'PRESENT',
-
-          checkedInAt:
-            updatedBooking.checkedInAt
-              ? new Date(
-                  updatedBooking.checkedInAt,
-                ).toISOString()
-              : now.toISOString(),
-        },
-      },
-    );
+    if (!alreadyPresent) emitRealtimeChange({ resource: 'attendance', action: 'updated', id: eventId });
+    return NextResponse.json({ success: true, alreadyPresent,
+      message: alreadyPresent ? 'Attendance was already recorded.' : 'Attendance recorded successfully.',
+      booking: { id: booking._id.toString(), bookingId: booking.bookingId,
+        fullName: booking.details?.fullName || 'Attendee', email: booking.details?.email || '',
+        attendanceStatus: booking.attendanceStatus, checkedInAt: booking.checkedInAt?.toISOString() || null } });
   } catch (error) {
+    if (error instanceof BookingError) return NextResponse.json({ success: false, message: error.message }, { status: error.status });
     console.error(
       'Attendance POST failed:',
       error,

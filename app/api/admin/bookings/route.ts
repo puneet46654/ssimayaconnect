@@ -1,3 +1,6 @@
+import { getEventStatus } from '@/lib/events/status';
+import { schedulesByLocalDate } from '@/lib/events/date-queries';
+import { eventTimeZone } from '@/lib/events/dates';
 import {
   NextRequest,
   NextResponse,
@@ -9,9 +12,7 @@ import {
   connectDB,
 } from '@/lib/db';
 
-import {
-  requireAdminSession,
-} from '@/lib/admin-server-auth';
+import { adminAccessError } from '@/lib/admin-api-auth';
 
 import {
   Booking,
@@ -20,10 +21,6 @@ import {
 import {
   Event,
 } from '@/models/Event';
-
-import {
-  DaySchedule,
-} from '@/models/DaySchedule';
 
 /*
  * Import Slot so the Mongoose model
@@ -72,20 +69,6 @@ function parsePositiveInteger(
   );
 }
 
-function getToday() {
-  const today =
-    new Date();
-
-  today.setHours(
-    0,
-    0,
-    0,
-    0,
-  );
-
-  return today;
-}
-
 /* ============================================================
    GET
 ============================================================ */
@@ -98,28 +81,8 @@ export async function GET(
        AUTH
     ======================================================== */
 
-    const authenticated =
-      await requireAdminSession();
-
-    if (!authenticated) {
-      return NextResponse.json(
-        {
-          success:
-            false,
-
-          message:
-            'Unauthorized.',
-        },
-        {
-          status:
-            401,
-        },
-      );
-    }
-
-    /* ========================================================
-       DATABASE
-    ======================================================== */
+    const denied = await adminAccessError('bookings');
+    if (denied) return denied;
 
     await connectDB();
 
@@ -240,33 +203,7 @@ export async function GET(
       dateFilter ===
         'past'
     ) {
-      const today =
-        getToday();
-
-      const dayFilter =
-        dateFilter ===
-        'upcoming'
-          ? {
-              date: {
-                $gte:
-                  today,
-              },
-            }
-          : {
-              date: {
-                $lt:
-                  today,
-              },
-            };
-
-      const matchingDays =
-        await DaySchedule.find(
-          dayFilter,
-        )
-          .select(
-            '_id',
-          )
-          .lean();
+      const matchingDays = await schedulesByLocalDate(dateFilter);
 
       filter.dayScheduleId =
         {
@@ -312,7 +249,7 @@ export async function GET(
               'eventId',
 
             select:
-              'eventName venue status',
+              'eventName venue status startDate endDate timeZone',
           })
           .populate({
             path:
@@ -353,36 +290,9 @@ export async function GET(
        scheduled date to separate upcoming and past.
     ======================================================== */
 
-    const today =
-      getToday();
-
-    const [
-      upcomingDays,
-      pastDays,
-    ] =
-      await Promise.all([
-        DaySchedule.find({
-          date: {
-            $gte:
-              today,
-          },
-        })
-          .select(
-            '_id',
-          )
-          .lean(),
-
-        DaySchedule.find({
-          date: {
-            $lt:
-              today,
-          },
-        })
-          .select(
-            '_id',
-          )
-          .lean(),
-      ]);
+    const [upcomingDays, pastDays] = await Promise.all([
+      schedulesByLocalDate('upcoming'), schedulesByLocalDate('past'),
+    ]);
 
     const [
       totalBookings,
@@ -460,6 +370,9 @@ export async function GET(
 
                 status?:
                   string;
+                startDate: Date;
+                endDate: Date;
+                timeZone?: string;
               } | null;
 
               slotId?: {
@@ -546,10 +459,8 @@ export async function GET(
                       '',
 
                     status:
-                      raw
-                        .eventId
-                        .status ||
-                      '',
+                      getEventStatus(raw.eventId.startDate, raw.eventId.endDate, new Date(), raw.eventId.timeZone, raw.eventId.status),
+                    timeZone: eventTimeZone(raw.eventId.timeZone),
                   }
                 : null,
 

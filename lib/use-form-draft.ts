@@ -1,190 +1,29 @@
 'use client';
+import { useEffect, type RefObject } from 'react';
+import { readBookingDraft } from './booking-draft';
 
-import {
-  RefObject,
-  useEffect,
-  useRef,
-} from 'react';
-
-type DraftField = {
-  value: string;
-  checked?: boolean;
-  type: string;
-};
-
-type DraftValues = Record<
-  string,
-  DraftField | DraftField[]
->;
-
-function readForm(form: HTMLFormElement) {
-  const values: DraftValues = {};
-
-  form
-    .querySelectorAll<
-      HTMLInputElement |
-        HTMLSelectElement |
-        HTMLTextAreaElement
-    >('[name]')
-    .forEach((field) => {
-      if (
-        field instanceof HTMLInputElement &&
-        field.type === 'file'
-      ) {
-        return;
-      }
-
-      const value: DraftField = {
-        value: field.value,
-        type:
-          field instanceof HTMLInputElement
-            ? field.type
-            : 'text',
-      };
-
-      if (
-        field instanceof HTMLInputElement &&
-        (field.type === 'checkbox' ||
-          field.type === 'radio')
-      ) {
-        value.checked = field.checked;
-      }
-
-      const existing = values[field.name];
-
-      if (existing) {
-        values[field.name] = Array.isArray(existing)
-          ? [...existing, value]
-          : [existing, value];
-      } else {
-        values[field.name] = value;
-      }
-    });
-
-  return values;
-}
-
-function restoreForm(
-  form: HTMLFormElement,
-  values: DraftValues,
-) {
-  Object.entries(values).forEach(
-    ([name, saved]) => {
-      const fields = Array.from(
-        form.elements.namedItem(name) instanceof RadioNodeList
-          ? form.elements.namedItem(name) as RadioNodeList
-          : [form.elements.namedItem(name)],
-      ).filter(
-        (
-          field,
-        ): field is
-          | HTMLInputElement
-          | HTMLSelectElement
-          | HTMLTextAreaElement =>
-          field instanceof HTMLInputElement ||
-          field instanceof HTMLSelectElement ||
-          field instanceof HTMLTextAreaElement,
-      );
-
-      const savedFields = Array.isArray(saved)
-        ? saved
-        : [saved];
-
-      fields.forEach((field, index) => {
-        const next = savedFields[index];
-
-        if (!next) {
-          return;
-        }
-
-        if (
-          field instanceof HTMLInputElement &&
-          (field.type === 'checkbox' ||
-            field.type === 'radio')
-        ) {
-          field.checked = Boolean(next.checked);
-        } else {
-          field.value = next.value;
-        }
-
-        field.dispatchEvent(
-          new Event('input', {
-            bubbles: true,
-          }),
-        );
-        field.dispatchEvent(
-          new Event('change', {
-            bubbles: true,
-          }),
-        );
-      });
-    },
-  );
-}
-
-export function useFormDraft(
-  key: string,
-  formRef: RefObject<HTMLFormElement | null>,
-) {
-  const restoredRef = useRef(false);
-
+// Controlled location selectors persist through useBookingCountries instead.
+const LOCATION_FIELDS = new Set(['country', 'countryIso2', 'countryCode', 'phoneCountry', 'state']);
+export function useFormDraft(key: string, formRef: RefObject<HTMLFormElement | null>, eventId: string) {
   useEffect(() => {
     const form = formRef.current;
-
-    if (!form || !key) {
-      return;
-    }
-
-    const restore = () => {
-      if (restoredRef.current) {
-        return;
+    if (!form || !key) return;
+    let restored = false;
+    const fields = () => Array.from(form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('[name]'))
+      .filter(field => !LOCATION_FIELDS.has(field.name) && field.type !== 'file' && field.type !== 'hidden');
+    const restore = window.requestAnimationFrame(() => {
+      const values = readBookingDraft(eventId);
+      for (const field of fields()) {
+        if (values[field.name] !== undefined) field.value = values[field.name];
       }
-
-      restoredRef.current = true;
-
-      try {
-        const raw =
-          window.sessionStorage.getItem(key);
-
-        if (raw) {
-          restoreForm(
-            form,
-            JSON.parse(raw) as DraftValues,
-          );
-        }
-      } catch (error) {
-        console.error(
-          'Unable to restore form draft:',
-          error,
-        );
-      }
-    };
-
+      restored = true;
+    });
     const save = () => {
-      try {
-        window.sessionStorage.setItem(
-          key,
-          JSON.stringify(readForm(form)),
-        );
-      } catch (error) {
-        console.error(
-          'Unable to save form draft:',
-          error,
-        );
-      }
+      if (!restored) return;
+      try { sessionStorage.setItem(key, JSON.stringify(Object.fromEntries(fields().map(field => [field.name, field.value])))); }
+      catch { /* Keep the current form usable when browser storage is unavailable. */ }
     };
-
-    const frame = window.requestAnimationFrame(
-      restore,
-    );
-
-    form.addEventListener('input', save);
-    form.addEventListener('change', save);
-
-    return () => {
-      window.cancelAnimationFrame(frame);
-      form.removeEventListener('input', save);
-      form.removeEventListener('change', save);
-    };
-  }, [formRef, key]);
+    form.addEventListener('input', save); form.addEventListener('change', save);
+    return () => { window.cancelAnimationFrame(restore); form.removeEventListener('input', save); form.removeEventListener('change', save); };
+  }, [key, formRef, eventId]);
 }

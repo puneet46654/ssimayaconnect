@@ -6,6 +6,7 @@ import Link from 'next/link';
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
 } from 'react';
 
@@ -39,7 +40,8 @@ interface BookingEvent {
   status:
     | 'LIVE'
     | 'UPCOMING'
-    | 'COMPLETED';
+    | 'COMPLETED'
+    | 'CANCELLED';
 }
 
 interface EventApiPayload {
@@ -153,6 +155,7 @@ export default function EventBookingPage() {
      LOAD PUBLIC EVENT
   ============================================================ */
 
+  const eventRequest = useRef<AbortController | null>(null);
   const loadEvent =
     useCallback(
       async (
@@ -162,6 +165,8 @@ export default function EventBookingPage() {
           return;
         }
 
+        eventRequest.current?.abort();
+        const controller = new AbortController(); eventRequest.current = controller;
         if (showLoading) {
           setLoading(
             true,
@@ -182,6 +187,7 @@ export default function EventBookingPage() {
                 eventId,
               )}`,
               {
+                signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
                 method:
                   'GET',
 
@@ -209,6 +215,8 @@ export default function EventBookingPage() {
             );
           }
 
+          if (controller.signal.aborted) return;
+          if (response.status === 404) setEvent(null);
           if (
             !response.ok ||
             !data?.success ||
@@ -225,7 +233,7 @@ export default function EventBookingPage() {
           if (
             data.event.status !== 'LIVE' &&
             data.event.status !== 'UPCOMING' &&
-            data.event.status !== 'COMPLETED'
+            data.event.status !== 'COMPLETED' && data.event.status !== 'CANCELLED'
           ) {
             throw new Error(
               'The event server returned an invalid event status.',
@@ -260,12 +268,12 @@ export default function EventBookingPage() {
         } catch (
           error: unknown
         ) {
+          if (controller.signal.aborted) return;
           console.error(
             'Booking event loading error:',
             error,
           );
 
-          setEvent(null);
 
           setError(
             error instanceof Error
@@ -273,7 +281,7 @@ export default function EventBookingPage() {
               : 'Unable to load this event.',
           );
         } finally {
-          if (showLoading) {
+          if (!controller.signal.aborted) {
             setLoading(
               false,
             );
@@ -291,7 +299,7 @@ export default function EventBookingPage() {
     }, 0);
 
     return () => {
-      window.clearTimeout(timeoutId);
+      window.clearTimeout(timeoutId); eventRequest.current?.abort();
     };
   }, [
     loadEvent,
@@ -361,10 +369,12 @@ export default function EventBookingPage() {
           lg:pt-6
         "
       >
+        {error && event && <div role="alert" className="m-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+          {error} <button type="button" className="ml-3 underline" onClick={() => { void loadEvent(false); }}>Try again</button>
+        </div>}
         {loading ? (
           <BookingTemplateSkeleton />
-        ) : error ||
-          !event ? (
+        ) : !event ? (
           <BookingMessage
             title="Unable to load booking"
             message={
@@ -380,10 +390,10 @@ export default function EventBookingPage() {
             }
           />
         ) : event.status ===
-          'COMPLETED' ? (
+          'COMPLETED' || event.status === 'CANCELLED' ? (
           <BookingMessage
             title="Booking unavailable"
-            message="This event has already completed and is no longer accepting bookings."
+            message={event.status === 'CANCELLED' ? 'This event has been cancelled. Existing tickets are not valid for admission.' : 'This event has already completed and is no longer accepting bookings.'}
             onBack={() =>
               router.back()
             }
