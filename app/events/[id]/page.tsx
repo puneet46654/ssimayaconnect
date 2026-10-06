@@ -883,28 +883,6 @@ export default function EventDetailsPage() {
                 </h1>
                 <p className="mt-1 text-xs text-gray-500">All event times: {eventTimeZone(event.timeZone)}</p>
 
-                <p
-                  className="
-                    mt-2
-
-                    text-[12px]
-
-                    text-gray-500
-
-                    sm:text-[13px]
-                  "
-                >
-                  Organized by{' '}
-                  <span
-                    className="
-                      font-semibold
-                      text-primary
-                    "
-                  >
-                    SSI INNOVATIONS
-                  </span>
-                </p>
-
                 <div
                   className="
                     mt-5

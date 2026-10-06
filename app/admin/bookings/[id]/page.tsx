@@ -7,6 +7,7 @@ import { AdminAccess, useAdminSession } from '@/components/admin/AdminSessionCon
 import { canAdminCreate, canAdminDelete, adminFetch as fetch } from '@/lib/admin-auth';
 
 import { calendarDateFormatter, eventDateFormatter, eventTimeZone } from '@/lib/events/dates';
+import { useRealtimeRefresh } from '@/components/realtime/RealtimeProvider';
 
 import type {
   ReactNode,
@@ -606,6 +607,58 @@ export default function BookingDetailsPage() {
      DELETE
   ============================================================ */
 
+  /* ============================================================
+     ATTENDANCE
+  ============================================================ */
+
+  const [markingPresent, setMarkingPresent] = useState(false);
+
+  async function markPresent() {
+    if (!booking || markingPresent) return;
+    setMarkingPresent(true);
+    setError('');
+    setSuccess('');
+    try {
+      const response = await fetch('/api/admin/attendance', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventId: toText(booking.eventId?._id), bookingId: booking.bookingId, method: 'MANUAL' }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.message || 'Unable to mark attendance.');
+      setBooking((current) => current && {
+        ...current,
+        attendanceStatus: 'PRESENT',
+        checkedInAt: data.booking?.checkedInAt ?? current.checkedInAt,
+        checkInMethod: current.checkInMethod ?? 'MANUAL',
+      });
+      setSuccess(data.message || 'Attendance recorded successfully.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to mark attendance.');
+    } finally {
+      setMarkingPresent(false);
+    }
+  }
+
+  // Keep attendance in sync when the ticket is scanned at check-in, without touching edit drafts.
+  useRealtimeRefresh('attendance', () => {
+    void fetch(`/api/admin/bookings/${id}`, { credentials: 'include', cache: 'no-store' })
+      .then((response) => response.json() as Promise<BookingResponse>)
+      .then((data) => {
+        const next = data.booking;
+        if (!data.success || !next) return;
+        setBooking((current) => current && {
+          ...current,
+          attendanceStatus: next.attendanceStatus,
+          checkedInAt: next.checkedInAt,
+          checkedInBy: next.checkedInBy,
+          checkInMethod: next.checkInMethod,
+        });
+      })
+      .catch(() => {});
+  });
+
   const deleteDialog = useDialog(deleteOpen, () => { if (!deleting) setDeleteOpen(false); }, 'Delete booking');
 
   async function deleteBooking() {
@@ -1140,6 +1193,17 @@ export default function BookingDetailsPage() {
                 </button>
               </>
             ) : (
+              <>
+              {attendance !== 'PRESENT' && (
+                <AdminAccess permission="check-in"><button
+                  type="button"
+                  disabled={markingPresent}
+                  onClick={() => void markPresent()}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-primary/30 bg-white px-4 text-[12px] font-semibold text-primary transition hover:bg-primary/[0.05] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {markingPresent ? <><SpinnerIcon /> Marking...</> : 'Mark Present'}
+                </button></AdminAccess>
+              )}
               <AdminAccess permission="bookings" action="write"><button
                 type="button"
                 onClick={() =>
@@ -1176,6 +1240,7 @@ export default function BookingDetailsPage() {
 
                 Edit
               </button></AdminAccess>
+              </>
             )}
 
             <AdminAccess permission="bookings" action="delete"><button
