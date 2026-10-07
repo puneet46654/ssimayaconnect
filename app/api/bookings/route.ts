@@ -7,13 +7,13 @@ import { Slot } from '@/models/Slot';
 import { DaySchedule } from '@/models/DaySchedule';
 import { eventTimeZone, zonedDate } from '@/lib/events/dates';
 import { getEventStatus, hasSlotEnded } from '@/lib/events/status';
-import { isValidEmail, isValidPhone, normalizeEmail, normalizePhone } from '@/lib/phone';
 import { hasBookingAccess, withBookingAccess } from '@/lib/bookings/access';
 import { BookingError, lockBookingEvent, contactConflict } from '@/lib/bookings/mutations';
 import { bookingRequestData } from '@/lib/bookings/identity';
 import { loadPublicBooking } from '@/lib/bookings/public-booking';
+import { readBookingDetails } from '@/lib/bookings/details';
+import { clearPendingBookings } from '@/lib/bookings/pending';
 import { emitRealtimeChange } from '@/lib/realtime';
-import type { BookingDetails } from '@/lib/booking-contracts';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -116,21 +116,6 @@ export async function GET(request: NextRequest) {
   } catch (error) { return failure(error, 'Unable to retrieve booking.'); }
 }
 
-function readDetails(input: unknown): BookingDetails {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BookingError(400, 'Valid attendee details are required.');
-  const details: Record<string, string> = {};
-  for (const [key, value] of Object.entries(input)) {
-    if (!key || key.startsWith('$') || key.includes('.') || ['__proto__', 'constructor', 'prototype'].includes(key)) continue;
-    if (typeof value === 'string') details[key] = value.trim();
-  }
-  if (!details.fullName) throw new BookingError(400, 'Full name is required.');
-  if (!isValidEmail(details.email)) throw new BookingError(400, 'Enter a valid email address.');
-  if (!isValidPhone(details.mobile, details.countryCode)) throw new BookingError(400, 'Enter a valid full mobile number.');
-  details.email = normalizeEmail(details.email);
-  details.mobile = (details.mobile.startsWith('+') ? '+' : '') + normalizePhone(details.mobile);
-  return details as BookingDetails;
-}
-
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => null);
@@ -143,7 +128,7 @@ export async function POST(request: NextRequest) {
     if (typeof body.idempotencyKey !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(body.idempotencyKey)) {
       throw new BookingError(400, 'A valid booking retry key is required. Reopen the booking form.');
     }
-    const details = readDetails(body.details);
+    const details = readBookingDetails(body.details);
     const requestKeyHash = hash(body.idempotencyKey);
     const requestFingerprint = hash(bookingRequestData(eventId, dayScheduleId, slotId, details));
     await connectDB();
@@ -181,6 +166,8 @@ export async function POST(request: NextRequest) {
     if (!booking) throw new BookingError(409, 'This booking is no longer available. Contact event staff.');
     let emailSent = false;
     if (!result.existing) {
+      try { await clearPendingBookings(eventId, details); }
+      catch (error) { console.error('Pending booking cleanup failed:', error); }
       emitRealtimeChange({ resource: 'bookings', action: 'created', id: eventId });
       try {
         emailSent = await sendBookingEmail({ bookingId: booking.bookingId, eventName: booking.eventName,

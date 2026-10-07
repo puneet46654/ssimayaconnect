@@ -3,6 +3,7 @@
 import { type BookingDetails as SharedBookingDetails, type ServerBooking, type BookingApiResponse, bookingStorage, ticketStorage } from '@/lib/booking-contracts';
 
 import { attendeeIdentity, bookingRequestData } from '@/lib/bookings/identity';
+import { clearPendingBooking } from '@/lib/pending-booking';
 import { calendarDateFormatter, eventTimeZone } from '@/lib/events/dates';
 
 import {
@@ -164,6 +165,7 @@ export default function BookingConfirmationPage() {
           if (!requestedReference) {
             sessionStorage.removeItem(bookingStorage.draft(eventId));
             sessionStorage.removeItem(bookingStorage.country(eventId));
+            clearPendingBooking(eventId);
           }
           const cachedTickets = JSON.parse(sessionStorage.getItem(ticketStorage.tickets) || '[]');
           sessionStorage.setItem(ticketStorage.tickets, JSON.stringify([

@@ -22,6 +22,8 @@ import {
   Event,
 } from '@/models/Event';
 
+import { PendingBooking } from '@/models/PendingBooking';
+
 /*
  * Import Slot so the Mongoose model
  * is registered before populate().
@@ -336,6 +338,38 @@ export async function GET(
       ]);
 
     /* ========================================================
+       PENDING (details entered, slot never chosen)
+
+       Pending rows belong to events that have not ended yet,
+       so the "past" date filter never shows them.
+    ======================================================== */
+
+    const pendingFilter: Record<string, unknown> = { expiresAt: { $gt: new Date() } };
+    if (filter.eventId) pendingFilter.eventId = filter.eventId;
+    if (search) {
+      const regex = new RegExp(escapeRegex(search), 'i');
+      pendingFilter.$or = [{ 'details.fullName': regex }, { 'details.email': regex }, { 'details.mobile': regex }];
+    }
+    const [pendingRows, pendingTotal] = dateFilter === 'past'
+      ? [[], 0]
+      : await Promise.all([
+          PendingBooking.find(pendingFilter).sort({ updatedAt: -1 }).limit(100)
+            .populate({ path: 'eventId', select: 'eventName' }).lean(),
+          PendingBooking.countDocuments({ expiresAt: { $gt: new Date() } }),
+        ]);
+    const pendingBookings = pendingRows.map(row => {
+      const details = (row.details || {}) as Record<string, unknown>;
+      const event = row.eventId as unknown as { _id: mongoose.Types.ObjectId; eventName?: string } | null;
+      const text = (value: unknown) => typeof value === 'string' ? value : '';
+      return {
+        _id: String(row._id),
+        attendee: { fullName: text(details.fullName) || 'Unknown attendee', email: text(details.email), mobile: text(details.mobile) },
+        event: event ? { _id: String(event._id), eventName: event.eventName || '' } : null,
+        updatedAt: new Date(row.updatedAt).toISOString(),
+      };
+    });
+
+    /* ========================================================
        NORMALIZE RESPONSE
     ======================================================== */
 
@@ -527,6 +561,8 @@ export async function GET(
         bookings:
           normalizedBookings,
 
+        pendingBookings,
+
         events:
           eventOptions.map(
             (
@@ -552,6 +588,9 @@ export async function GET(
 
             past:
               pastBookings,
+
+            pending:
+              pendingTotal,
           },
 
         pagination:
