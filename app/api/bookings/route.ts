@@ -34,6 +34,9 @@ async function sendBookingEmail(input: {
   endTime: string;
   details: BookingDetailsInput;
 }) {
+  // Confirmation emails are paused unless explicitly re-enabled in the environment.
+  if (process.env.BOOKING_EMAILS_ENABLED !== 'true') return false;
+
   const apiKey =
     process.env.RESEND_API_KEY?.trim();
   const recipient =
