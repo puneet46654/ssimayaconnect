@@ -5,10 +5,11 @@ import { connectDB } from '@/lib/db';
 import { Booking } from '@/models/Booking';
 import { Slot } from '@/models/Slot';
 import { DaySchedule } from '@/models/DaySchedule';
+import { Event } from '@/models/Event';
 import { zonedDate } from '@/lib/events/dates';
 import { getEventStatus, hasSlotEnded } from '@/lib/events/status';
 import { hasBookingAccess, withBookingAccess } from '@/lib/bookings/access';
-import { BookingError, lockBookingEvent } from '@/lib/bookings/mutations';
+import { BookingError } from '@/lib/bookings/mutations';
 import { bookingRequestData } from '@/lib/bookings/identity';
 import { loadPublicBooking } from '@/lib/bookings/public-booking';
 import { readBookingDetails } from '@/lib/bookings/details';
@@ -55,8 +56,9 @@ export async function POST(request: NextRequest) {
     await connectDB();
     await Booking.init();
 
+    // Only the chosen slot is written, so bookings in different slots never contend with each other.
     const result = await mongoose.connection.transaction(async session => {
-      const event = await lockBookingEvent(eventId, session);
+      const event = await Event.findById(eventId).session(session);
       if (!event) throw new BookingError(404, 'Event not found.');
       const existing = await Booking.findOne({ eventId, requestKeyHash }).session(session);
       if (existing) {
@@ -71,9 +73,12 @@ export async function POST(request: NextRequest) {
       const slot = await Slot.findOne({ _id: slotId, eventId, dayScheduleId }).session(session);
       if (!schedule || !slot) throw new BookingError(400, 'Selected schedule or slot is invalid.');
       if (hasSlotEnded(schedule.date, slot.endTime, new Date(), event.timeZone)) throw new BookingError(409, 'This time slot has already ended. Please choose another slot.');
-      const occupied = await Booking.countDocuments({ slotId }).session(session);
-      if (occupied >= slot.capacity) throw new BookingError(409, 'This slot is no longer available.');
-      await Slot.updateOne({ _id: slotId }, { $set: { bookedCount: occupied + 1 } }, { session });
+      // Atomically claim a seat only while one is left; concurrent requests cannot overbook.
+      const claimed = await Slot.findOneAndUpdate(
+        { _id: slotId, eventId, dayScheduleId, $expr: { $lt: ['$bookedCount', '$capacity'] } },
+        { $inc: { bookedCount: 1 } }, { session, new: true },
+      );
+      if (!claimed) throw new BookingError(409, 'This slot is no longer available.');
       const bookingId = `SSI-MC-${zonedDate(new Date(), event.timeZone).slice(0, 4)}-${randomBytes(6).toString('hex').toUpperCase()}`;
       await Booking.create([{ bookingId, eventId, slotId, dayScheduleId, details, requestKeyHash, requestFingerprint,
         attendanceStatus: 'NOT_PRESENT', checkedInAt: null }], { session });
