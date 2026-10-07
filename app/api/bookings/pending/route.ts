@@ -36,13 +36,6 @@ export async function POST(request: NextRequest) {
     }
     const expiresAt = eventEndsAt(event.endDate, event.timeZone);
 
-    // Someone who already holds a ticket is not pending; their ticket is shown instead.
-    const booked = await Booking.exists({ eventId, $or: [{ 'details.email': details.email }, { 'details.mobile': details.mobile }] });
-    if (booked) {
-      return NextResponse.json({ success: true, saved: false, booked: true, expiresAt: expiresAt.toISOString() },
-        { headers: { 'Cache-Control': 'no-store' } });
-    }
-
     await PendingBooking.init();
     await PendingBooking.updateOne({ eventId, draftId }, { $set: { details, expiresAt } }, { upsert: true });
     emitRealtimeChange({ resource: 'bookings', action: 'updated', id: eventId });

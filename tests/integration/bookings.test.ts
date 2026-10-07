@@ -36,17 +36,15 @@ test('concurrent retries create exactly one booking and return the same ticket',
   assert.equal(reused.cookie, '');
 });
 
-test('concurrent contact duplicates disclose no ticket and cannot reserve twice', async () => {
+test('one email or mobile can hold several tickets for the same event', async () => {
   const f = await fixture(); const payload = bookingPayload(f);
   const results = await Promise.all([submitBooking(payload), submitBooking({ ...payload, idempotencyKey: randomUUID() })]);
-  const denied = results.find(r => r.response.status === 409);
-  assert.ok(denied, JSON.stringify(results.map(r => r.body)));
-  assert.equal(denied.body.booking, undefined); assert.equal(denied.cookie, '');
-  assert.equal(results.filter(r => r.response.status === 201).length, 1);
-  await occupancy(f.slotId, 1);
+  assert.equal(results.filter(r => r.response.status === 201).length, 2, JSON.stringify(results.map(r => r.body)));
+  assert.equal(new Set(results.map(r => r.body.booking.bookingId)).size, 2);
   const byEmail = await submitBooking(bookingPayload(f, '2', { email: 'ATTENDEE-1@EXAMPLE.TEST' }));
   const byPhone = await submitBooking(bookingPayload(f, '3', { mobile: '+91 9876540001', countryCode: '+1' }));
-  assert.equal(byEmail.response.status, 409); assert.equal(byPhone.response.status, 409);
+  assert.equal(byEmail.response.status, 201); assert.equal(byPhone.response.status, 201);
+  await occupancy(f.slotId, 4);
 });
 
 test('a browser can access two attendees in one slot and recovery requires full reference/contact match', async () => {
@@ -104,7 +102,7 @@ test('a booking insertion failure rolls back the seat reservation', async () => 
   await occupancy(f.slotId, 1);
 });
 
-test('legacy duplicates remain readable while new duplicate contacts and conflicting edits are rejected', async () => {
+test('legacy duplicates stay readable and repeat contacts can book and be edited', async () => {
   const f = await fixture();
   const payload = bookingPayload(f, '1');
   const a = await submitBooking(payload);
@@ -113,11 +111,11 @@ test('legacy duplicates remain readable while new duplicate contacts and conflic
   const { requestKeyHash: _key, requestFingerprint: _fingerprint, ...legacy } = original;
   void _key; void _fingerprint;
   await db.collection('bookings').insertOne({ ...legacy, _id: new ObjectId(), bookingId: `LEGACY-${f.eventId}` });
-  assert.equal((await submitBooking({ ...payload, idempotencyKey: randomUUID() })).response.status, 409);
+  assert.equal((await submitBooking({ ...payload, idempotencyKey: randomUUID() })).response.status, 201);
   const b = await submitBooking(bookingPayload(f, '2'));
   const patch = (id: string, details: Record<string, string>) => api(`/api/admin/bookings/${id}`, { method: 'PATCH', headers: { Cookie: admin.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ details }) });
   assert.equal((await patch(a.body.booking.id, { ...payload.details, fullName: 'Renamed legacy attendee' })).status, 200);
-  assert.equal((await patch(b.body.booking.id, { ...bookingPayload(f, '2').details, email: payload.details.email })).status, 409);
-  assert.equal((await db.collection('bookings').findOne({ _id: new ObjectId(b.body.booking.id) }))?.details.email, 'attendee-2@example.test');
-  await occupancy(f.slotId, 3);
+  assert.equal((await patch(b.body.booking.id, { ...bookingPayload(f, '2').details, email: payload.details.email })).status, 200);
+  assert.equal((await db.collection('bookings').findOne({ _id: new ObjectId(b.body.booking.id) }))?.details.email, payload.details.email);
+  await occupancy(f.slotId, 4);
 });

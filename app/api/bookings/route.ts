@@ -8,7 +8,7 @@ import { DaySchedule } from '@/models/DaySchedule';
 import { eventTimeZone, zonedDate } from '@/lib/events/dates';
 import { getEventStatus, hasSlotEnded } from '@/lib/events/status';
 import { hasBookingAccess, withBookingAccess } from '@/lib/bookings/access';
-import { BookingError, lockBookingEvent, contactConflict } from '@/lib/bookings/mutations';
+import { BookingError, lockBookingEvent } from '@/lib/bookings/mutations';
 import { bookingRequestData } from '@/lib/bookings/identity';
 import { loadPublicBooking } from '@/lib/bookings/public-booking';
 import { readBookingDetails } from '@/lib/bookings/details';
@@ -150,9 +150,6 @@ export async function POST(request: NextRequest) {
       const slot = await Slot.findOne({ _id: slotId, eventId, dayScheduleId }).session(session);
       if (!schedule || !slot) throw new BookingError(400, 'Selected schedule or slot is invalid.');
       if (hasSlotEnded(schedule.date, slot.endTime, new Date(), event.timeZone)) throw new BookingError(409, 'This time slot has already ended. Please choose another slot.');
-      if (await contactConflict(eventId, details, session)) {
-        throw new BookingError(409, 'A booking already uses this email or mobile for this event. Recover it in My Tickets using its reference and full mobile number, or contact event staff.');
-      }
       const occupied = await Booking.countDocuments({ slotId }).session(session);
       if (occupied >= slot.capacity) throw new BookingError(409, 'This slot is no longer available.');
       await Slot.updateOne({ _id: slotId }, { $set: { bookedCount: occupied + 1 } }, { session });

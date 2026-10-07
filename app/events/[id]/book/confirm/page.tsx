@@ -128,7 +128,8 @@ export default function BookingConfirmationPage() {
           }
           const fingerprint = bookingRequestData(eventId, slot.dayScheduleId, slot.slotId, details);
           intent = readBookingIntent(eventId, fingerprint);
-          reference = intent.bookingId || sessionStorage.getItem(`ssi-server-booking-id:${eventId}:${slot.dayScheduleId}:${slot.slotId}`) || '';
+          // One contact may hold many tickets, so only this exact request (same details and slot) maps to an existing booking.
+          reference = intent.bookingId || '';
         }
         let confirmed: ServerBooking | undefined;
         if (reference) {
