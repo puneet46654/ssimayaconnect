@@ -1,6 +1,6 @@
 import { adminAccessError } from '@/lib/admin-api-auth';
 import { getAdminSession } from '@/lib/admin-server-auth';
-import { BookingError, lockBookingEvent, contactConflict, deleteBooking } from '@/lib/bookings/mutations';
+import { BookingError, lockBookingEvent, deleteBooking } from '@/lib/bookings/mutations';
 import { emitRealtimeChange } from '@/lib/realtime';
 import { getEventStatus } from '@/lib/events/status';
 import { isValidEmail, isValidPhone, normalizeEmail, normalizePhone, phoneIdentity } from '@/lib/phone';
@@ -335,11 +335,6 @@ export async function PATCH(
       if (!isValidPhone(merged.mobile, merged.countryCode)) throw new BookingError(400, 'Enter a valid full mobile number.');
       merged.email = normalizeEmail(merged.email);
       merged.mobile = (merged.mobile.trim().startsWith('+') ? '+' : '') + normalizePhone(merged.mobile);
-      const contactChanged = merged.email !== normalizeEmail(current.details.email)
-        || phoneIdentity(merged.mobile, merged.countryCode) !== phoneIdentity(current.details.mobile, current.details.countryCode);
-      if (contactChanged && await contactConflict(String(current.eventId), merged, session, id)) {
-        throw new BookingError(409, 'Another booking for this event uses that email or mobile number.');
-      }
       current.details = merged;
       attendanceChanged = !!attendanceStatus && attendanceStatus !== (current.attendanceStatus || 'NOT_PRESENT');
       if (attendanceChanged && attendanceStatus === 'PRESENT') {
