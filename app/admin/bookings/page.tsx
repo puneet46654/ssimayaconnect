@@ -40,6 +40,8 @@ import {
 type BookingRow = {
   _id: string;
   bookingId: string;
+  /** Details submitted but no slot chosen yet; there is no booking to view or edit. */
+  pending?: boolean;
 
   attendee: {
     fullName: string;
@@ -74,14 +76,6 @@ type EventOption = {
   eventName: string;
 };
 
-/** Details submitted on the booking form whose attendee never chose a slot. */
-type PendingRow = {
-  _id: string;
-  attendee: { fullName: string; email: string; mobile: string };
-  event: { _id: string; eventName: string } | null;
-  updatedAt: string;
-};
-
 type Stats = {
   total: number;
   upcoming: number;
@@ -93,8 +87,6 @@ type BookingsResponse = {
   success: boolean;
 
   bookings: BookingRow[];
-
-  pendingBookings?: PendingRow[];
 
   events: EventOption[];
 
@@ -114,6 +106,7 @@ type DeleteTarget = {
   id: string;
   bookingId: string;
   attendeeName: string;
+  pending?: boolean;
 } | null;
 
 /* ============================================================
@@ -210,8 +203,6 @@ export default function AdminBookingsPage() {
       past: 0,
       pending: 0,
     });
-
-  const [pendingBookings, setPendingBookings] = useState<PendingRow[]>([]);
 
   const [
     page,
@@ -364,8 +355,6 @@ export default function AdminBookingsPage() {
             data.bookings ??
               [],
           );
-
-          setPendingBookings(data.pendingBookings ?? []);
 
           setEvents(
             data.events ??
@@ -550,7 +539,7 @@ export default function AdminBookingsPage() {
     try {
       const response =
         await fetch(
-          `/api/admin/bookings/${deleteTarget.id}`,
+          `/api/admin/bookings/${deleteTarget.pending ? 'pending/' : ''}${deleteTarget.id}`,
           {
             method:
               'DELETE',
@@ -1227,10 +1216,6 @@ export default function AdminBookingsPage() {
           )}
         </AnimatePresence>
 
-        {!loading && pendingBookings.length > 0 && (
-          <PendingBookings rows={pendingBookings} />
-        )}
-
         {/* ====================================================
             TABLE - DESKTOP
         ==================================================== */}
@@ -1411,6 +1396,9 @@ export default function AdminBookingsPage() {
                         }
                       >
                         <td>
+                          {booking.pending ? (
+                            <span className="font-semibold text-gray-400">—</span>
+                          ) : (
                           <button
                             type="button"
                             onClick={() =>
@@ -1430,6 +1418,7 @@ export default function AdminBookingsPage() {
                               booking.bookingId
                             }
                           </button>
+                          )}
                         </td>
 
                         <td>
@@ -1570,7 +1559,7 @@ export default function AdminBookingsPage() {
                           "
                         >
                           {
-                            formatSlot(
+                            booking.pending ? 'Not selected' : formatSlot(
                               booking.slot, booking.event?.timeZone,
                             )
                           }
@@ -1592,6 +1581,7 @@ export default function AdminBookingsPage() {
                               gap-1.5
                             "
                           >
+                            {!booking.pending && (<>
                             <IconButton
                               title="View booking"
                               onClick={() =>
@@ -1613,6 +1603,7 @@ export default function AdminBookingsPage() {
                             >
                               <EditIcon />
                             </IconButton></AdminAccess>
+                            </>)}
 
                             <AdminAccess permission="bookings" action="delete"><IconButton
                               danger
@@ -1630,6 +1621,8 @@ export default function AdminBookingsPage() {
                                       booking
                                         .attendee
                                         .fullName,
+
+                                    pending: booking.pending,
                                   },
                                 )
                               }
@@ -1773,6 +1766,9 @@ export default function AdminBookingsPage() {
                         Booking ID
                       </p>
 
+                      {booking.pending ? (
+                        <p className="mt-0.5 text-[13px] font-semibold text-gray-400">—</p>
+                      ) : (
                       <button
                         type="button"
                         onClick={() =>
@@ -1792,6 +1788,7 @@ export default function AdminBookingsPage() {
                           booking.bookingId
                         }
                       </button>
+                      )}
                     </div>
 
                     <BookingStatus
@@ -1934,7 +1931,7 @@ export default function AdminBookingsPage() {
                       <MobileInfo
                         label="Time Slot"
                         value={
-                          formatSlot(
+                          booking.pending ? 'Not selected' : formatSlot(
                             booking.slot, booking.event?.timeZone,
                           )
                         }
@@ -1949,6 +1946,7 @@ export default function AdminBookingsPage() {
                         gap-2
                       "
                     >
+                      {!booking.pending && (<>
                       <MobileAction
                         icon={
                           <EyeIcon />
@@ -1972,6 +1970,7 @@ export default function AdminBookingsPage() {
                           )
                         }
                       /></AdminAccess>
+                      </>)}
 
                       <AdminAccess permission="bookings" action="delete"><MobileAction
                         danger
@@ -1992,6 +1991,8 @@ export default function AdminBookingsPage() {
                                 booking
                                   .attendee
                                   .fullName,
+
+                              pending: booking.pending,
                             },
                           )
                         }
@@ -2210,7 +2211,7 @@ export default function AdminBookingsPage() {
                   "
                 >
                   {
-                    deleteTarget.bookingId
+                    deleteTarget.bookingId || 'Pending registration'
                   }
                 </p>
 
@@ -2543,6 +2544,7 @@ function BookingStatus({
 }: {
   booking: BookingRow;
 }) {
+  if (booking.pending) return <span className="badge badge--warning">Pending</span>;
   const date =
     booking.daySchedule
       ?.date
@@ -2575,42 +2577,6 @@ function BookingStatus({
         ? 'Confirmed'
         : 'Completed'}
     </span>
-  );
-}
-
-/* ============================================================
-   PENDING
-============================================================ */
-
-/** Read-only: each row disappears when the attendee books a slot or the event ends. */
-function PendingBookings({ rows }: { rows: PendingRow[] }) {
-  return (
-    <section className="mt-5 overflow-hidden rounded-xl border border-amber-200 bg-white shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-100 bg-amber-50/60 px-4 py-3">
-        <div>
-          <h2 className="text-[14px] font-semibold text-secondary">Pending Bookings</h2>
-          <p className="mt-0.5 text-[12px] text-gray-500">Details submitted, but no time slot selected yet.</p>
-        </div>
-        <span className="badge badge--warning">{rows.length} pending</span>
-      </div>
-      <ul className="divide-y divide-gray-100">
-        {rows.map(row => (
-          <li key={row._id} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <p className="truncate text-[13px] font-semibold text-secondary">{row.attendee.fullName}</p>
-              <p className="truncate text-[12px] text-gray-500">
-                {[row.attendee.email, row.attendee.mobile].filter(Boolean).join(' · ')}
-              </p>
-            </div>
-            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-gray-500 sm:justify-end">
-              <span className="truncate">{row.event?.eventName || 'Event unavailable'}</span>
-              <span>{new Date(row.updatedAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</span>
-              <span className="badge badge--warning">Pending</span>
-            </div>
-          </li>
-        ))}
-      </ul>
-    </section>
   );
 }
 

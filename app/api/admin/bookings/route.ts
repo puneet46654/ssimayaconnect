@@ -227,13 +227,32 @@ export async function GET(
       (page - 1) *
       limit;
 
+    /*
+     * Pending registrations (details entered, slot never chosen) are listed
+     * first, then confirmed bookings, so one page can span both collections.
+     * They belong to events that have not ended, so "past" never shows them.
+     */
+    const pendingFilter: Record<string, unknown> = { expiresAt: { $gt: new Date() } };
+    if (filter.eventId) pendingFilter.eventId = filter.eventId;
+    if (search) {
+      const regex = new RegExp(escapeRegex(search), 'i');
+      pendingFilter.$or = [{ 'details.fullName': regex }, { 'details.email': regex }, { 'details.mobile': regex }];
+    }
+    const pendingMatches = dateFilter === 'past' ? 0 : await PendingBooking.countDocuments(pendingFilter);
+    const pendingRows = skip < pendingMatches
+      ? await PendingBooking.find(pendingFilter).sort({ updatedAt: -1 }).skip(skip).limit(limit)
+        .populate({ path: 'eventId', select: 'eventName venue status startDate endDate timeZone' }).lean()
+      : [];
+    const bookingSkip = Math.max(0, skip - pendingMatches);
+    const bookingLimit = limit - pendingRows.length;
+
     const [
       bookings,
-      total,
+      bookingMatches,
       eventOptions,
     ] =
       await Promise.all([
-        Booking.find(
+        bookingLimit <= 0 ? Promise.resolve([]) : Booking.find(
           filter,
         )
           .sort({
@@ -241,10 +260,10 @@ export async function GET(
               -1,
           })
           .skip(
-            skip,
+            bookingSkip,
           )
           .limit(
-            limit,
+            bookingLimit,
           )
           .populate({
             path:
@@ -337,37 +356,8 @@ export async function GET(
         ),
       ]);
 
-    /* ========================================================
-       PENDING (details entered, slot never chosen)
-
-       Pending rows belong to events that have not ended yet,
-       so the "past" date filter never shows them.
-    ======================================================== */
-
-    const pendingFilter: Record<string, unknown> = { expiresAt: { $gt: new Date() } };
-    if (filter.eventId) pendingFilter.eventId = filter.eventId;
-    if (search) {
-      const regex = new RegExp(escapeRegex(search), 'i');
-      pendingFilter.$or = [{ 'details.fullName': regex }, { 'details.email': regex }, { 'details.mobile': regex }];
-    }
-    const [pendingRows, pendingTotal] = dateFilter === 'past'
-      ? [[], 0]
-      : await Promise.all([
-          PendingBooking.find(pendingFilter).sort({ updatedAt: -1 }).limit(100)
-            .populate({ path: 'eventId', select: 'eventName' }).lean(),
-          PendingBooking.countDocuments({ expiresAt: { $gt: new Date() } }),
-        ]);
-    const pendingBookings = pendingRows.map(row => {
-      const details = (row.details || {}) as Record<string, unknown>;
-      const event = row.eventId as unknown as { _id: mongoose.Types.ObjectId; eventName?: string } | null;
-      const text = (value: unknown) => typeof value === 'string' ? value : '';
-      return {
-        _id: String(row._id),
-        attendee: { fullName: text(details.fullName) || 'Unknown attendee', email: text(details.email), mobile: text(details.mobile) },
-        event: event ? { _id: String(event._id), eventName: event.eventName || '' } : null,
-        updatedAt: new Date(row.updatedAt).toISOString(),
-      };
-    });
+    const pendingTotal = await PendingBooking.countDocuments({ expiresAt: { $gt: new Date() } });
+    const total = bookingMatches + pendingMatches;
 
     /* ========================================================
        NORMALIZE RESPONSE
@@ -553,15 +543,36 @@ export async function GET(
         },
       );
 
+    const pendingBookings = pendingRows.map(row => {
+      const details = (row.details || {}) as Record<string, unknown>;
+      const event = row.eventId as unknown as {
+        _id: mongoose.Types.ObjectId; eventName?: string; venue?: string; status?: string;
+        startDate: Date; endDate: Date; timeZone?: string;
+      } | null;
+      const text = (value: unknown) => typeof value === 'string' ? value : '';
+      return {
+        _id: String(row._id),
+        bookingId: '',
+        pending: true,
+        attendee: { fullName: text(details.fullName) || 'Unknown attendee', email: text(details.email), mobile: text(details.mobile) },
+        event: event ? {
+          _id: String(event._id), eventName: event.eventName || '', venue: event.venue || '',
+          status: getEventStatus(event.startDate, event.endDate, new Date(), event.timeZone, event.status),
+          timeZone: eventTimeZone(event.timeZone),
+        } : null,
+        slot: null,
+        daySchedule: null,
+        createdAt: new Date(row.updatedAt).toISOString(),
+      };
+    });
+
     return NextResponse.json(
       {
         success:
           true,
 
         bookings:
-          normalizedBookings,
-
-        pendingBookings,
+          [...pendingBookings, ...normalizedBookings],
 
         events:
           eventOptions.map(

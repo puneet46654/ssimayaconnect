@@ -3,6 +3,7 @@
 import { useDialog } from '@/lib/use-dialog';
 
 import { ticketStorage } from '@/lib/booking-contracts';
+import PendingRegistrations from '@/components/user/PendingRegistrations';
 
 import { calendarDateFormatter } from '@/lib/events/dates';
 
@@ -1069,6 +1070,8 @@ export default function EventsPage() {
           lg:px-10
         "
       >
+        <PendingRegistrations />
+
         {/* ====================================================
             DESKTOP INTRO
         ==================================================== */}
