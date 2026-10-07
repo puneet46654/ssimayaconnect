@@ -51,4 +51,6 @@ export const bookingStorage = {
   details: (eventId: string) => `ssi-booking-details:${eventId}`,
   draft: (eventId: string) => `ssi-booking-draft:${eventId}`,
   intent: (eventId: string) => `ssi-booking-intent:${eventId}`,
+  /** localStorage, unlike the keys above: must survive closing the tab until the event ends. */
+  pending: (eventId: string) => `ssi-booking-pending:${eventId}`,
 };

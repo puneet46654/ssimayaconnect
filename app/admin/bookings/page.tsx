@@ -74,16 +74,27 @@ type EventOption = {
   eventName: string;
 };
 
+/** Details submitted on the booking form whose attendee never chose a slot. */
+type PendingRow = {
+  _id: string;
+  attendee: { fullName: string; email: string; mobile: string };
+  event: { _id: string; eventName: string } | null;
+  updatedAt: string;
+};
+
 type Stats = {
   total: number;
   upcoming: number;
   past: number;
+  pending: number;
 };
 
 type BookingsResponse = {
   success: boolean;
 
   bookings: BookingRow[];
+
+  pendingBookings?: PendingRow[];
 
   events: EventOption[];
 
@@ -197,7 +208,10 @@ export default function AdminBookingsPage() {
       total: 0,
       upcoming: 0,
       past: 0,
+      pending: 0,
     });
+
+  const [pendingBookings, setPendingBookings] = useState<PendingRow[]>([]);
 
   const [
     page,
@@ -351,6 +365,8 @@ export default function AdminBookingsPage() {
               [],
           );
 
+          setPendingBookings(data.pendingBookings ?? []);
+
           setEvents(
             data.events ??
               [],
@@ -361,6 +377,7 @@ export default function AdminBookingsPage() {
               total: 0,
               upcoming: 0,
               past: 0,
+              pending: 0,
             },
           );
 
@@ -860,7 +877,8 @@ export default function AdminBookingsPage() {
             grid-cols-1
             gap-3
 
-            min-[520px]:grid-cols-3
+            min-[520px]:grid-cols-2
+            lg:grid-cols-4
           "
         >
           <StatCard
@@ -903,6 +921,14 @@ export default function AdminBookingsPage() {
             loading={
               loading
             }
+          />
+
+          <StatCard
+            icon={<AlertIcon />}
+            label="Pending"
+            value={stats.pending}
+            description="Details entered, no slot"
+            loading={loading}
           />
         </div>
 
@@ -1200,6 +1226,10 @@ export default function AdminBookingsPage() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {!loading && pendingBookings.length > 0 && (
+          <PendingBookings rows={pendingBookings} />
+        )}
 
         {/* ====================================================
             TABLE - DESKTOP
@@ -2545,6 +2575,42 @@ function BookingStatus({
         ? 'Confirmed'
         : 'Completed'}
     </span>
+  );
+}
+
+/* ============================================================
+   PENDING
+============================================================ */
+
+/** Read-only: each row disappears when the attendee books a slot or the event ends. */
+function PendingBookings({ rows }: { rows: PendingRow[] }) {
+  return (
+    <section className="mt-5 overflow-hidden rounded-xl border border-amber-200 bg-white shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-100 bg-amber-50/60 px-4 py-3">
+        <div>
+          <h2 className="text-[14px] font-semibold text-secondary">Pending Bookings</h2>
+          <p className="mt-0.5 text-[12px] text-gray-500">Details submitted, but no time slot selected yet.</p>
+        </div>
+        <span className="badge badge--warning">{rows.length} pending</span>
+      </div>
+      <ul className="divide-y divide-gray-100">
+        {rows.map(row => (
+          <li key={row._id} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="truncate text-[13px] font-semibold text-secondary">{row.attendee.fullName}</p>
+              <p className="truncate text-[12px] text-gray-500">
+                {[row.attendee.email, row.attendee.mobile].filter(Boolean).join(' · ')}
+              </p>
+            </div>
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-gray-500 sm:justify-end">
+              <span className="truncate">{row.event?.eventName || 'Event unavailable'}</span>
+              <span>{new Date(row.updatedAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</span>
+              <span className="badge badge--warning">Pending</span>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

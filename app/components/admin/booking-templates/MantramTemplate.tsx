@@ -24,6 +24,7 @@ import { useRouter } from 'next/navigation';
 
 import { useBookingCountries } from '@/lib/use-booking-countries';
 import { useFormDraft } from '@/lib/use-form-draft';
+import { savePendingBooking } from '@/lib/pending-booking';
 
 interface MantramTemplateProps {
   eventId: string;
@@ -381,6 +382,8 @@ export default function MantramTemplate({
         ),
       );
 
+      // Shown to admins as Pending and restored here if the slot step is abandoned.
+      savePendingBooking(eventId, bookingDetails);
 
       router.push(
         `/events/${encodeURIComponent(
