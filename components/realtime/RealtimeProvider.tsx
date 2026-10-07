@@ -10,6 +10,7 @@ import {
 import { io, type Socket } from 'socket.io-client';
 
 import type { RealtimeChange } from '@/lib/realtime';
+import { clearFetchCache } from '@/lib/client-cache';
 
 type RealtimeContextValue = {
   subscribe: (
@@ -31,6 +32,8 @@ export function RealtimeProvider({
 
   useEffect(() => {
     const handleChange = (change: RealtimeChange) => {
+      // Drop cached reads first so listeners refetch fresh data.
+      clearFetchCache();
       listenersRef.current.forEach((listener) =>
         listener(change),
       );
@@ -63,8 +66,9 @@ export function RealtimeProvider({
           versions?: Record<RealtimeChange['resource'], number>;
         };
         if (!response.ok || !data.versions || stopped) return;
+        // The first poll only records versions: pages have just loaded their data themselves.
         for (const [resource, version] of Object.entries(data.versions)) {
-          if (!last || version !== last[resource]) {
+          if (last && version !== last[resource]) {
             handleChange({
               resource: resource as RealtimeChange['resource'],
               action: 'updated',
