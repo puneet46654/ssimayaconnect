@@ -1,6 +1,6 @@
 import { getEventStatus } from '@/lib/events/status';
 import { schedulesByLocalDate } from '@/lib/events/date-queries';
-import { eventTimeZone } from '@/lib/events/dates';
+import { calendarDate, DAY_MS, eventTimeZone, formatSlotTime, isCalendarDate, isTimeZone, zonedDayStart } from '@/lib/events/dates';
 import {
   NextRequest,
   NextResponse,
@@ -28,7 +28,11 @@ import { PendingBooking } from '@/models/PendingBooking';
  * Import Slot so the Mongoose model
  * is registered before populate().
  */
-import '@/models/Slot';
+import { Slot } from '@/models/Slot';
+import { DaySchedule } from '@/models/DaySchedule';
+
+// Attendee detail fields that can be filtered by exact value (case-insensitive).
+const DETAIL_FILTERS = ['specialty', 'designation', 'country', 'state', 'city'] as const;
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -138,6 +142,16 @@ export async function GET(
         ) || 'all'
       ).trim();
 
+    const status = searchParams.get('status') || '';
+    const attendance = searchParams.get('attendance') || '';
+    const dayScheduleId = searchParams.get('dayScheduleId') || '';
+    const slotId = searchParams.get('slotId') || '';
+    const sort = searchParams.get('sort') || 'newest';
+    const bookedFrom = searchParams.get('bookedFrom') || '';
+    const bookedTo = searchParams.get('bookedTo') || '';
+    const requestedZone = searchParams.get('timeZone');
+    const filterTimeZone = isTimeZone(requestedZone) ? requestedZone : 'Asia/Kolkata';
+
     /* ========================================================
        BOOKING FILTER
     ======================================================== */
@@ -189,6 +203,7 @@ export async function GET(
           'details.mobile':
             regex,
         },
+        { 'details.hospitalName': regex },
       ];
     }
 
@@ -219,6 +234,36 @@ export async function GET(
         };
     }
 
+    if (attendance === 'present') filter.attendanceStatus = 'PRESENT';
+    if (attendance === 'not_present') filter.attendanceStatus = { $ne: 'PRESENT' };
+    if (mongoose.Types.ObjectId.isValid(slotId)) filter.slotId = new mongoose.Types.ObjectId(slotId);
+    const hasDay = mongoose.Types.ObjectId.isValid(dayScheduleId);
+    if (hasDay) {
+      const day = new mongoose.Types.ObjectId(dayScheduleId);
+      const range = filter.dayScheduleId as { $in: mongoose.Types.ObjectId[] } | undefined;
+      filter.dayScheduleId = range ? { $in: range.$in.filter(id => id.equals(day)) } : day;
+    }
+
+    // Detail and booked-on filters apply to pending registrations too.
+    const sharedFilter: Record<string, unknown> = {};
+    for (const key of DETAIL_FILTERS) {
+      const value = (searchParams.get(key) || '').trim();
+      if (value) sharedFilter[`details.${key}`] = new RegExp(`^${escapeRegex(value)}$`, 'i');
+    }
+    const createdAt: Record<string, Date> = {};
+    if (isCalendarDate(bookedFrom)) createdAt.$gte = zonedDayStart(bookedFrom, filterTimeZone);
+    if (isCalendarDate(bookedTo)) {
+      createdAt.$lt = zonedDayStart(calendarDate(new Date(Date.parse(`${bookedTo}T00:00:00Z`) + DAY_MS)), filterTimeZone);
+    }
+    if (Object.keys(createdAt).length) sharedFilter.createdAt = createdAt;
+    Object.assign(filter, sharedFilter);
+
+    // Slot, day and attendance only exist on confirmed bookings.
+    const excludePending = status === 'confirmed' || dateFilter === 'past' || !!attendance || !!filter.slotId || hasDay;
+    const excludeBookings = status === 'pending';
+    const sortOrder: Record<string, 1 | -1> = sort === 'oldest' ? { createdAt: 1 }
+      : sort === 'name' ? { 'details.fullName': 1 } : { createdAt: -1 };
+
     /* ========================================================
        QUERY
     ======================================================== */
@@ -232,15 +277,15 @@ export async function GET(
      * first, then confirmed bookings, so one page can span both collections.
      * They belong to events that have not ended, so "past" never shows them.
      */
-    const pendingFilter: Record<string, unknown> = { expiresAt: { $gt: new Date() } };
+    const pendingFilter: Record<string, unknown> = { expiresAt: { $gt: new Date() }, ...sharedFilter };
     if (filter.eventId) pendingFilter.eventId = filter.eventId;
     if (search) {
       const regex = new RegExp(escapeRegex(search), 'i');
-      pendingFilter.$or = [{ 'details.fullName': regex }, { 'details.email': regex }, { 'details.mobile': regex }];
+      pendingFilter.$or = [{ 'details.fullName': regex }, { 'details.email': regex }, { 'details.mobile': regex }, { 'details.hospitalName': regex }];
     }
-    const pendingMatches = dateFilter === 'past' ? 0 : await PendingBooking.countDocuments(pendingFilter);
+    const pendingMatches = excludePending ? 0 : await PendingBooking.countDocuments(pendingFilter);
     const pendingRows = skip < pendingMatches
-      ? await PendingBooking.find(pendingFilter).sort({ updatedAt: -1 }).skip(skip).limit(limit)
+      ? await PendingBooking.find(pendingFilter).sort(sort === 'newest' ? { updatedAt: -1 } : sortOrder).skip(skip).limit(limit)
         .populate({ path: 'eventId', select: 'eventName venue status startDate endDate timeZone' }).lean()
       : [];
     const bookingSkip = Math.max(0, skip - pendingMatches);
@@ -252,13 +297,10 @@ export async function GET(
       eventOptions,
     ] =
       await Promise.all([
-        bookingLimit <= 0 ? Promise.resolve([]) : Booking.find(
+        bookingLimit <= 0 || excludeBookings ? Promise.resolve([]) : Booking.find(
           filter,
         )
-          .sort({
-            createdAt:
-              -1,
-          })
+          .sort(sortOrder)
           .skip(
             bookingSkip,
           )
@@ -288,7 +330,7 @@ export async function GET(
           })
           .lean(),
 
-        Booking.countDocuments(
+        excludeBookings ? Promise.resolve(0) : Booking.countDocuments(
           filter,
         ),
 
@@ -357,6 +399,29 @@ export async function GET(
       ]);
 
     const pendingTotal = await PendingBooking.countDocuments({ expiresAt: { $gt: new Date() } });
+
+    // Dropdown choices: values that actually occur, plus the selected event's days and slots.
+    const detailValues = await Promise.all(DETAIL_FILTERS.map(key => Booking.distinct(`details.${key}`)));
+    const filterOptions: Record<string, unknown> = Object.fromEntries(DETAIL_FILTERS.map((key, index) => {
+      const unique = new Map<string, string>();
+      for (const value of detailValues[index] as unknown[]) {
+        if (typeof value === 'string' && value.trim()) unique.set(value.trim().toLowerCase(), value.trim());
+      }
+      return [key, [...unique.values()].sort((a, b) => a.localeCompare(b))];
+    }));
+    filterOptions.days = [];
+    filterOptions.slots = [];
+    if (filter.eventId) {
+      const [days, slots] = await Promise.all([
+        DaySchedule.find({ eventId: filter.eventId }).sort({ date: 1 }).select('_id date').lean(),
+        Slot.find({ eventId: filter.eventId }).sort({ startTime: 1 }).select('_id dayScheduleId startTime endTime').lean(),
+      ]);
+      filterOptions.days = days.map(day => ({ _id: String(day._id), label: calendarDate(day.date) }));
+      filterOptions.slots = slots.map(slot => ({
+        _id: String(slot._id), dayScheduleId: String(slot.dayScheduleId),
+        label: `${formatSlotTime(slot.startTime)} – ${formatSlotTime(slot.endTime)}`,
+      }));
+    }
     const total = bookingMatches + pendingMatches;
 
     /* ========================================================
@@ -588,6 +653,8 @@ export async function GET(
                 event.eventName,
             }),
           ),
+
+        filterOptions,
 
         stats:
           {
