@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => null);
     const mobile = typeof body?.mobile === 'string' ? body.mobile.trim() : '';
     if (!isValidPhone(mobile)) {
-      return NextResponse.json({ success: false, message: 'Enter your full mobile number, including country code.' }, { status: 400 });
+      return NextResponse.json({ success: false, message: 'Enter the mobile number you registered with.' }, { status: 400 });
     }
     const wanted = normalizePhone(mobile);
     await connectDB();

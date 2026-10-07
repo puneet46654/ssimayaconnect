@@ -5,6 +5,7 @@ import { eventTimeZone } from '@/lib/events/dates';
 import { ticketStorage } from '@/lib/booking-contracts';
 
 import { isValidPhone, normalizePhone } from '@/lib/phone';
+import { chooseCountries, INDIA_FALLBACK, type CountryOption } from '@/lib/country-defaults';
 
 import Image from 'next/image';
 import Link from 'next/link';
@@ -117,6 +118,8 @@ export default function MyTicketsPage() {
 
   const hydrated = useHydrated();
   const [mobile, setMobile] = useState('');
+  const [countries, setCountries] = useState<CountryOption[]>([INDIA_FALLBACK]);
+  const [phoneCountry, setPhoneCountry] = useState(INDIA_FALLBACK);
   const [savedMobile, setSavedMobile] = useState('');
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(false);
@@ -130,7 +133,7 @@ export default function MyTicketsPage() {
   const loadTickets = useCallback(async (value: string) => {
     const clean = normalizePhone(value);
     if (!isValidPhone(value)) {
-      setError('Enter your full mobile number, including country code.');
+      setError('Enter the mobile number you registered with.');
       return;
     }
     pendingRef.current?.abort();
@@ -171,6 +174,27 @@ export default function MyTicketsPage() {
     }, 0);
     return () => { window.clearTimeout(timer); pendingRef.current?.abort(); };
   }, [loadTickets]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch('/api/location/countries', { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]) })
+      .then(response => response.json())
+      .then(data => {
+        if (!data?.success || !Array.isArray(data.countries)) return;
+        const list = (data.countries as CountryOption[]).filter(country => country.callingCode);
+        if (!list.length) return;
+        setCountries(list);
+        setPhoneCountry(chooseCountries(list).phone);
+      })
+      .catch(() => { /* Keep India as the only option. */ });
+    return () => controller.abort();
+  }, []);
+
+  /** The number as typed, with the selected country code unless the visitor typed their own +code. */
+  function fullNumber(value: string) {
+    if (value.trim().startsWith('+')) return value;
+    return phoneCountry.callingCode + normalizePhone(value).replace(/^0+/, '');
+  }
 
   function refreshTickets() {
     if (lookupRef.current) void loadTickets(lookupRef.current);
@@ -543,6 +567,21 @@ export default function MyTicketsPage() {
             </label>
 
 
+            <div className="mt-2 flex gap-2">
+              <select disabled={!hydrated}
+                aria-label="Country code"
+                value={phoneCountry.iso2}
+                onChange={e => {
+                  const next = countries.find(country => country.iso2 === e.target.value);
+                  if (next) { setPhoneCountry(next); changeMobile(mobile); }
+                }}
+                className="h-11 w-28 shrink-0 rounded-lg border border-gray-200 bg-white px-2 text-[13px] outline-none focus:border-primary/40"
+              >
+                {countries.map(country => (
+                  <option key={country.iso2} value={country.iso2}>{country.flag} {country.callingCode} {country.name}</option>
+                ))}
+              </select>
+
             <input disabled={!hydrated}
               id="ticket-mobile"
               value={
@@ -555,19 +594,19 @@ export default function MyTicketsPage() {
               }
 
               onKeyDown={(e) => {
-                if (e.key === 'Enter') void loadTickets(mobile);
+                if (e.key === 'Enter') void loadTickets(fullNumber(mobile));
               }}
 
-              placeholder="Full number with country code, e.g. +91 98765 43210"
+              placeholder="Mobile number, e.g. 98765 43210"
 
               inputMode="tel"
 
               className="
-                mt-2
+
 
                 h-11
 
-                w-full
+                min-w-0 flex-1
 
                 rounded-lg
 
@@ -583,6 +622,7 @@ export default function MyTicketsPage() {
                 focus:border-primary/40
               "
             />
+            </div>
 
 
 
@@ -591,7 +631,7 @@ export default function MyTicketsPage() {
             <button
               disabled={!hydrated || loading}
               onClick={() =>
-                void loadTickets(mobile)
+                void loadTickets(fullNumber(mobile))
               }
 
               className="
