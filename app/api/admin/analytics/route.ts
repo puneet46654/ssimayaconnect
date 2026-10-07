@@ -33,8 +33,8 @@ export async function GET(request: NextRequest) {
     const denied = await adminAccessError('reports');
     if (denied) return denied;
 
-    const rangeKey = (request.nextUrl.searchParams.get('range') || '7d') as keyof typeof RANGES;
-    const range = RANGES[rangeKey] || RANGES['7d'];
+    const rangeKey = (request.nextUrl.searchParams.get('range') || '24h') as keyof typeof RANGES;
+    const range = RANGES[rangeKey] || RANGES['24h'];
     const since = new Date(Date.now() - range.ms);
     await connectDB();
 
@@ -108,7 +108,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      range: rangeKey in RANGES ? rangeKey : '7d',
+      range: rangeKey in RANGES ? rangeKey : '24h',
       unit: range.unit,
       totals: {
         ...totals,

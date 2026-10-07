@@ -24,7 +24,7 @@ const REFRESH_MS = 30000;
 const number = new Intl.NumberFormat('en-IN');
 
 export default function AdminAnalyticsPage() {
-  const [range, setRange] = useState<Analytics['range']>('7d');
+  const [range, setRange] = useState<Analytics['range']>('24h');
   const [data, setData] = useState<Analytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
