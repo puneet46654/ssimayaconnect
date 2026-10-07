@@ -6,7 +6,7 @@ import { AdminAccess, useAdminSession } from '@/components/admin/AdminSessionCon
 
 import { canAdminDelete, adminFetch as fetch } from '@/lib/admin-auth';
 
-import { calendarDateFormatter, todayCalendarDate, eventTimeZone } from '@/lib/events/dates';
+import { calendarDateFormatter, deviceTimeZone, todayCalendarDate, eventTimeZone } from '@/lib/events/dates';
 
 import type {
   FormEvent,
@@ -90,6 +90,8 @@ type BookingsResponse = {
 
   events: EventOption[];
 
+  filterOptions?: FilterOptions;
+
   stats: Stats;
 
   pagination: {
@@ -101,6 +103,43 @@ type BookingsResponse = {
 
   message?: string;
 };
+
+type ExtraFilters = {
+  status: '' | 'pending' | 'confirmed';
+  attendance: '' | 'present' | 'not_present';
+  dayScheduleId: string;
+  slotId: string;
+  specialty: string;
+  designation: string;
+  country: string;
+  state: string;
+  city: string;
+  bookedFrom: string;
+  bookedTo: string;
+  sort: 'newest' | 'oldest' | 'name';
+};
+
+type FilterOptions = {
+  specialty: string[];
+  designation: string[];
+  country: string[];
+  state: string[];
+  city: string[];
+  days: { _id: string; label: string }[];
+  slots: { _id: string; dayScheduleId: string; label: string }[];
+};
+
+const EMPTY_EXTRA: ExtraFilters = {
+  status: '', attendance: '', dayScheduleId: '', slotId: '', specialty: '', designation: '',
+  country: '', state: '', city: '', bookedFrom: '', bookedTo: '', sort: 'newest',
+};
+
+const EMPTY_OPTIONS: FilterOptions = { specialty: [], designation: [], country: [], state: [], city: [], days: [], slots: [] };
+
+/** Number of extra filters that narrow the list (sort order does not). */
+function countExtra(filters: ExtraFilters) {
+  return (Object.keys(filters) as (keyof ExtraFilters)[]).filter(key => key !== 'sort' && filters[key]).length;
+}
 
 type DeleteTarget = {
   id: string;
@@ -172,6 +211,11 @@ export default function AdminBookingsPage() {
   ] = useState<
     'all' | 'upcoming' | 'past'
   >('all');
+
+  const [extraInput, setExtraInput] = useState<ExtraFilters>(EMPTY_EXTRA);
+  const [extra, setExtra] = useState<ExtraFilters>(EMPTY_EXTRA);
+  const [filterOptions, setFilterOptions] = useState<FilterOptions>(EMPTY_OPTIONS);
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
 
   /* ==========================================================
      DATA
@@ -320,6 +364,11 @@ export default function AdminBookingsPage() {
             );
           }
 
+          for (const [key, value] of Object.entries(extra)) {
+            if (value && !(key === 'sort' && value === 'newest')) params.set(key, value);
+          }
+          if (extra.bookedFrom || extra.bookedTo) params.set('timeZone', deviceTimeZone());
+
           const response =
             await fetch(
               `/api/admin/bookings?${params.toString()}`,
@@ -360,6 +409,8 @@ export default function AdminBookingsPage() {
             data.events ??
               [],
           );
+
+          setFilterOptions(data.filterOptions ?? EMPTY_OPTIONS);
 
           setStats(
             data.stats ?? {
@@ -425,6 +476,7 @@ export default function AdminBookingsPage() {
         search,
         eventId,
         dateFilter,
+        extra,
       ],
     );
 
@@ -476,6 +528,17 @@ export default function AdminBookingsPage() {
     setDateFilter(
       dateInput,
     );
+
+    setExtra(extraInput);
+  }
+
+  function changeExtra<K extends keyof ExtraFilters>(key: K, value: ExtraFilters[K]) {
+    setExtraInput(current => ({
+      ...current,
+      [key]: value,
+      // A slot belongs to one day, so changing the day clears the slot.
+      ...(key === 'dayScheduleId' ? { slotId: '' } : {}),
+    }));
   }
 
   function clearFilters() {
@@ -487,6 +550,9 @@ export default function AdminBookingsPage() {
     setEventId('');
     setDateFilter('all');
 
+    setExtraInput(EMPTY_EXTRA);
+    setExtra(EMPTY_EXTRA);
+
     setPage(1);
   }
 
@@ -495,8 +561,15 @@ export default function AdminBookingsPage() {
       search ||
         eventId ||
         dateFilter !==
-          'all',
+          'all' ||
+        countExtra(extra) ||
+        extra.sort !== 'newest',
     );
+
+  const extraInputCount = countExtra(extraInput);
+  // Day and slot choices come from the applied event.
+  const eventScheduleReady = !!eventInput && eventInput === eventId;
+  const slotChoices = filterOptions.slots.filter(slot => !extraInput.dayScheduleId || slot.dayScheduleId === extraInput.dayScheduleId);
 
   /* ==========================================================
      NAVIGATION
@@ -999,7 +1072,7 @@ export default function AdminBookingsPage() {
                         .value,
                     )
                   }
-                  placeholder="Name, email, mobile or booking ID..."
+                  placeholder="Name, email, mobile, hospital or booking ID..."
                   className="
                     form-input
                     !pl-10
@@ -1024,9 +1097,10 @@ export default function AdminBookingsPage() {
                 value={
                   eventInput
                 }
-                onChange={
-                  setEventInput
-                }
+                onChange={(value) => {
+                  setEventInput(value);
+                  setExtraInput(current => ({ ...current, dayScheduleId: '', slotId: '' }));
+                }}
               >
                 <option value="">
                   All Events
@@ -1109,7 +1183,9 @@ export default function AdminBookingsPage() {
                   !searchInput &&
                   !eventInput &&
                   dateInput ===
-                    'all'
+                    'all' &&
+                  !extraInputCount &&
+                  extraInput.sort === 'newest'
                 }
                 onClick={
                   clearFilters
@@ -1132,6 +1208,78 @@ export default function AdminBookingsPage() {
               </button>
             </div>
           </div>
+
+          <button
+            type="button"
+            aria-expanded={showMoreFilters}
+            aria-controls="booking-more-filters"
+            onClick={() => setShowMoreFilters(open => !open)}
+            className="mt-3 inline-flex items-center gap-1.5 text-[12px] font-semibold text-primary hover:underline"
+          >
+            {showMoreFilters ? 'Hide filters' : 'More filters'}
+            {extraInputCount > 0 && (
+              <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">{extraInputCount}</span>
+            )}
+          </button>
+
+          {showMoreFilters && (
+            <div id="booking-more-filters" className="mt-3 grid grid-cols-1 gap-3 border-t border-gray-100 pt-3 min-[520px]:grid-cols-2 lg:grid-cols-4">
+              <FilterSelect label="Status" value={extraInput.status} onChange={value => changeExtra('status', value as ExtraFilters['status'])}>
+                <option value="">All Statuses</option>
+                <option value="confirmed">Confirmed</option>
+                <option value="pending">Pending</option>
+              </FilterSelect>
+
+              <FilterSelect label="Attendance" value={extraInput.attendance} onChange={value => changeExtra('attendance', value as ExtraFilters['attendance'])}>
+                <option value="">Any Attendance</option>
+                <option value="present">Present</option>
+                <option value="not_present">Not Present</option>
+              </FilterSelect>
+
+              <FilterSelect label="Event Day" value={extraInput.dayScheduleId} onChange={value => changeExtra('dayScheduleId', value)}>
+                <option value="">{eventScheduleReady ? 'All Days' : 'Apply an event first'}</option>
+                {eventScheduleReady && filterOptions.days.map(day => (
+                  <option key={day._id} value={day._id}>{day.label}</option>
+                ))}
+              </FilterSelect>
+
+              <FilterSelect label="Time Slot" value={extraInput.slotId} onChange={value => changeExtra('slotId', value)}>
+                <option value="">{eventScheduleReady ? 'All Slots' : 'Apply an event first'}</option>
+                {eventScheduleReady && slotChoices.map(slot => (
+                  <option key={slot._id} value={slot._id}>
+                    {extraInput.dayScheduleId ? slot.label : `${filterOptions.days.find(day => day._id === slot.dayScheduleId)?.label || ''} ${slot.label}`}
+                  </option>
+                ))}
+              </FilterSelect>
+
+              {(['specialty', 'designation', 'country', 'state', 'city'] as const).map(key => (
+                <FilterSelect key={key} label={key.charAt(0).toUpperCase() + key.slice(1)} value={extraInput[key]} onChange={value => changeExtra(key, value)}>
+                  <option value="">All</option>
+                  {filterOptions[key].map(value => (
+                    <option key={value} value={value}>{value}</option>
+                  ))}
+                </FilterSelect>
+              ))}
+
+              <label className="block min-w-0">
+                <span className="form-label">Booked From</span>
+                <input type="date" value={extraInput.bookedFrom} max={extraInput.bookedTo || undefined}
+                  onChange={event => changeExtra('bookedFrom', event.target.value)} className="form-input" />
+              </label>
+
+              <label className="block min-w-0">
+                <span className="form-label">Booked To</span>
+                <input type="date" value={extraInput.bookedTo} min={extraInput.bookedFrom || undefined}
+                  onChange={event => changeExtra('bookedTo', event.target.value)} className="form-input" />
+              </label>
+
+              <FilterSelect label="Sort By" value={extraInput.sort} onChange={value => changeExtra('sort', value as ExtraFilters['sort'])}>
+                <option value="newest">Newest First</option>
+                <option value="oldest">Oldest First</option>
+                <option value="name">Name (A–Z)</option>
+              </FilterSelect>
+            </div>
+          )}
         </form>
 
         {/* ====================================================

@@ -559,6 +559,23 @@ export default function Sidebar({
                 );
               },
             )}
+
+            {/* The attendee-facing site, kept open beside the admin panel */}
+            <a
+              href="/events"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={handleNavigation}
+              className="group relative flex cursor-pointer items-center gap-2.5 overflow-hidden rounded-xl px-3 py-2.5 text-[13px] font-medium text-gray-500 transition-all duration-200 hover:bg-gray-50 hover:text-secondary lg:gap-3 lg:px-3.5 lg:py-3 lg:text-sm"
+            >
+              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-gray-400 transition-colors duration-200 group-hover:text-secondary">
+                <svg className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.9} aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+              </span>
+              <span className="min-w-0 flex-1 truncate">Open Application</span>
+              <span className="sr-only">(opens in a new tab)</span>
+            </a>
           </div>
         </nav>
 
