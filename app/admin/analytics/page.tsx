@@ -2,7 +2,7 @@
 
 import { adminFetch as fetch } from '@/lib/admin-auth';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Area, AreaChart, Bar as BarShape, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 type Named = { name: string; count: number };
 type Analytics = {
@@ -21,10 +21,19 @@ type Analytics = {
 const COLORS = { primary: '#1a9e8f', secondary: '#1b4b6b', blue: '#4387b3', red: '#d75d5d', amber: '#d49c35' };
 const RANGES = [['24h', 'Last 24 hours'], ['7d', 'Last 7 days'], ['30d', 'Last 30 days']] as const;
 const REFRESH_MS = 30000;
+const LIVE_MS = 5000;
+
+type Live = {
+  at: string; online: number; onlineTabs: number;
+  pagesNow: { page: string; count: number }[];
+  devicesNow: { device: string; count: number }[];
+  recent: { ts: string; page: string; city?: string; country?: string; device?: string; browser?: string }[];
+  perMinute: { t: string; views: number }[];
+};
 const number = new Intl.NumberFormat('en-IN');
 
 export default function AdminAnalyticsPage() {
-  const [range, setRange] = useState<Analytics['range']>('7d');
+  const [range, setRange] = useState<Analytics['range']>('24h');
   const [data, setData] = useState<Analytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -60,7 +69,7 @@ export default function AdminAnalyticsPage() {
         <div className="min-w-0">
           <h1 className="font-heading text-[22px] font-bold tracking-[-0.03em] text-secondary sm:text-[25px] lg:text-[27px]">Analytics</h1>
           <p className="mt-1 max-w-[720px] text-[11px] leading-[18px] text-gray-500 sm:text-[13px] sm:leading-5">
-            Visitors, page views, the booking funnel and API performance on the attendee site. Updates every 30 seconds.
+            Live visitors updating every 5 seconds, plus page views, the booking funnel and API performance for the selected period.
           </p>
         </div>
         <div className="flex gap-1 rounded-lg border border-gray-200 bg-white p-1 shadow-sm" role="tablist" aria-label="Time range">
@@ -75,8 +84,9 @@ export default function AdminAnalyticsPage() {
 
       {error && <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700">{error}</p>}
 
-      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
-        <Metric title="Live now" value={data?.totals.live} hint="Visitors in the last 5 min" loading={loading} accent />
+      <LivePanel />
+
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
         <Metric title="Page views" value={data?.totals.views} hint="All tracked pages" loading={loading} />
         <Metric title="Unique visitors" value={data?.totals.visitors} hint="Distinct browsers" loading={loading} />
         <Metric title="Sessions" value={data?.totals.sessions} hint="Separate visits" loading={loading} />
@@ -167,6 +177,97 @@ export default function AdminAnalyticsPage() {
         )}
       </Panel>
     </div>
+  );
+}
+
+function LivePanel() {
+  const [live, setLive] = useState<Live | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const load = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const response = await fetch('/api/admin/analytics/live', { credentials: 'include', cache: 'no-store', signal: controller.signal });
+        const body = await response.json();
+        if (response.ok && body.success) { setLive(body); setNow(Date.now()); }
+      } catch { /* The next poll retries. */ }
+    };
+    const first = window.setTimeout(load, 0);
+    const timer = window.setInterval(load, LIVE_MS);
+    const tick = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => { controller.abort(); window.clearTimeout(first); window.clearInterval(timer); window.clearInterval(tick); };
+  }, []);
+
+  const ago = (ts: string) => {
+    const seconds = Math.max(0, Math.round((now - new Date(ts).getTime()) / 1000));
+    return seconds < 60 ? `${seconds}s ago` : `${Math.floor(seconds / 60)}m ago`;
+  };
+  const devices = live?.devicesNow.filter(row => row.count).map(row => `${row.count} ${row.device.toLowerCase()}`).join(' · ');
+
+  return (
+    <section className="mt-5 rounded-xl border border-emerald-200 bg-white p-4 shadow-sm" aria-live="polite">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.04em] text-emerald-700">
+            <span className="relative flex h-2.5 w-2.5" aria-hidden="true">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+            </span>
+            Online now
+          </p>
+          <p className="mt-1 font-heading text-[40px] font-bold leading-none text-secondary">{live ? number.format(live.online) : '–'}</p>
+          <p className="mt-1 text-[11px] text-gray-400">
+            {live ? `${number.format(live.onlineTabs)} open tabs · ${devices || 'no one right now'}` : 'Connecting…'}
+          </p>
+        </div>
+        <div className="h-[70px] w-full max-w-[420px]">
+          {live && (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={live.perMinute} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
+                <Tooltip labelFormatter={value => new Date(String(value)).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })} />
+                <XAxis dataKey="t" hide />
+                <BarShape dataKey="views" name="Page views / min" fill={COLORS.primary} radius={[2, 2, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+          <p className="text-right text-[10px] text-gray-400">Page views per minute, last 30 min</p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <div>
+          <h3 className="text-[12px] font-semibold text-secondary">Pages being viewed right now</h3>
+          {live?.pagesNow.length ? (
+            <ul className="mt-2 space-y-2">
+              {live.pagesNow.map(row => (
+                <li key={row.page}>
+                  <div className="flex justify-between gap-2 text-[12px]">
+                    <span className="truncate text-secondary">{row.page}</span>
+                    <span className="shrink-0 font-semibold text-gray-600">{row.count}</span>
+                  </div>
+                  <Bar value={row.count} max={live.pagesNow[0].count} color={COLORS.primary} />
+                </li>
+              ))}
+            </ul>
+          ) : <p className="mt-2 text-[12px] text-gray-400">{live ? 'Nobody is on the site right now.' : 'Loading…'}</p>}
+        </div>
+        <div>
+          <h3 className="text-[12px] font-semibold text-secondary">Live activity</h3>
+          {live?.recent.length ? (
+            <ul className="mt-2 max-h-[220px] divide-y divide-gray-100 overflow-y-auto">
+              {live.recent.map((row, index) => (
+                <li key={index} className="flex items-center justify-between gap-3 py-1.5 text-[12px]">
+                  <span className="min-w-0 truncate text-secondary">{row.page}</span>
+                  <span className="shrink-0 text-[11px] text-gray-400">{[row.city, row.device].filter(Boolean).join(' · ')} · {ago(row.ts)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : <p className="mt-2 text-[12px] text-gray-400">{live ? 'No page views in the last hour.' : 'Loading…'}</p>}
+        </div>
+      </div>
+    </section>
   );
 }
 

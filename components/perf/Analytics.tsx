@@ -6,13 +6,16 @@ import { usePathname } from 'next/navigation';
 type QueuedEvent = { kind: 'pageview' | 'api'; ts: number; path: string; referrer?: string; method?: string; status?: number; ms?: number };
 
 const ENDPOINT = '/api/analytics/collect';
-const FLUSH_MS = 15000;
+// Open tabs report in every 20s, so a closed tab drops out of 'online now' within ~45s.
+const HEARTBEAT_MS = 20000;
 // Requests that are themselves telemetry or polling would only add noise.
 const IGNORED_API = /^\/api\/(analytics|realtime|admin)\b/;
 
 const queue: QueuedEvent[] = [];
 let installed = false;
 let firstView = true;
+let currentPath = '';
+let pageviewTimer = 0;
 
 function storedId(storage: () => Storage, key: string) {
   try {
@@ -23,12 +26,14 @@ function storedId(storage: () => Storage, key: string) {
   } catch { return crypto.randomUUID(); }
 }
 
-function flush(useBeacon = false) {
-  if (!queue.length) return;
+function flush(useBeacon = false, withPresence = false) {
+  const live = withPresence && !!currentPath && !currentPath.startsWith('/admin') && document.visibilityState === 'visible';
+  if (!queue.length && !live) return;
   const payload = JSON.stringify({
     visitorId: storedId(() => localStorage, 'ssi-analytics-visitor'),
     sessionId: storedId(() => sessionStorage, 'ssi-analytics-session'),
     events: queue.splice(0, 50),
+    ...(live ? { presence: { path: currentPath } } : {}),
   });
   if (useBeacon && navigator.sendBeacon?.(ENDPOINT, new Blob([payload], { type: 'application/json' }))) return;
   void fetch(ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload, keepalive: true }).catch(() => {});
@@ -65,8 +70,8 @@ export function Analytics() {
 
   useEffect(() => {
     installApiTiming();
-    const timer = window.setInterval(() => flush(), FLUSH_MS);
-    const onHide = () => { if (document.visibilityState === 'hidden') flush(true); };
+    const timer = window.setInterval(() => flush(false, true), HEARTBEAT_MS);
+    const onHide = () => { if (document.visibilityState === 'hidden') flush(true); else flush(false, true); };
     document.addEventListener('visibilitychange', onHide);
     window.addEventListener('pagehide', onHide);
     return () => {
@@ -77,11 +82,14 @@ export function Analytics() {
   }, []);
 
   useEffect(() => {
+    currentPath = pathname || '';
     if (!pathname || pathname.startsWith('/admin')) return;
     // The browser's referrer only describes how the visit started, not in-app navigation.
     queue.push({ kind: 'pageview', ts: Date.now(), path: pathname, referrer: firstView ? document.referrer : undefined });
     firstView = false;
-    if (queue.length >= 40) flush();
+    // Send page views almost immediately so the admin live view reacts in real time.
+    window.clearTimeout(pageviewTimer);
+    pageviewTimer = window.setTimeout(() => flush(false, true), 1000);
   }, [pathname]);
 
   return null;
