@@ -13,14 +13,6 @@ export function phoneIdentity(mobile: unknown, callingCode: unknown = ''): strin
   return prefix + number;
 }
 
-/** The number without its country code, e.g. "9876543210" for +91 9876543210. */
-export function nationalNumber(mobile: unknown, callingCode: unknown = ''): string {
-  const number = normalizePhone(mobile);
-  if (!number || typeof mobile !== 'string' || !mobile.trim().startsWith('+')) return number;
-  const prefix = normalizePhone(callingCode);
-  return prefix && number.startsWith(prefix) ? number.slice(prefix.length) : '';
-}
-
 export function isValidPhone(mobile: unknown, callingCode: unknown = ''): boolean {
   return /^[1-9]\d{6,14}$/.test(phoneIdentity(mobile, callingCode));
 }

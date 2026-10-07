@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/db';
 import { Booking } from '@/models/Booking';
-import { isValidPhone, nationalNumber, normalizePhone, phoneIdentity } from '@/lib/phone';
+import { isValidPhone, normalizePhone, phoneIdentity } from '@/lib/phone';
 import { loadPublicBooking } from '@/lib/bookings/public-booking';
 
 export const dynamic = 'force-dynamic';
@@ -18,12 +18,8 @@ export async function POST(request: NextRequest) {
     const wanted = normalizePhone(mobile);
     await connectDB();
     const candidates = await Booking.find({}).select('bookingId details.mobile details.phone details.countryCode').lean();
-    // Accept the full number with country code, or the number exactly as typed in the booking form (country code picked separately).
     const ids = candidates
-      .filter(b => {
-        const stored = b.details?.mobile || b.details?.phone;
-        return phoneIdentity(stored, b.details?.countryCode) === wanted || nationalNumber(stored, b.details?.countryCode) === wanted;
-      })
+      .filter(b => phoneIdentity(b.details?.mobile || b.details?.phone, b.details?.countryCode) === wanted)
       .map(b => b.bookingId);
     const loaded = await Promise.all(ids.map(id => loadPublicBooking(id)));
     const tickets = loaded.filter((t): t is NonNullable<typeof t> => !!t);
