@@ -1,4 +1,5 @@
 import { adminAccessError } from '@/lib/admin-api-auth';
+import { getAdminSession } from '@/lib/admin-server-auth';
 import { BookingError, lockBookingEvent, contactConflict, deleteBooking } from '@/lib/bookings/mutations';
 import { emitRealtimeChange } from '@/lib/realtime';
 import { getEventStatus } from '@/lib/events/status';
@@ -276,6 +277,17 @@ export async function PATCH(
       );
     }
 
+    // Admins may correct attendance at any time, unlike scanning which is limited to the live check-in window.
+    const attendanceStatus = body.attendanceStatus === 'PRESENT' || body.attendanceStatus === 'NOT_PRESENT' ? body.attendanceStatus : null;
+    if (body.attendanceStatus !== undefined && !attendanceStatus) {
+      return NextResponse.json({ success: false, message: 'Invalid attendance status.' }, { status: 400 });
+    }
+    if (attendanceStatus) {
+      const checkInDenied = await adminAccessError('check-in');
+      if (checkInDenied) return checkInDenied;
+    }
+    const adminName = attendanceStatus ? (await getAdminSession())?.username || '' : '';
+
     await connectDB();
 
     const booking =
@@ -314,6 +326,7 @@ export async function PATCH(
       });
     }
 
+    let attendanceChanged = false;
     await mongoose.connection.transaction(async session => {
       await lockBookingEvent(String(booking.eventId), session);
       const current = await Booking.findById(id).session(session);
@@ -328,9 +341,22 @@ export async function PATCH(
         throw new BookingError(409, 'Another booking for this event uses that email or mobile number.');
       }
       current.details = merged;
+      attendanceChanged = !!attendanceStatus && attendanceStatus !== (current.attendanceStatus || 'NOT_PRESENT');
+      if (attendanceChanged && attendanceStatus === 'PRESENT') {
+        current.attendanceStatus = 'PRESENT';
+        current.checkedInAt = new Date();
+        current.checkedInBy = adminName;
+        current.checkInMethod = 'MANUAL';
+      } else if (attendanceChanged) {
+        current.attendanceStatus = 'NOT_PRESENT';
+        current.checkedInAt = null;
+        current.checkedInBy = '';
+        current.checkInMethod = undefined;
+      }
       await current.save({ session });
     });
     emitRealtimeChange({ resource: 'bookings', action: 'updated', id: String(booking.eventId) });
+    if (attendanceChanged) emitRealtimeChange({ resource: 'attendance', action: 'updated', id: String(booking.eventId) });
 
     await logAdminActivity({
       action: 'update',
@@ -339,6 +365,7 @@ export async function PATCH(
       details: {
         bookingId: booking.bookingId,
         fields: Object.keys(details),
+        ...(attendanceChanged ? { attendanceStatus } : {}),
       },
     });
 

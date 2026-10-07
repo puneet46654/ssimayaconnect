@@ -2,6 +2,7 @@
 
 import { useHydrated } from '@/lib/use-hydrated';
 import { eventTimeZone } from '@/lib/events/dates';
+import { hasSlotEnded } from '@/lib/events/status';
 import { ticketStorage } from '@/lib/booking-contracts';
 
 import { isValidPhone, normalizePhone } from '@/lib/phone';
@@ -156,7 +157,10 @@ export default function MyTicketsPage() {
       setMobile(clean);
       lookupRef.current = clean;
       setLoaded(true);
-      try { sessionStorage.setItem(CACHE_KEY, clean); } catch { /* Storage is optional. */ }
+      // Remember this device's number until its last ticket's slot ends, so tickets show without retyping.
+      const keep = (data.tickets as Ticket[]).some(ticket => ticket.status !== 'CANCELLED' && !!ticket.date
+        && !hasSlotEnded(ticket.date, ticket.endTime, new Date(), ticket.timeZone));
+      try { if (keep) localStorage.setItem(CACHE_KEY, clean); else localStorage.removeItem(CACHE_KEY); } catch { /* Storage is optional. */ }
     } catch (error) {
       if (version !== requestVersion.current || controller.signal.aborted) return;
       setError(error instanceof Error ? error.message : 'Unable to load your ticket. Please retry.');
@@ -168,7 +172,7 @@ export default function MyTicketsPage() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       try {
-        const cachedMobile = sessionStorage.getItem(CACHE_KEY);
+        const cachedMobile = localStorage.getItem(CACHE_KEY);
         if (cachedMobile) void loadTickets(cachedMobile);
       } catch { /* Start with an empty lookup when browser storage is unavailable. */ }
     }, 0);
@@ -209,7 +213,7 @@ export default function MyTicketsPage() {
     lookupRef.current = null;
     setMobile(''); setSavedMobile(''); setTickets([]);
     setSelectedTicket(null); setLoaded(false); setLoading(false); setError('');
-    try { sessionStorage.removeItem(CACHE_KEY); } catch { /* Nothing to restore. */ }
+    try { localStorage.removeItem(CACHE_KEY); } catch { /* Nothing to restore. */ }
   }
 
   function changeMobile(value: string) {
