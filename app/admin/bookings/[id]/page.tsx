@@ -79,6 +79,9 @@ type BookingData = {
 
   bookingId: string;
 
+  /** Details submitted but no slot chosen: no ticket, attendance or feedback yet. */
+  pending?: boolean;
+
   details:
     GenericRecord;
 
@@ -1036,11 +1039,15 @@ export default function BookingDetailsPage() {
                   : 'Booking Details'}
               </h1>
 
+              {booking.pending ? (
+                <span className="badge badge--warning">Pending</span>
+              ) : (
               <AttendanceBadge
                 status={
                   attendance
                 }
               />
+              )}
             </div>
 
             <div
@@ -1067,7 +1074,7 @@ export default function BookingDetailsPage() {
                   text-secondary
                 "
               >
-                {booking.bookingId}
+                {booking.bookingId || 'Pending registration · no time slot selected'}
               </span>
 
               <span
@@ -1194,7 +1201,7 @@ export default function BookingDetailsPage() {
               </>
             ) : (
               <>
-              {attendance !== 'PRESENT' && (
+              {attendance !== 'PRESENT' && !booking.pending && (
                 <AdminAccess permission="check-in"><button
                   type="button"
                   disabled={markingPresent}
@@ -1586,6 +1593,15 @@ export default function BookingDetailsPage() {
               space-y-4
             "
           >
+            {booking.pending ? (
+              <CompactCard icon={<AttendanceIcon />} title="Time Slot">
+                <p className="text-[13px] leading-5 text-gray-600">
+                  Not selected yet. This attendee entered their details but left before choosing a slot,
+                  so there is no ticket, attendance or feedback. It will be removed automatically when they
+                  book or when the event ends.
+                </p>
+              </CompactCard>
+            ) : (<>
             <CompactCard
               icon={
                 <AttendanceIcon />
@@ -1621,6 +1637,7 @@ export default function BookingDetailsPage() {
                 categories={feedback}
               />
             </CompactCard>
+            </>)}
           </div>
         </div>
       </motion.div>
@@ -1780,7 +1797,7 @@ export default function BookingDetailsPage() {
                     text-gray-500
                   "
                 >
-                  {booking.bookingId}
+                  {booking.bookingId || 'Pending registration'}
                 </p>
 
                 <p

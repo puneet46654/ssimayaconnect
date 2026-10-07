@@ -40,7 +40,7 @@ import {
 type BookingRow = {
   _id: string;
   bookingId: string;
-  /** Details submitted but no slot chosen yet; there is no booking to view or edit. */
+  /** Details submitted but no slot chosen yet: no booking ID, date or slot. */
   pending?: boolean;
 
   attendee: {
@@ -1581,7 +1581,6 @@ export default function AdminBookingsPage() {
                               gap-1.5
                             "
                           >
-                            {!booking.pending && (<>
                             <IconButton
                               title="View booking"
                               onClick={() =>
@@ -1603,7 +1602,6 @@ export default function AdminBookingsPage() {
                             >
                               <EditIcon />
                             </IconButton></AdminAccess>
-                            </>)}
 
                             <AdminAccess permission="bookings" action="delete"><IconButton
                               danger
@@ -1946,7 +1944,6 @@ export default function AdminBookingsPage() {
                         gap-2
                       "
                     >
-                      {!booking.pending && (<>
                       <MobileAction
                         icon={
                           <EyeIcon />
@@ -1970,7 +1967,6 @@ export default function AdminBookingsPage() {
                           )
                         }
                       /></AdminAccess>
-                      </>)}
 
                       <AdminAccess permission="bookings" action="delete"><MobileAction
                         danger

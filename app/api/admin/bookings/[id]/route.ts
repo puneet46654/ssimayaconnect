@@ -25,6 +25,7 @@ import {
 import '@/models/Slot';
 
 import { Feedback } from '@/models/Feedback';
+import { PendingBooking } from '@/models/PendingBooking';
 
 import '@/models/Event';
 import '@/models/DaySchedule';
@@ -119,6 +120,8 @@ export async function GET(
       );
 
     if (!booking) {
+      const pending = await getPendingBooking(id);
+      if (pending) return NextResponse.json({ success: true, booking: serialize(pending), feedback: emptyFeedbackCategories() });
       return NextResponse.json(
         {
           success: false,
@@ -281,17 +284,34 @@ export async function PATCH(
       );
 
     if (!booking) {
-      return NextResponse.json(
-        {
-          success: false,
+      const pending = await PendingBooking.findById(id);
+      if (!pending) {
+        return NextResponse.json(
+          {
+            success: false,
 
-          message:
-            'Booking not found.',
-        },
-        {
-          status: 404,
-        },
-      );
+            message:
+              'Booking not found.',
+          },
+          {
+            status: 404,
+          },
+        );
+      }
+      // Pending rows hold no slot or ticket, so only the contact details can change.
+      const merged = { ...pending.details, ...details };
+      if (!isValidPhone(merged.mobile, merged.countryCode)) throw new BookingError(400, 'Enter a valid full mobile number.');
+      merged.email = normalizeEmail(merged.email);
+      merged.mobile = (merged.mobile.trim().startsWith('+') ? '+' : '') + normalizePhone(merged.mobile);
+      pending.details = merged;
+      pending.markModified('details');
+      await pending.save();
+      emitRealtimeChange({ resource: 'bookings', action: 'updated', id: String(pending.eventId) });
+      await logAdminActivity({ action: 'update', resource: 'booking', resourceId: id, details: { pending: true, fields: Object.keys(details) } });
+      return NextResponse.json({
+        success: true, message: 'Pending booking updated successfully.',
+        booking: serialize(await getPendingBooking(id)), feedback: emptyFeedbackCategories(),
+      });
     }
 
     await mongoose.connection.transaction(async session => {
@@ -425,6 +445,12 @@ export async function DELETE(
     if (booking) {
       emitRealtimeChange({ resource: 'bookings', action: 'deleted', id: String(booking.eventId) });
       await logAdminActivity({ action: 'delete', resource: 'booking', resourceId: String(booking._id), details: { bookingId: booking.bookingId } });
+    } else {
+      const pending = await PendingBooking.findByIdAndDelete(id).select('eventId').lean();
+      if (pending) {
+        emitRealtimeChange({ resource: 'bookings', action: 'deleted', id: String(pending.eventId) });
+        await logAdminActivity({ action: 'delete', resource: 'booking', resourceId: id, details: { pending: true } });
+      }
     }
 
     return NextResponse.json(
@@ -486,6 +512,27 @@ async function getBooking(
     if (event.startDate && event.endDate) event.status = getEventStatus(new Date(String(event.startDate)), new Date(String(event.endDate)), new Date(), String(event.timeZone || 'Asia/Kolkata'), String(event.status));
   }
   return booking;
+}
+
+/** A pending registration in the booking shape, with no slot, schedule or ticket. */
+async function getPendingBooking(id: string) {
+  const pending = await PendingBooking.findById(id).populate({ path: 'eventId' }).lean();
+  if (!pending) return null;
+  const event = isRecord(pending.eventId) ? pending.eventId : null;
+  if (event?.startDate && event.endDate) {
+    event.status = getEventStatus(new Date(String(event.startDate)), new Date(String(event.endDate)), new Date(),
+      String(event.timeZone || 'Asia/Kolkata'), String(event.status));
+  }
+  return {
+    _id: pending._id, bookingId: '', pending: true, details: pending.details, eventId: event,
+    slotId: null, dayScheduleId: null, attendanceStatus: 'NOT_PRESENT',
+    createdAt: pending.createdAt, updatedAt: pending.updatedAt,
+  };
+}
+
+function emptyFeedbackCategories() {
+  const none: BookingFeedback = { status: 'NONE', rating: null, message: '', suggestedFeature: '', submittedAt: null };
+  return { event: none, application: { ...none } };
 }
 
 /* ============================================================
