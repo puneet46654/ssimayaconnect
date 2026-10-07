@@ -130,7 +130,7 @@ export default function MyTicketsPage() {
   const loadTickets = useCallback(async (value: string) => {
     const clean = normalizePhone(value);
     if (!isValidPhone(value)) {
-      setError('Enter your full mobile number, including country code.');
+      setError('Enter the mobile number you registered with.');
       return;
     }
     pendingRef.current?.abort();
@@ -558,7 +558,7 @@ export default function MyTicketsPage() {
                 if (e.key === 'Enter') void loadTickets(mobile);
               }}
 
-              placeholder="Full number with country code, e.g. +91 98765 43210"
+              placeholder="e.g. 98765 43210 or +91 98765 43210"
 
               inputMode="tel"
 
