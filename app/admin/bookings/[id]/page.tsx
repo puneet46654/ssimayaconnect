@@ -400,9 +400,14 @@ export default function BookingDetailsPage() {
       ],
     );
 
+  // '' means attendance is untouched in the edit form.
+  const [attendanceDraft, setAttendanceDraft] = useState<AttendanceStatus | ''>('');
+  const attendanceEdited = !!attendanceDraft && attendanceDraft !== (booking?.attendanceStatus || 'NOT_PRESENT');
+
   const hasChanges =
     useMemo(
       () =>
+        attendanceEdited ||
         JSON.stringify(
           draft,
         ) !==
@@ -410,6 +415,7 @@ export default function BookingDetailsPage() {
           originalDraft,
         ),
       [
+        attendanceEdited,
         draft,
         originalDraft,
       ],
@@ -551,6 +557,7 @@ export default function BookingDetailsPage() {
               JSON.stringify({
                 details:
                   draft,
+                ...(attendanceEdited ? { attendanceStatus: attendanceDraft } : {}),
               }),
           },
         );
@@ -584,6 +591,8 @@ export default function BookingDetailsPage() {
             .details,
         ),
       );
+
+      setAttendanceDraft('');
 
       setSuccess(
         'Booking updated successfully.',
@@ -754,6 +763,7 @@ export default function BookingDetailsPage() {
         booking.details,
       ),
     );
+    setAttendanceDraft('');
 
     setError('');
     setSuccess('');
@@ -1512,6 +1522,19 @@ export default function BookingDetailsPage() {
                   lg:grid-cols-3
                 "
               >
+                {isEditing && !booking.pending && (
+                  <label className="block min-w-0">
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.045em] text-gray-400">Attendance</span>
+                    <select
+                      value={attendanceDraft || attendance}
+                      onChange={(event) => setAttendanceDraft(event.target.value as AttendanceStatus)}
+                      className="mt-1.5 h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-[13px] text-secondary outline-none transition focus:border-primary/40 focus:ring-2 focus:ring-primary/10"
+                    >
+                      <option value="PRESENT">Present</option>
+                      <option value="NOT_PRESENT">Not Present</option>
+                    </select>
+                  </label>
+                )}
                 {detailEntries.map(
                   ([
                     key,
