@@ -31,8 +31,10 @@ export async function connectDB() {
     cached.promise = mongoose
       .connect(mongodbUri, {
         bufferCommands: false,
-        maxPoolSize: 20,
-        minPoolSize: 2,
+        // Serverless instances multiply quickly; small pools keep Atlas under its connection limit.
+        maxPoolSize: 10,
+        minPoolSize: 0,
+        maxIdleTimeMS: 30000,
         serverSelectionTimeoutMS: 10000,
       })
       .catch((error) => {
