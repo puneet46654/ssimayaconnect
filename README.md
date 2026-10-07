@@ -48,7 +48,6 @@ The database URI must point at your own configured replica set. Keep secrets sta
 | `ADMIN_SESSION_SECRET` | Signs admin cookies; required in production. Development has a fallback. |
 | `BOOKING_ACCESS_SECRET` | Signs public ticket grants. Set explicitly; current compatibility fallback uses `MONGODB_URI`. Changing it invalidates existing grants, but tickets remain recoverable. |
 | `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_S3_BUCKET_NAME` | Existing S3 overrides. The existing hardcoded fallback configuration is intentionally unchanged by this bug-fix work. |
-| `RESEND_API_KEY`, `RESEND_FROM_EMAIL` | Optional confirmation email. Without a key, email is skipped. Email failure does not undo a successful booking. |
 | `PORT`, `HOSTNAME` | Custom server address, read from the process environment before Next loads local configuration. Set these in the shell. |
 | `NODE_ENV` | `development` for development; `production` for a built server. |
 
