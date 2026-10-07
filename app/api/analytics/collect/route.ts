@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/db';
 import { AnalyticsEvent, type IAnalyticsEvent } from '@/models/AnalyticsEvent';
+import { AnalyticsPresence } from '@/models/AnalyticsPresence';
 import { describeAgent, eventIdFromPath, isBot, normalizePath, referrerHost } from '@/lib/analytics';
 
 export const dynamic = 'force-dynamic';
@@ -18,7 +19,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => null);
     const visitorId = typeof body?.visitorId === 'string' && ID.test(body.visitorId) ? body.visitorId : '';
     const sessionId = typeof body?.sessionId === 'string' && ID.test(body.sessionId) ? body.sessionId : '';
-    if (!visitorId || !sessionId || !Array.isArray(body.events)) return done;
+    if (!visitorId || !sessionId) return done;
+    const events: unknown[] = Array.isArray(body.events) ? body.events : [];
 
     const now = Date.now();
     const agent = describeAgent(userAgent);
@@ -28,7 +30,7 @@ export async function POST(request: NextRequest) {
     try { city = rawCity ? decodeURIComponent(rawCity) : undefined; } catch { city = rawCity || undefined; }
     const ownHost = request.nextUrl.hostname;
 
-    const docs = (body.events as unknown[]).slice(0, MAX_EVENTS).flatMap((raw): Partial<IAnalyticsEvent>[] => {
+    const docs = events.slice(0, MAX_EVENTS).flatMap((raw): Partial<IAnalyticsEvent>[] => {
       const item = raw as Record<string, unknown>;
       const kind: IAnalyticsEvent['kind'] | null = item?.kind === 'api' ? 'api' : item?.kind === 'pageview' ? 'pageview' : null;
       const path = typeof item?.path === 'string' && item.path.startsWith('/') ? item.path : '';
@@ -40,10 +42,17 @@ export async function POST(request: NextRequest) {
       return [{ ...base, method: typeof item.method === 'string' ? item.method.toUpperCase().slice(0, 8) : 'GET',
         status: Number.isInteger(status) ? status : 0, ms: Number.isFinite(ms) && ms >= 0 ? Math.min(Math.round(ms), 120000) : undefined }];
     });
-    if (!docs.length) return done;
+    // Presence: which page this open tab is on right now.
+    const livePath = typeof body.presence?.path === 'string' && body.presence.path.startsWith('/') && !body.presence.path.startsWith('/admin')
+      ? body.presence.path : '';
+    if (!docs.length && !livePath) return done;
 
     await connectDB();
-    await AnalyticsEvent.insertMany(docs, { ordered: false });
+    await Promise.all([
+      docs.length ? AnalyticsEvent.insertMany(docs, { ordered: false }) : null,
+      livePath ? AnalyticsPresence.updateOne({ _id: sessionId }, { $set: { visitorId, path: normalizePath(livePath),
+        eventId: eventIdFromPath(livePath), lastSeen: new Date(now), country, city, device: agent.device } }, { upsert: true }) : null,
+    ]);
   } catch (error) {
     console.error('Analytics collect failed:', error);
   }
