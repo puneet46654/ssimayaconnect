@@ -592,6 +592,48 @@ export default function AdminBookingsPage() {
   }
 
   /* ==========================================================
+     BULK SELECT
+  ========================================================== */
+  const canDelete = canAdminDelete(currentUser);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkConfirm, setBulkConfirm] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  // Selection only ever covers rows currently on screen.
+  const visibleSelected = selectedIds.filter(id => bookings.some(booking => booking._id === id));
+  const allSelected = bookings.length > 0 && visibleSelected.length === bookings.length;
+
+  function toggleSelected(id: string) {
+    setBulkConfirm(false);
+    setSelectedIds(current => current.includes(id) ? current.filter(value => value !== id) : [...current, id]);
+  }
+
+  function toggleAll() {
+    setBulkConfirm(false);
+    setSelectedIds(allSelected ? [] : bookings.map(booking => booking._id));
+  }
+
+  async function deleteSelected() {
+    if (bulkDeleting || !visibleSelected.length) return;
+    setBulkDeleting(true);
+    setError('');
+    const targets = bookings.filter(booking => visibleSelected.includes(booking._id));
+    let failed = 0;
+    for (const booking of targets) {
+      try {
+        const response = await fetch(`/api/admin/bookings/${booking.pending ? 'pending/' : ''}${booking._id}`, { method: 'DELETE', credentials: 'include' });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) failed++;
+      } catch { failed++; }
+    }
+    setSelectedIds([]);
+    setBulkConfirm(false);
+    setBulkDeleting(false);
+    if (failed) setError(`${failed} of ${targets.length} bookings could not be deleted. Please retry.`);
+    if (targets.length === bookings.length && page > 1) setPage(current => Math.max(1, current - 1));
+    else await loadBookings(undefined, true);
+  }
+
+  /* ==========================================================
      DELETE
   ========================================================== */
 
@@ -1463,6 +1505,15 @@ export default function AdminBookingsPage() {
               overflow-x-auto
             "
           >
+            {canDelete && visibleSelected.length > 0 && (
+              <BulkBar
+                count={visibleSelected.length}
+                confirming={bulkConfirm}
+                deleting={bulkDeleting}
+                onDelete={() => (bulkConfirm ? void deleteSelected() : setBulkConfirm(true))}
+                onCancel={() => { setSelectedIds([]); setBulkConfirm(false); }}
+              />
+            )}
             <table
               className="
                 data-table
@@ -1471,6 +1522,12 @@ export default function AdminBookingsPage() {
             >
               <thead>
                 <tr>
+                  {canDelete && (
+                    <th className="w-10">
+                      <input type="checkbox" aria-label="Select all bookings on this page" checked={allSelected}
+                        disabled={!bookings.length || bulkDeleting} onChange={toggleAll} className="h-4 w-4 cursor-pointer accent-primary" />
+                    </th>
+                  )}
                   <th>
                     Booking ID
                   </th>
@@ -1511,12 +1568,12 @@ export default function AdminBookingsPage() {
 
               <tbody>
                 {loading ? (
-                  <DesktopTableSkeleton />
+                  <DesktopTableSkeleton columns={canDelete ? 9 : 8} />
                 ) : error && !bookings.length ? null : bookings.length ===
                   0 ? (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={canDelete ? 9 : 8}
                       className="
                         !border-0
                         !px-6
@@ -1543,6 +1600,13 @@ export default function AdminBookingsPage() {
                           booking._id
                         }
                       >
+                        {canDelete && (
+                          <td className="w-10">
+                            <input type="checkbox" aria-label={`Select ${booking.attendee?.fullName || 'booking'}`}
+                              checked={visibleSelected.includes(booking._id)} disabled={bulkDeleting}
+                              onChange={() => toggleSelected(booking._id)} className="h-4 w-4 cursor-pointer accent-primary" />
+                          </td>
+                        )}
                         <td>
                           {booking.pending ? (
                             <span className="font-semibold text-gray-400">—</span>
@@ -1854,7 +1918,25 @@ export default function AdminBookingsPage() {
               />
             </div>
           ) : (
-            bookings.map(
+            <>
+            {canDelete && (
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="inline-flex items-center gap-2 text-[12px] font-medium text-gray-500">
+                  <input type="checkbox" checked={allSelected} disabled={bulkDeleting} onChange={toggleAll} className="h-4 w-4 accent-primary" />
+                  Select all on this page
+                </label>
+                {visibleSelected.length > 0 && (
+                  <BulkBar
+                    count={visibleSelected.length}
+                    confirming={bulkConfirm}
+                    deleting={bulkDeleting}
+                    onDelete={() => (bulkConfirm ? void deleteSelected() : setBulkConfirm(true))}
+                    onCancel={() => { setSelectedIds([]); setBulkConfirm(false); }}
+                  />
+                )}
+              </div>
+            )}
+            {bookings.map(
               (
                 booking,
               ) => (
@@ -2145,7 +2227,8 @@ export default function AdminBookingsPage() {
                   </div>
                 </motion.article>
               ),
-            )
+            )}
+            </>
           )}
 
           {!loading &&
@@ -3254,7 +3337,25 @@ function EmptyState({
    SKELETONS
 ============================================================ */
 
-function DesktopTableSkeleton() {
+function BulkBar({ count, confirming, deleting, onDelete, onCancel }: {
+  count: number; confirming: boolean; deleting: boolean; onDelete: () => void; onCancel: () => void;
+}) {
+  return (
+    <div role="status" className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-primary/20 bg-primary/[0.04] px-3 py-2 text-[12px]">
+      <span className="font-semibold text-secondary">{count} selected</span>
+      <button type="button" disabled={deleting} onClick={onDelete}
+        className="inline-flex h-8 items-center rounded-md bg-red-600 px-3 font-semibold text-white transition hover:bg-red-700 disabled:opacity-50">
+        {deleting ? 'Deleting...' : confirming ? `Confirm delete ${count}` : 'Delete selected'}
+      </button>
+      <button type="button" disabled={deleting} onClick={onCancel}
+        className="inline-flex h-8 items-center rounded-md border border-gray-200 bg-white px-3 font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50">
+        {confirming ? 'Cancel' : 'Clear'}
+      </button>
+    </div>
+  );
+}
+
+function DesktopTableSkeleton({ columns = 8 }: { columns?: number }) {
   return (
     <>
       {Array.from({
@@ -3270,7 +3371,7 @@ function DesktopTableSkeleton() {
             }
           >
             {Array.from({
-              length: 8,
+              length: columns,
             }).map(
               (
                 __,
