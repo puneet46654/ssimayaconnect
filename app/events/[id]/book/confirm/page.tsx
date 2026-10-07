@@ -1,5 +1,6 @@
 'use client';
 
+import { phoneIdentity } from '@/lib/phone';
 import { type BookingDetails as SharedBookingDetails, type ServerBooking, type BookingApiResponse, bookingStorage, ticketStorage } from '@/lib/booking-contracts';
 
 import { attendeeIdentity, bookingRequestData } from '@/lib/bookings/identity';
@@ -171,6 +172,9 @@ export default function BookingConfirmationPage() {
           sessionStorage.setItem(ticketStorage.tickets, JSON.stringify([
             ...(Array.isArray(cachedTickets) ? cachedTickets.filter(ticket => ticket.bookingId !== confirmed.bookingId) : []), confirmed,
           ]));
+          // My Tickets shows this booking automatically until its slot ends.
+          const ticketMobile = phoneIdentity(confirmed.details?.mobile, confirmed.details?.countryCode);
+          if (ticketMobile) localStorage.setItem(ticketStorage.mobile, ticketMobile);
           // Retain references for existing feedback URLs and earlier browser versions.
           sessionStorage.setItem(`ssi-server-booking-id:${eventId}:latest`, confirmed.bookingId);
           sessionStorage.setItem(`ssi-server-booking-mongo-id:${eventId}:latest`, confirmed.id);
