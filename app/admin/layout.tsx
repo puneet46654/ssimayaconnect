@@ -43,6 +43,7 @@ function getRequiredPermissionForPath(path: string): AdminPermission | null {
   if (path.startsWith('/admin/bookings')) return 'bookings';
   if (path.startsWith('/admin/check-in')) return 'check-in';
   if (path.startsWith('/admin/reports')) return 'reports';
+  if (path.startsWith('/admin/analytics')) return 'reports';
   if (path.startsWith('/admin/auth')) return 'auth';
   return null;
 }

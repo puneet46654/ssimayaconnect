@@ -4,6 +4,7 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import { RealtimeProvider } from "@/components/realtime/RealtimeProvider";
 import { Warmup } from "@/components/perf/Warmup";
+import { Analytics } from "@/components/perf/Analytics";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -31,7 +32,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col" suppressHydrationWarning>
-        <RealtimeProvider>{children}<Warmup /></RealtimeProvider>
+        <RealtimeProvider>{children}<Warmup /><Analytics /></RealtimeProvider>
 
         <SpeedInsights />
       </body>
