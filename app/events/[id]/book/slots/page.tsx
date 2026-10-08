@@ -3,7 +3,6 @@
 import { calendarDate, calendarDateFormatter, eventTimeZone, zonedDate } from '@/lib/events/dates';
 import { confirmBooking } from '@/lib/bookings/confirm-booking';
 
-import Image from 'next/image';
 
 import {
   useCallback,
@@ -453,11 +452,7 @@ export default function TimeSlotsPage() {
 
   if (loading) {
     return (
-      <SlotsLoading
-        onBack={() =>
-          router.back()
-        }
-      />
+      <SlotsLoading />
     );
   }
 
@@ -510,203 +505,8 @@ export default function TimeSlotsPage() {
         md:pb-10
       "
     >
-      {/* =====================================================
-          GLOBAL HEADER
-      ===================================================== */}
-
-      <header
-        className=" max-md:hidden
-          sticky
-          top-0
-          z-50
-
-          border-b
-          border-gray-200/80
-
-          bg-[#F7F9FB]/95
-
-          backdrop-blur-xl
-        "
-      >
-        <div
-          className="
-            relative
-
-            mx-auto
-
-            flex
-            h-[64px]
-            w-full
-            max-w-[1100px]
-
-            items-center
-            justify-between
-
-            px-3
-
-            sm:h-[68px]
-            sm:px-5
-
-            lg:px-7
-          "
-        >
-          {/* BACK */}
-
-          <button
-            type="button"
-            onClick={() =>
-              router.back()
-            }
-            aria-label="Back to registration form"
-            className="
-              group
-
-              relative
-              z-20
-
-              grid
-              h-10
-              w-10
-
-              cursor-pointer
-              place-items-center
-
-              rounded-full
-
-              border
-              border-gray-200
-
-              bg-white
-
-              text-secondary
-
-              shadow-[0_2px_8px_rgba(27,75,107,0.05)]
-
-              transition-all
-              duration-200
-
-              hover:border-primary/30
-              hover:text-primary
-
-              active:scale-95
-
-              sm:h-11
-              sm:w-11
-            "
-          >
-            <svg
-              className="
-                h-[18px]
-                w-[18px]
-
-                transition-transform
-                duration-200
-
-                group-hover:-translate-x-0.5
-              "
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M15 18l-6-6 6-6"
-              />
-            </svg>
-          </button>
-
-          {/* SSI ISLAND */}
-
-          <div
-            className="
-              pointer-events-none
-
-              absolute
-              left-1/2
-              top-1/2
-
-              -translate-x-1/2
-              -translate-y-1/2
-            "
-          >
-            <div
-              className="
-                pointer-events-auto
-
-                flex
-                h-10
-                max-w-[215px]
-
-                items-center
-                gap-2
-
-                rounded-full
-
-                border
-                border-primary/20
-
-                bg-white
-
-                px-3.5
-
-                shadow-[0_4px_14px_rgba(27,75,107,0.06)]
-
-                min-[390px]:max-w-[245px]
-
-                sm:h-11
-                sm:px-4
-              "
-            >
-              <Image
-                src="/logos/ssilogo.png"
-                alt="SSI"
-                width={20}
-                height={20}
-                priority
-                className="
-                  h-5
-                  w-5
-                  shrink-0
-                  object-contain
-                "
-              />
-
-              <span
-                className="
-                  truncate
-                  whitespace-nowrap
-
-                  text-[11px]
-                  font-semibold
-
-                  text-secondary
-
-                  sm:text-xs
-                "
-              >
-                SSI Maya Connect
-              </span>
-            </div>
-          </div>
-
-          {/* RIGHT BALANCER */}
-
-          <div
-            aria-hidden="true"
-            className="
-              h-10
-              w-10
-
-              sm:h-11
-              sm:w-11
-            "
-          />
-        </div>
-
-        {/* STEP */}
-
+      {/* STEP (the shared header holds back and brand) */}
+      <div className="max-md:hidden">
         <div
           className="
             border-t
@@ -753,7 +553,7 @@ export default function TimeSlotsPage() {
             </p>
           </div>
         </div>
-      </header>
+      </div>
 
       {/* =====================================================
           CONTENT
@@ -2339,11 +2139,6 @@ function SlotsError({
         bg-[#F7F9FB]
       "
     >
-      <SimpleHeader
-        onBack={
-          onBack
-        }
-      />
 
       <div
         className="
@@ -2524,146 +2319,6 @@ function SlotsError({
    SIMPLE HEADER
 ============================================================ */
 
-function SimpleHeader({
-  onBack,
-}: {
-  onBack:
-    () => void;
-}) {
-  return (
-    <header
-      className=" max-md:hidden
-        border-b
-        border-gray-200
-
-        bg-[#F7F9FB]/95
-
-        backdrop-blur-xl
-      "
-    >
-      <div
-        className="
-          relative
-
-          mx-auto
-
-          flex
-          h-[64px]
-          w-full
-          max-w-[1100px]
-
-          items-center
-          justify-between
-
-          px-3
-
-          sm:h-[68px]
-          sm:px-5
-        "
-      >
-        <button
-          type="button"
-          onClick={
-            onBack
-          }
-          className="
-            grid
-            h-10
-            w-10
-
-            place-items-center
-
-            rounded-full
-
-            border
-            border-gray-200
-
-            bg-white
-
-            text-secondary
-          "
-        >
-          <svg
-            className="
-              h-[18px]
-              w-[18px]
-            "
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M15 18l-6-6 6-6"
-            />
-          </svg>
-        </button>
-
-        <div
-          className="
-            absolute
-            left-1/2
-            top-1/2
-
-            flex
-            h-10
-
-            -translate-x-1/2
-            -translate-y-1/2
-
-            items-center
-            gap-2
-
-            rounded-full
-
-            border
-            border-primary/20
-
-            bg-white
-
-            px-3.5
-          "
-        >
-          <Image
-            src="/logos/ssilogo.png"
-            alt="SSI"
-            width={20}
-            height={20}
-            priority
-            className="
-              h-5
-              w-5
-              object-contain
-            "
-          />
-
-          <span
-            className="
-              whitespace-nowrap
-
-              text-[11px]
-              font-semibold
-
-              text-secondary
-            "
-          >
-            SSI Maya Connect
-          </span>
-        </div>
-
-        <div
-          className="
-            h-10
-            w-10
-          "
-        />
-      </div>
-    </header>
-  );
-}
-
 /* ============================================================
    DATE FORMAT
 ============================================================ */
@@ -2728,12 +2383,7 @@ function LocationIcon() {
    LOADING
 ============================================================ */
 
-function SlotsLoading({
-  onBack,
-}: {
-  onBack:
-    () => void;
-}) {
+function SlotsLoading() {
   return (
     <main
       className="
@@ -2741,11 +2391,6 @@ function SlotsLoading({
         bg-[#F7F9FB]
       "
     >
-      <SimpleHeader
-        onBack={
-          onBack
-        }
-      />
 
       <div
         className="
