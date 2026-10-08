@@ -273,8 +273,11 @@ export async function GET(
       limit;
 
     /*
-     * Pending registrations (details entered, slot never chosen) are listed
-     * first, then confirmed bookings, so one page can span both collections.
+     * Pending registrations (details entered, slot never chosen) sit among
+     * confirmed bookings in the chosen sort order, so one page can span both
+     * collections. Only sort keys are read for the merge; full rows are
+     * loaded for the selected page alone. Pending rows show their last
+     * update as the booked time, so they are ordered by it too.
      * They belong to events that have not ended, so "past" never shows them.
      */
     const pendingFilter: Record<string, unknown> = { expiresAt: { $gt: new Date() }, ...sharedFilter };
@@ -283,13 +286,27 @@ export async function GET(
       const regex = new RegExp(escapeRegex(search), 'i');
       pendingFilter.$or = [{ 'details.fullName': regex }, { 'details.email': regex }, { 'details.mobile': regex }, { 'details.hospitalName': regex }];
     }
-    const pendingMatches = excludePending ? 0 : await PendingBooking.countDocuments(pendingFilter);
-    const pendingRows = skip < pendingMatches
-      ? await PendingBooking.find(pendingFilter).sort(sort === 'newest' ? { updatedAt: -1 } : sortOrder).skip(skip).limit(limit)
+    const pendingSort: Record<string, 1 | -1> = sort === 'name' ? { 'details.fullName': 1 } : { updatedAt: sort === 'oldest' ? 1 : -1 };
+    const pageEnd = skip + limit;
+    type RowKey = { _id: unknown; createdAt?: Date; updatedAt?: Date; details?: { fullName?: string } };
+    const [pendingMatches, pendingKeys, bookingKeys] = await Promise.all([
+      excludePending ? 0 : PendingBooking.countDocuments(pendingFilter),
+      excludePending ? [] : PendingBooking.find(pendingFilter).sort(pendingSort).limit(pageEnd).select('_id updatedAt details.fullName').lean<RowKey[]>(),
+      excludeBookings ? [] : Booking.find(filter).sort(sortOrder).limit(pageEnd).select('_id createdAt details.fullName').lean<RowKey[]>(),
+    ]);
+    const merged = [
+      ...pendingKeys.map(row => ({ id: String(row._id), pending: true, at: new Date(row.updatedAt ?? 0).getTime(), name: row.details?.fullName || '' })),
+      ...bookingKeys.map(row => ({ id: String(row._id), pending: false, at: new Date(row.createdAt ?? 0).getTime(), name: row.details?.fullName || '' })),
+    ].sort((a, b) => sort === 'name' ? (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
+      : sort === 'oldest' ? a.at - b.at : b.at - a.at)
+      .slice(skip, pageEnd);
+    const pageOrder = new Map(merged.map((row, index) => [row.id, index]));
+    const pendingIds = merged.filter(row => row.pending).map(row => row.id);
+    const bookingIds = merged.filter(row => !row.pending).map(row => row.id);
+    const pendingRows = pendingIds.length
+      ? await PendingBooking.find({ _id: { $in: pendingIds } })
         .populate({ path: 'eventId', select: 'eventName venue status startDate endDate timeZone' }).lean()
       : [];
-    const bookingSkip = Math.max(0, skip - pendingMatches);
-    const bookingLimit = limit - pendingRows.length;
 
     const [
       bookings,
@@ -297,16 +314,9 @@ export async function GET(
       eventOptions,
     ] =
       await Promise.all([
-        bookingLimit <= 0 || excludeBookings ? Promise.resolve([]) : Booking.find(
-          filter,
+        !bookingIds.length ? Promise.resolve([]) : Booking.find(
+          { _id: { $in: bookingIds } },
         )
-          .sort(sortOrder)
-          .skip(
-            bookingSkip,
-          )
-          .limit(
-            bookingLimit,
-          )
           .populate({
             path:
               'eventId',
@@ -637,7 +647,8 @@ export async function GET(
           true,
 
         bookings:
-          [...pendingBookings, ...normalizedBookings],
+          [...pendingBookings, ...normalizedBookings]
+            .sort((a, b) => (pageOrder.get(String(a._id)) ?? 0) - (pageOrder.get(String(b._id)) ?? 0)),
 
         events:
           eventOptions.map(
