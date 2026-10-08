@@ -1,7 +1,5 @@
 'use client';
 
-import Image from 'next/image';
-import Link from 'next/link';
 
 import {
   useCallback,
@@ -341,14 +339,11 @@ export default function EventBookingPage() {
         bg-[#F7F9FB]
       "
     >
-      {/* GLOBAL BOOKING HEADER */}
+      {/* EVENT STRIP (the shared header holds back and brand) */}
 
       <BookingHeader
         eventName={
           event?.eventName
-        }
-        onBack={() =>
-          router.back()
         }
       />
 
@@ -477,242 +472,20 @@ export default function EventBookingPage() {
 
 function BookingHeader({
   eventName,
-  onBack,
 }: {
   eventName?:
     string;
-
-  onBack:
-    () => void;
 }) {
+  if (!eventName) return null;
   return (
-    <header
-      className=" max-md:hidden
-        sticky
-        top-0
-        z-[150]
-
-        border-b
-        border-gray-200/80
-
-        bg-[#F7F9FB]/95
-
-        backdrop-blur-xl
-      "
-    >
-      <div
-        className="
-          relative
-
-          mx-auto
-
-          flex
-          h-[64px]
-          w-full
-          max-w-[1500px]
-
-          items-center
-          justify-between
-
-          px-3
-
-          sm:h-[68px]
-          sm:px-5
-
-          lg:px-8
-        "
-      >
-        {/* BACK */}
-
-        <button
-          type="button"
-          aria-label="Go back"
-          onClick={
-            onBack
-          }
-          className="
-            group
-
-            relative
-            z-20
-
-            grid
-            h-10
-            w-10
-
-            cursor-pointer
-            place-items-center
-
-            rounded-full
-
-            border
-            border-gray-200
-
-            bg-white
-
-            text-secondary
-
-            shadow-[0_2px_8px_rgba(27,75,107,0.05)]
-
-            transition-all
-            duration-200
-
-            hover:border-primary/30
-            hover:text-primary
-
-            active:scale-95
-          "
-        >
-          <svg
-            className="
-              h-[18px]
-              w-[18px]
-
-              transition-transform
-
-              group-hover:-translate-x-0.5
-            "
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M15 18l-6-6 6-6"
-            />
-          </svg>
-        </button>
-
-        {/* SSI ISLAND */}
-
-        <Link
-          href="/events"
-          className="
-            absolute
-            left-1/2
-            top-1/2
-
-            flex
-            h-10
-            max-w-[205px]
-
-            -translate-x-1/2
-            -translate-y-1/2
-
-            items-center
-            gap-2
-
-            rounded-full
-
-            border
-            border-primary/20
-
-            bg-white
-
-            px-3.5
-
-            shadow-[0_4px_14px_rgba(27,75,107,0.06)]
-
-            transition-all
-            duration-200
-
-            hover:border-primary/35
-            hover:shadow-[0_7px_20px_rgba(27,75,107,0.09)]
-
-            min-[390px]:max-w-[240px]
-
-            sm:h-11
-            sm:max-w-[270px]
-            sm:px-4
-          "
-        >
-          <Image
-            src="/logos/ssilogo.png"
-            alt="SSI"
-            width={20}
-            height={20}
-            priority
-            className="
-              h-5
-              w-5
-              shrink-0
-              object-contain
-            "
-          />
-
-          <span
-            className="
-              truncate
-              whitespace-nowrap
-
-              text-[11px]
-              font-semibold
-
-              text-secondary
-
-              sm:text-xs
-            "
-          >
-            SSI Maya Connect
-          </span>
-        </Link>
-
-        <div
-          aria-hidden="true"
-          className="
-            h-10
-            w-10
-
-            sm:h-11
-            sm:w-11
-          "
-        />
-      </div>
-
-      {eventName && (
-        <div
-          className="
-            border-t
-            border-gray-200/60
-
-            bg-white/45
-          "
-        >
-          <p
-            className="
-              mx-auto
-
-              max-w-[600px]
-
-              truncate
-
-              px-6
-              py-2
-
-              text-center
-
-              text-[10px]
-              font-medium
-              text-gray-500
-
-              sm:text-[11px]
-            "
-          >
-            Registration for{' '}
-            <span
-              className="
-                font-semibold
-                text-secondary
-              "
-            >
-              {eventName}
-            </span>
-          </p>
-        </div>
-      )}
-    </header>
+    <div className="border-b border-gray-200/60 bg-white/45 max-md:hidden">
+      <p className="mx-auto max-w-[600px] truncate px-6 py-2 text-center text-[10px] font-medium text-gray-500 sm:text-[11px]">
+        Registration for{' '}
+        <span className="font-semibold text-secondary">
+          {eventName}
+        </span>
+      </p>
+    </div>
   );
 }
 

@@ -529,264 +529,10 @@ export default function EventsPage() {
       "
     >
       {/* ======================================================
-          DESKTOP HEADER
+          MOBILE INTRO
       ====================================================== */}
 
-      <header
-        className="
-          sticky
-          top-0
-          z-50
-
-          hidden
-
-          border-b
-          border-gray-200/80
-
-          bg-white/95
-
-          backdrop-blur-xl
-
-          md:block
-        "
-      >
-        <div
-          className="
-            mx-auto
-
-            grid
-            h-[66px]
-            w-full
-            max-w-[1500px]
-
-            grid-cols-[auto_minmax(300px,540px)_auto]
-
-            items-center
-
-            gap-6
-
-            px-6
-
-            lg:px-10
-          "
-        >
-          {/* BRAND */}
-
-          <Brand />
-
-          {/* SEARCH */}
-
-          <div
-            className="
-              relative
-            "
-          >
-            <SearchBar
-              value={
-                search
-              }
-              onChange={
-                setSearch
-              }
-              showFilters={
-                showFilters
-              }
-              onToggleFilters={() =>
-                setShowFilters(
-                  (
-                    current,
-                  ) =>
-                    !current,
-                )
-              }
-              hasActiveFilters={
-                hasActiveFilters
-              }
-            />
-
-            <AnimatePresence>
-              {showFilters && (
-                <DesktopFilterPanel
-                  statusFilter={
-                    statusFilter
-                  }
-                  typeFilter={
-                    typeFilter
-                  }
-                  setStatusFilter={
-                    setStatusFilter
-                  }
-                  setTypeFilter={
-                    setTypeFilter
-                  }
-                  clearFilters={
-                    clearFilters
-                  }
-                  hasActiveFilters={
-                    hasActiveFilters
-                  }
-                  onClose={() =>
-                    setShowFilters(
-                      false,
-                    )
-                  }
-                />
-              )}
-            </AnimatePresence>
-          </div>
-
-          {/* ACTIONS */}
-
-          <div
-            className="
-              flex
-              items-center
-              justify-end
-              gap-2
-            "
-          >
-            <button
-              type="button"
-              aria-label="Refresh events"
-              disabled={
-                refreshing
-              }
-              onClick={() =>
-                void fetchEvents(
-                  false,
-                )
-              }
-              className="
-                grid
-                h-10
-                w-10
-
-                place-items-center
-
-                rounded-lg
-
-                border
-                border-gray-200
-
-                bg-white
-
-                text-gray-500
-
-                transition-all
-                duration-150
-
-                hover:border-gray-300
-                hover:bg-gray-50
-                hover:text-secondary
-
-                focus:outline-none
-                focus-visible:ring-2
-                focus-visible:ring-primary/15
-
-                disabled:cursor-not-allowed
-                disabled:opacity-50
-              "
-            >
-              <RefreshIcon
-                spinning={
-                  refreshing
-                }
-              />
-            </button>
-
-            <Link
-              href="/events/mytickets"
-              className="
-                inline-flex
-                h-10
-
-                items-center
-                justify-center
-                gap-2
-
-                rounded-lg
-
-                border
-                border-gray-200
-
-                bg-white
-
-                px-4
-
-                text-[11px]
-                font-semibold
-
-                text-secondary
-
-                transition-all
-                duration-150
-
-                hover:border-primary/25
-                hover:bg-primary/[0.035]
-                hover:text-primary
-
-                focus:outline-none
-                focus-visible:ring-2
-                focus-visible:ring-primary/15
-              "
-            >
-              <TicketIcon />
-
-              My Tickets
-            </Link>
-
-            <button
-              type="button"
-              onClick={
-                openFeedback
-              }
-              className="
-                inline-flex
-                h-10
-
-                items-center
-                justify-center
-                gap-2
-
-                rounded-lg
-
-                border
-                border-gray-200
-
-                bg-white
-
-                px-4
-
-                text-[11px]
-                font-semibold
-
-                text-secondary
-
-                transition-all
-                duration-150
-
-                hover:border-primary/25
-                hover:bg-primary/[0.035]
-                hover:text-primary
-
-                focus:outline-none
-                focus-visible:ring-2
-                focus-visible:ring-primary/15
-              "
-            >
-              <FeedbackIcon />
-
-              Feedback
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* ======================================================
-          MOBILE HEADER
-      ====================================================== */}
-
-      <header
+      <section
         className="
           relative
           top-0
@@ -812,59 +558,6 @@ export default function EventsPage() {
             max-w-[520px]
           "
         >
-          {/* TOP ROW */}
-
-          <div
-            className="
-              flex
-              items-center
-              justify-between
-              gap-3
-            "
-          >
-            <span />
-
-            <button
-              type="button"
-              onClick={
-                openFeedback
-              }
-              className="
-                inline-flex
-                h-9
-                shrink-0
-
-                items-center
-                justify-center
-                gap-1.5
-
-                rounded-lg
-
-                border
-                border-gray-200
-
-                bg-white
-
-                px-3
-
-                text-[10px]
-                font-semibold
-
-                text-secondary
-
-                shadow-[0_2px_8px_rgba(27,75,107,0.025)]
-
-                transition-colors
-
-                active:bg-gray-50
-              "
-            >
-              <FeedbackIcon />
-
-              Feedback
-            </button>
-          </div>
-
           {/* TITLE */}
 
           <div
@@ -968,7 +661,7 @@ export default function EventsPage() {
             </AnimatePresence>
           </div>
         </div>
-      </header>
+      </section>
 
       {/* ======================================================
           CONTENT
@@ -1001,8 +694,10 @@ export default function EventsPage() {
         <section
           className="
             hidden
-
-            md:block
+            md:flex
+            md:items-end
+            md:justify-between
+            md:gap-6
           "
         >
           <div
@@ -1043,6 +738,116 @@ export default function EventsPage() {
               available through SSI
               Maya Connect.
             </p>
+          </div>
+              <div className="flex w-full max-w-[600px] items-center gap-2">
+                <div className="relative min-w-0 flex-1">
+  
+                  <div
+                    className="
+                      relative
+                    "
+                  >
+                    <SearchBar
+                      value={
+                        search
+                      }
+                      onChange={
+                        setSearch
+                      }
+                      showFilters={
+                        showFilters
+                      }
+                      onToggleFilters={() =>
+                        setShowFilters(
+                          (
+                            current,
+                          ) =>
+                            !current,
+                        )
+                      }
+                      hasActiveFilters={
+                        hasActiveFilters
+                      }
+                    />
+  
+                    <AnimatePresence>
+                      {showFilters && (
+                        <DesktopFilterPanel
+                          statusFilter={
+                            statusFilter
+                          }
+                          typeFilter={
+                            typeFilter
+                          }
+                          setStatusFilter={
+                            setStatusFilter
+                          }
+                          setTypeFilter={
+                            setTypeFilter
+                          }
+                          clearFilters={
+                            clearFilters
+                          }
+                          hasActiveFilters={
+                            hasActiveFilters
+                          }
+                          onClose={() =>
+                            setShowFilters(
+                              false,
+                            )
+                          }
+                        />
+                      )}
+                    </AnimatePresence>
+                  </div>
+                </div>
+                    <button
+                      type="button"
+                      aria-label="Refresh events"
+                      disabled={
+                        refreshing
+                      }
+                      onClick={() =>
+                        void fetchEvents(
+                          false,
+                        )
+                      }
+                      className="
+                        grid
+                        h-10
+                        w-10
+        
+                        place-items-center
+        
+                        rounded-lg
+        
+                        border
+                        border-gray-200
+        
+                        bg-white
+        
+                        text-gray-500
+        
+                        transition-all
+                        duration-150
+        
+                        hover:border-gray-300
+                        hover:bg-gray-50
+                        hover:text-secondary
+        
+                        focus:outline-none
+                        focus-visible:ring-2
+                        focus-visible:ring-primary/15
+                        disabled:cursor-not-allowed
+                        disabled:opacity-50
+                      "
+                    >
+                      <RefreshIcon
+                        spinning={
+                          refreshing
+                        }
+                      />
+                    </button>
           </div>
         </section>
 
@@ -1370,65 +1175,6 @@ export default function EventsPage() {
 /* ============================================================
    BRAND
 ============================================================ */
-
-function Brand({
-  compact = false,
-}: {
-  compact?: boolean;
-}) {
-  return (
-    <Link
-      href="/"
-      className="
-        inline-flex
-        w-fit
-
-        items-center
-        gap-2
-
-        transition-opacity
-
-        hover:opacity-80
-      "
-    >
-      <Image
-        src="/logos/ssilogo.png"
-        alt="SSI"
-        width={
-          compact
-            ? 24
-            : 26
-        }
-        height={
-          compact
-            ? 24
-            : 26
-        }
-        priority
-        className="
-          shrink-0
-          object-contain
-        "
-      />
-
-      <span
-        className={`
-          font-semibold
-
-          text-secondary
-
-          ${
-            compact
-              ? 'text-[13px]'
-              : 'text-[14px]'
-          }
-        `}
-      >
-        SSI Maya Connect
-      </span>
-    </Link>
-  );
-}
 
 /* ============================================================
    SEARCH BAR
@@ -3701,29 +3447,6 @@ function FeedbackIcon() {
       <path
         strokeLinecap="round"
         d="M8 9h8M8 13h5"
-      />
-    </svg>
-  );
-}
-
-function TicketIcon() {
-  return (
-    <svg
-      className="h-4 w-4"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth={1.8}
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M5 5h14v4a3 3 0 010 6v4H5v-4a3 3 0 010-6V5Z"
-      />
-
-      <path
-        strokeLinecap="round"
-        d="M12 7v10"
       />
     </svg>
   );
