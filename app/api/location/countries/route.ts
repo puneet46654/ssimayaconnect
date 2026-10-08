@@ -19,6 +19,9 @@ type CountryOption = {
   flag: string;
 };
 
+// Country codes and flags almost never change, so the CDN can serve them for a day.
+const CACHE_HEADERS = { 'Cache-Control': 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800' };
+
 const BASE_URL =
   'https://countriesnow.space/api/v0.1/countries';
 
@@ -155,7 +158,7 @@ export async function GET() {
     return NextResponse.json({
       success: true,
       countries,
-    });
+    }, { headers: CACHE_HEADERS });
   } catch (error: unknown) {
     console.error(
       'Failed to load countries:',

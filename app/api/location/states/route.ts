@@ -8,6 +8,9 @@ type StateRecord = {
   state_code?: string;
 };
 
+// Cached per country by the CDN (the country is in the query string).
+const CACHE_HEADERS = { 'Cache-Control': 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800' };
+
 const STATES_URL =
   'https://countriesnow.space/api/v0.1/countries/states';
 
@@ -96,7 +99,7 @@ export async function GET(
     return NextResponse.json({
       success: true,
       states,
-    });
+    }, { headers: CACHE_HEADERS });
   } catch (error: unknown) {
     console.error(
       'Failed to load states:',
