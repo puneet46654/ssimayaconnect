@@ -25,7 +25,6 @@ import {
 
 import '@/models/Slot';
 
-import { Feedback } from '@/models/Feedback';
 import { PendingBooking } from '@/models/PendingBooking';
 
 import '@/models/Event';
@@ -52,28 +51,6 @@ type GenericRecord =
     string,
     unknown
   >;
-
-type FeedbackStatus =
-  | 'SUBMITTED'
-  | 'SKIPPED'
-  | 'NONE';
-
-type BookingFeedback = {
-  status:
-    FeedbackStatus;
-
-  rating:
-    number | null;
-
-  message:
-    string;
-
-  suggestedFeature:
-    string;
-
-  submittedAt:
-    string | null;
-};
 
 /* ============================================================
    AUTH
@@ -122,7 +99,7 @@ export async function GET(
 
     if (!booking) {
       const pending = await getPendingBooking(id);
-      if (pending) return NextResponse.json({ success: true, booking: serialize(pending), feedback: emptyFeedbackCategories() });
+      if (pending) return NextResponse.json({ success: true, booking: serialize(pending) });
       return NextResponse.json(
         {
           success: false,
@@ -135,10 +112,6 @@ export async function GET(
       );
     }
 
-    const feedback =
-      await getBookingFeedbackCategories(
-        booking,
-      );
 
     return NextResponse.json(
       {
@@ -149,7 +122,6 @@ export async function GET(
             booking,
           ),
 
-        feedback,
       },
       {
         status: 200,
@@ -322,7 +294,7 @@ export async function PATCH(
       await logAdminActivity({ action: 'update', resource: 'booking', resourceId: id, details: { pending: true, fields: Object.keys(details) } });
       return NextResponse.json({
         success: true, message: 'Pending booking updated successfully.',
-        booking: serialize(await getPendingBooking(id)), feedback: emptyFeedbackCategories(),
+        booking: serialize(await getPendingBooking(id)),
       });
     }
 
@@ -383,10 +355,6 @@ export async function PATCH(
       );
     }
 
-    const feedback =
-      await getBookingFeedbackCategories(
-        updated,
-      );
 
     return NextResponse.json(
       {
@@ -400,7 +368,6 @@ export async function PATCH(
             updated,
           ),
 
-        feedback,
       },
       {
         status: 200,
@@ -552,94 +519,6 @@ async function getPendingBooking(id: string) {
   };
 }
 
-function emptyFeedbackCategories() {
-  const none: BookingFeedback = { status: 'NONE', rating: null, message: '', suggestedFeature: '', submittedAt: null };
-  return { event: none, application: { ...none } };
-}
-
-/* ============================================================
-   FEEDBACK
-
-   The browser activity session which created this booking is
-   located using bookingId / Mongo booking ID.
-
-   Feedback is read from the Feedback collection by booking,
-   so feedback from a different attendee is not mixed in.
-============================================================ */
-
-async function getBookingFeedbackCategories(
-  booking: unknown,
-) {
-  const [
-    event,
-    application,
-  ] = await Promise.all([
-    getBookingFeedback(
-      booking,
-      'event',
-    ),
-    getBookingFeedback(
-      booking,
-      'application',
-    ),
-  ]);
-
-  return {
-    event,
-    application,
-  };
-}
-
-async function getBookingFeedback(
-  booking: unknown,
-  scope:
-    | 'event'
-    | 'application',
-): Promise<BookingFeedback> {
-  const emptyFeedback: BookingFeedback = {
-    status: 'NONE',
-    rating: null,
-    message: '',
-    suggestedFeature: '',
-    submittedAt: null,
-  };
-
-  if (!isRecord(booking)) {
-    return emptyFeedback;
-  }
-
-  const bookingId = stringValue(booking.bookingId);
-  const bookingMongoId = referenceId(booking._id);
-
-  if (!bookingId && !bookingMongoId) {
-    return emptyFeedback;
-  }
-
-  const references: GenericRecord[] = [];
-  if (bookingId) references.push({ bookingId });
-  if (bookingMongoId) references.push({ bookingMongoId });
-
-  // Latest feedback for this booking wins.
-  const feedback = await Feedback.findOne({
-    scope,
-    $or: references,
-  })
-    .sort({ submittedAt: -1 })
-    .lean();
-
-  if (!feedback) {
-    return emptyFeedback;
-  }
-
-  return {
-    status: 'SUBMITTED',
-    rating: ratingValue(feedback.rating),
-    message: stringValue(feedback.message),
-    suggestedFeature: stringValue(feedback.suggestedFeature),
-    submittedAt: dateIsoValue(feedback.submittedAt),
-  };
-}
-
 /* ============================================================
    SANITIZE DETAILS
 ============================================================ */
@@ -732,113 +611,6 @@ function isRecord(
       value,
     )
   );
-}
-
-function stringValue(
-  value: unknown,
-) {
-  if (
-    value ===
-      undefined ||
-    value ===
-      null
-  ) {
-    return '';
-  }
-
-  return String(
-    value,
-  ).trim();
-}
-
-function referenceId(
-  value: unknown,
-) {
-  if (
-    value instanceof
-    mongoose.Types.ObjectId
-  ) {
-    return value.toString();
-  }
-
-  if (
-    isRecord(
-      value,
-    )
-  ) {
-    return stringValue(
-      value._id,
-    );
-  }
-
-  return stringValue(
-    value,
-  );
-}
-
-function ratingValue(
-  value: unknown,
-): number | null {
-  const number =
-    Number(
-      value,
-    );
-
-  if (
-    !Number.isFinite(
-      number,
-    ) ||
-    number < 1 ||
-    number > 5
-  ) {
-    return null;
-  }
-
-  return Math.round(
-    number,
-  );
-}
-
-function dateValue(
-  value: unknown,
-) {
-  if (!value) {
-    return 0;
-  }
-
-  const date =
-    new Date(
-      String(
-        value,
-      ),
-    );
-
-  if (
-    Number.isNaN(
-      date.getTime(),
-    )
-  ) {
-    return 0;
-  }
-
-  return date.getTime();
-}
-
-function dateIsoValue(
-  value: unknown,
-) {
-  const timestamp =
-    dateValue(
-      value,
-    );
-
-  if (!timestamp) {
-    return null;
-  }
-
-  return new Date(
-    timestamp,
-  ).toISOString();
 }
 
 /* ============================================================

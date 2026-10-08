@@ -6,6 +6,7 @@ import { AnalyticsEvent } from '@/models/AnalyticsEvent';
 import { Booking } from '@/models/Booking';
 import { PendingBooking } from '@/models/PendingBooking';
 import { Event } from '@/models/Event';
+import { Feedback } from '@/models/Feedback';
 
 export const dynamic = 'force-dynamic';
 
@@ -98,10 +99,17 @@ export async function GET(request: NextRequest) {
       } },
     ]);
 
-    const [bookings, pending] = await Promise.all([
+    // App feedback is sparse, so it is summarised over all time rather than the selected range.
+    const [bookings, pending, ratingRows, latestFeedback] = await Promise.all([
       Booking.countDocuments({ createdAt: { $gte: since } }),
       PendingBooking.countDocuments({ createdAt: { $gte: since } }),
+      Feedback.aggregate<{ _id: number; count: number }>([
+        { $match: { scope: 'application' } },
+        { $group: { _id: '$rating', count: { $sum: 1 } } },
+      ]),
+      Feedback.find({ scope: 'application' }).sort({ submittedAt: -1 }).limit(20).select('rating message submittedAt').lean(),
     ]);
+    const ratingTotal = ratingRows.reduce((sum, row) => sum + row.count, 0);
 
     const eventIds = (facets.events as { _id: string }[]).map(row => row._id).filter(id => mongoose.Types.ObjectId.isValid(id));
     const eventNames = new Map((await Event.find({ _id: { $in: eventIds } }).select('eventName').lean())
@@ -141,6 +149,12 @@ export async function GET(request: NextRequest) {
         .map(row => ({ endpoint: row._id.path, method: row._id.method, count: row.count, errors: row.errors,
           errorRate: Math.round((row.errors / row.count) * 1000) / 10,
           p50: Math.round(row.pct?.[0] || 0), p95: Math.round(row.pct?.[1] || 0), max: Math.round(row.max || 0) })),
+      feedback: {
+        total: ratingTotal,
+        average: ratingTotal ? Math.round((ratingRows.reduce((sum, row) => sum + row._id * row.count, 0) / ratingTotal) * 10) / 10 : 0,
+        stars: [5, 4, 3, 2, 1].map(star => ({ star, count: ratingRows.find(row => row._id === star)?.count || 0 })),
+        latest: latestFeedback.map(row => ({ rating: row.rating, message: row.message || '', submittedAt: new Date(row.submittedAt).toISOString() })),
+      },
       statuses: (facets.statuses as { _id: number; count: number }[]).map(row => ({ status: row._id || 'Network error', count: row.count })),
     }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {

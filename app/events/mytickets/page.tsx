@@ -4,6 +4,7 @@ import { useHydrated } from '@/lib/use-hydrated';
 import { eventTimeZone } from '@/lib/events/dates';
 import { googleCalendarUrl } from '@/lib/events/calendar';
 import { useDialog } from '@/lib/use-dialog';
+import { AppFeedbackForm, useAppFeedbackDone } from '@/components/user/AppFeedback';
 import { hasSlotEnded } from '@/lib/events/status';
 import { ticketStorage } from '@/lib/booking-contracts';
 
@@ -136,6 +137,8 @@ export default function MyTicketsPage() {
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   // Set when the attendee arrives straight from booking a slot.
   const [justBooked, setJustBooked] = useState('');
+  // Asked on My Tickets (right after booking, or on any later visit) until this device has rated the app.
+  const [feedbackDone, markFeedbackDone] = useAppFeedbackDone();
   const [managing, setManaging] = useState<{ ticket: Ticket; mode: 'reschedule' | 'cancel' } | null>(null);
   const [loaded, setLoaded] = useState(false);
   const lookupRef = useRef<string | null>(null);
@@ -833,6 +836,17 @@ export default function MyTicketsPage() {
             </div>
             <button type="button" onClick={() => setJustBooked('')} aria-label="Dismiss" className="text-[18px] leading-none text-gray-400 hover:text-gray-600">×</button>
           </motion.div>
+        )}
+
+        {feedbackDone === false && tickets.length > 0 && (
+          <motion.section
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            aria-label="Rate SSI Maya Connect"
+            className="mt-4 rounded-xl border border-amber-200 bg-amber-50/60 p-4"
+          >
+            <AppFeedbackForm compact onDone={markFeedbackDone} />
+          </motion.section>
         )}
 
         <div

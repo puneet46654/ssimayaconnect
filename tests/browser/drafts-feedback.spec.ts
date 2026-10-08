@@ -156,42 +156,16 @@ test('booking completion clears only its registration draft and reopening preser
   expect(await page.evaluate(id => sessionStorage.getItem(`ssi-booking-draft:${id}`), f.eventId)).toContain('Next attendee');
 });
 
-test('first feedback draft restores without an existing cache and successful submission clears only its draft', async ({ page }) => {
-  const f = await fixture();
-  await page.goto(`/events/${f.eventId}/book/feedback?scope=application`);
-  await page.getByRole('button', { name: '4 stars', exact: true }).click();
-  const message = page.getByPlaceholder('Tell us anything that could make your experience better...');
-  await message.fill(`Draft browser test ${f.eventId}`);
-  await page.getByPlaceholder('Example: calendar reminders, easier ticket access...').fill('Calendar reminder');
-  await page.reload();
-  await expect(message).toHaveValue(`Draft browser test ${f.eventId}`);
-  await expect(page.getByPlaceholder('Example: calendar reminders, easier ticket access...')).toHaveValue('Calendar reminder');
-  await page.evaluate(() => sessionStorage.setItem('ssi-feedback:event:unrelated', 'untouched'));
-  const response = page.waitForResponse(r => r.url().endsWith('/api/feedback') && r.request().method() === 'POST');
-  await page.getByRole('button', { name: 'Submit Feedback', exact: true }).click();
-  expect((await response).status()).toBe(200);
-  await expect.poll(() => page.evaluate(id => sessionStorage.getItem(`ssi-feedback:application:${id}:`), f.eventId)).toBeNull();
-  expect(await page.evaluate(() => sessionStorage.getItem('ssi-feedback:event:unrelated'))).toBe('untouched');
-});
-
-test('feedback picker uses recovered session tickets and sends a verified booking reference', async ({ page }) => {
-  const f = await fixture(), ticket = await submitBooking(bookingPayload(f));
-  await page.goto('/events/mytickets');
-  await page.getByLabel('Booking reference').fill(ticket.body.booking.bookingId);
-  await page.getByLabel('Registered mobile number').fill('+919876540001');
-  await page.getByRole('button', { name: 'View Tickets', exact: true }).click();
-  await expect(page.getByText(ticket.body.booking.bookingId, { exact: true })).toBeVisible();
+test('app feedback: Feedback opens a star rating with an optional comment, asked once per browser', async ({ page }) => {
   await page.goto('/events');
   await page.getByRole('button', { name: 'Feedback', exact: true }).first().click();
-  await page.getByRole('button', { name: /Review/ }).click();
-  await page.waitForURL(`**/book/feedback?scope=event&bookingId=${ticket.body.booking.bookingId}`);
-  await page.getByRole('button', { name: '5 stars', exact: true }).click();
+  await page.getByRole('radio', { name: '4 stars', exact: true }).click();
+  await page.getByLabel('Comments (optional)').fill('Draft browser test comment');
   const response = page.waitForResponse(r => r.url().endsWith('/api/feedback') && r.request().method() === 'POST');
-  await page.getByRole('button', { name: 'Submit Feedback', exact: true }).click();
+  await page.getByRole('button', { name: 'Submit feedback', exact: true }).click();
   expect((await response).status()).toBe(200);
-  const { db, client } = await testDatabase();
-  expect((await db.collection('feedbacks').findOne({ eventId: f.eventId }))?.bookingMongoId).toBe(ticket.body.booking.id);
-  await client.close();
-  const noAccess = await api(`/api/feedback?scope=event&eventId=${f.eventId}&bookingId=${ticket.body.booking.bookingId}`);
-  expect(noAccess.status).toBe(403);
+  await expect(page.getByText('Thank you for your feedback!')).toBeVisible();
+  await page.reload();
+  await page.getByRole('button', { name: 'Feedback', exact: true }).first().click();
+  await expect(page.getByText('You have already shared your feedback. Thank you!')).toBeVisible();
 });
