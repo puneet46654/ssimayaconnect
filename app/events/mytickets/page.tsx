@@ -128,6 +128,8 @@ export default function MyTicketsPage() {
   const [countries, setCountries] = useState<CountryOption[]>([INDIA_FALLBACK]);
   const [phoneCountry, setPhoneCountry] = useState(INDIA_FALLBACK);
   const [savedMobile, setSavedMobile] = useState('');
+  // The number whose tickets were showing before "Look up another ticket", so the attendee can return to them.
+  const [previousMobile, setPreviousMobile] = useState('');
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -163,6 +165,7 @@ export default function MyTicketsPage() {
       setTickets(data.tickets);
       setSelectedTicket(current => current ? data.tickets.find((ticket: Ticket) => ticket.bookingId === current.bookingId) || null : null);
       setSavedMobile(clean);
+      setPreviousMobile('');
       setMobile(clean);
       lookupRef.current = clean;
       setLoaded(true);
@@ -228,14 +231,25 @@ export default function MyTicketsPage() {
   useRealtimeRefresh('bookings', refreshTickets);
 
   function resetTickets() {
+    const previous = savedMobile || lookupRef.current || '';
     requestVersion.current++;
     pendingRef.current?.abort();
     pendingRef.current = null;
     lookupRef.current = null;
     setMobile(''); setSavedMobile(''); setTickets([]);
     setSelectedTicket(null); setLoaded(false); setLoading(false); setError('');
-    try { localStorage.removeItem(CACHE_KEY); } catch { /* Nothing to restore. */ }
+    // Keep the remembered number until another lookup succeeds, and let Back return to these tickets.
+    setPreviousMobile(previous);
+    if (previous) window.history.pushState(window.history.state, '', window.location.href);
   }
+
+  // The browser or phone Back button returns to the tickets that were showing.
+  useEffect(() => {
+    if (!previousMobile) return;
+    const restore = () => { setPreviousMobile(''); void loadTickets(previousMobile); };
+    window.addEventListener('popstate', restore);
+    return () => window.removeEventListener('popstate', restore);
+  }, [previousMobile, loadTickets]);
 
   function changeMobile(value: string) {
     requestVersion.current++;
@@ -681,8 +695,16 @@ export default function MyTicketsPage() {
               {loading
                 ? 'Checking...'
                 : 'View Tickets'}
-
             </button>
+            {previousMobile && (
+              <button
+                type="button"
+                onClick={() => window.history.back()}
+                className="mt-2 h-11 w-full rounded-lg border border-gray-200 text-[12px] font-semibold text-secondary hover:bg-gray-50"
+              >
+                ← Back to my tickets (number ending {previousMobile.slice(-4)})
+              </button>
+            )}
 
 
           </motion.section>
