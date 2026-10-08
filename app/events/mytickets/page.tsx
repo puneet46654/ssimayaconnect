@@ -2,6 +2,8 @@
 
 import { useHydrated } from '@/lib/use-hydrated';
 import { eventTimeZone } from '@/lib/events/dates';
+import { googleCalendarUrl } from '@/lib/events/calendar';
+import { useDialog } from '@/lib/use-dialog';
 import { hasSlotEnded } from '@/lib/events/status';
 import { ticketStorage } from '@/lib/booking-contracts';
 
@@ -93,6 +95,10 @@ interface Ticket {
 
   qrData:
     string;
+  slotId: string;
+  dayScheduleId: string;
+  /** True only on the device that made the booking, before its slot starts. */
+  canManage?: boolean;
 }
 
 
@@ -126,6 +132,7 @@ export default function MyTicketsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [managing, setManaging] = useState<{ ticket: Ticket; mode: 'reschedule' | 'cancel' } | null>(null);
   const [loaded, setLoaded] = useState(false);
   const lookupRef = useRef<string | null>(null);
   const pendingRef = useRef<AbortController | null>(null);
@@ -807,7 +814,7 @@ export default function MyTicketsPage() {
                       ticket,
                     )
                   }
-
+                  onManage={mode => setManaging({ ticket, mode })}
                 />
 
               ),
@@ -974,8 +981,15 @@ export default function MyTicketsPage() {
 
       </AnimatePresence>
 
-
-
+      {managing && (
+        <ManageTicketDialog
+          key={managing.ticket.bookingId + managing.mode}
+          ticket={managing.ticket}
+          mode={managing.mode}
+          onClose={() => setManaging(null)}
+          onDone={() => { setManaging(null); refreshTickets(); }}
+        />
+      )}
     </main>
 
   );
@@ -994,13 +1008,17 @@ export default function MyTicketsPage() {
 function TicketCard({
   ticket,
   onClick,
+  onManage,
 }:{
   ticket:
     Ticket;
-
   onClick:
     ()=>void;
+  onManage:
+    (mode: 'reschedule' | 'cancel')=>void;
 }) {
+  const upcoming = ticket.status === 'ACTIVE';
+  const changeable = upcoming && !!ticket.canManage;
 
 
   return (
@@ -1221,9 +1239,31 @@ function TicketCard({
           >
             {ticket.status === 'CANCELLED' ? 'View cancellation' : 'QR Ticket'}
           </button>
-
-
         </div>
+        {upcoming && (
+          <div className="mt-3 flex flex-wrap gap-2 border-t border-gray-100 pt-3">
+            <a
+              href={googleCalendarUrl(ticket)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-lg border border-gray-200 px-3 py-2 text-[11px] font-semibold text-secondary hover:bg-gray-50"
+            >
+              Add to Google Calendar
+            </a>
+            {changeable && (
+              <>
+                <button type="button" onClick={() => onManage('reschedule')}
+                  className="rounded-lg border border-primary/30 px-3 py-2 text-[11px] font-semibold text-primary hover:bg-primary/[0.05]">
+                  Reschedule
+                </button>
+                <button type="button" onClick={() => onManage('cancel')}
+                  className="rounded-lg border border-red-200 px-3 py-2 text-[11px] font-semibold text-red-600 hover:bg-red-50">
+                  Cancel booking
+                </button>
+              </>
+            )}
+          </div>
+        )}
 
 
       </div>
@@ -1288,4 +1328,122 @@ function StatusBadge({
 
   );
 
+}
+
+/* ============================================================
+   RESCHEDULE / CANCEL
+============================================================ */
+
+type SlotOption = { _id: string; startTime: string; endTime: string; remaining: number; available: boolean };
+type DayOption = { _id: string; date: string; slots: SlotOption[] };
+
+function ManageTicketDialog({
+  ticket,
+  mode,
+  onClose,
+  onDone,
+}: {
+  ticket: Ticket;
+  mode: 'reschedule' | 'cancel';
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const dialog = useDialog(true, onClose, mode === 'cancel' ? 'Cancel booking' : 'Reschedule booking');
+  const [days, setDays] = useState<DayOption[] | null>(mode === 'cancel' ? [] : null);
+  const [choice, setChoice] = useState<{ dayScheduleId: string; slotId: string } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (mode !== 'reschedule') return;
+    const controller = new AbortController();
+    fetch(`/api/events/${encodeURIComponent(ticket.eventId)}/slots?refresh=${Date.now()}`, { cache: 'no-store', signal: controller.signal })
+      .then(response => response.json())
+      .then(data => {
+        if (!data?.success || !Array.isArray(data.days)) throw new Error(data?.error || 'Unable to load time slots.');
+        setDays((data.days as DayOption[]).map(day => ({
+          ...day, slots: day.slots.filter(slot => slot.available && slot._id !== ticket.slotId),
+        })).filter(day => day.slots.length));
+      })
+      .catch(err => { if (!controller.signal.aborted) { setDays([]); setError(err instanceof Error ? err.message : 'Unable to load time slots.'); } });
+    return () => controller.abort();
+  }, [mode, ticket.eventId, ticket.slotId]);
+
+  async function submit() {
+    if (saving || (mode === 'reschedule' && !choice)) return;
+    setSaving(true);
+    setError('');
+    try {
+      const response = mode === 'cancel'
+        ? await fetch(`/api/bookings?bookingId=${encodeURIComponent(ticket.bookingId)}`, { method: 'DELETE', cache: 'no-store' })
+        : await fetch('/api/bookings', {
+          method: 'PATCH', cache: 'no-store', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bookingId: ticket.bookingId, ...choice }),
+        });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.success) throw new Error(data?.error || 'Something went wrong. Please retry.');
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong. Please retry.');
+      setSaving(false);
+    }
+  }
+
+  const dayLabel = (value: string) => new Date(value).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={onClose}>
+      <div {...dialog} className="max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6" onClick={event => event.stopPropagation()}>
+        <h2 className="text-[16px] font-semibold text-secondary">
+          {mode === 'cancel' ? 'Cancel this booking?' : 'Choose a new time slot'}
+        </h2>
+        <p className="mt-1 text-[12px] text-gray-500">
+          {ticket.eventName} · currently {ticket.date ? dayLabel(ticket.date) : ''}, {ticket.startTime} - {ticket.endTime}
+        </p>
+
+        {mode === 'cancel' ? (
+          <p className="mt-4 text-[13px] text-gray-600">
+            Your seat will be released for someone else and this QR ticket will stop working. This cannot be undone.
+          </p>
+        ) : days === null ? (
+          <p className="mt-4 text-[13px] text-gray-500">Loading available slots...</p>
+        ) : days.length === 0 && !error ? (
+          <p className="mt-4 text-[13px] text-gray-500">No other slots have seats left right now.</p>
+        ) : (
+          <div className="mt-4 space-y-4">
+            {days.map(day => (
+              <div key={day._id}>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{dayLabel(day.date)}</p>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  {day.slots.map(slot => {
+                    const selected = choice?.slotId === slot._id;
+                    return (
+                      <button key={slot._id} type="button" aria-pressed={selected}
+                        onClick={() => setChoice({ dayScheduleId: day._id, slotId: slot._id })}
+                        className={`rounded-lg border px-3 py-2 text-left text-[12px] ${selected ? 'border-primary bg-primary/[0.06] text-primary' : 'border-gray-200 text-secondary hover:bg-gray-50'}`}>
+                        <span className="block font-semibold">{slot.startTime} - {slot.endTime}</span>
+                        <span className="text-[11px] text-gray-500">{slot.remaining} seat{slot.remaining === 1 ? '' : 's'} left</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {error && <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-[12px] text-red-700">{error}</p>}
+
+        <div className="mt-6 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="h-10 rounded-lg border border-gray-200 px-4 text-[12px] font-semibold text-secondary">
+            {mode === 'cancel' ? 'Keep booking' : 'Close'}
+          </button>
+          <button type="button" onClick={() => void submit()} disabled={saving || (mode === 'reschedule' && !choice)}
+            className={`h-10 rounded-lg px-4 text-[12px] font-semibold text-white disabled:opacity-50 ${mode === 'cancel' ? 'bg-red-600' : 'bg-primary'}`}>
+            {saving ? 'Saving...' : mode === 'cancel' ? 'Cancel booking' : 'Confirm new slot'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }

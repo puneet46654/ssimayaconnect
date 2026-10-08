@@ -14,6 +14,7 @@ import { bookingRequestData } from '@/lib/bookings/identity';
 import { loadPublicBooking } from '@/lib/bookings/public-booking';
 import { readBookingDetails } from '@/lib/bookings/details';
 import { clearPendingBookings } from '@/lib/bookings/pending';
+import { cancelOwnBooking, rescheduleOwnBooking } from '@/lib/bookings/self-service';
 import { emitRealtimeChange } from '@/lib/realtime';
 
 export const dynamic = 'force-dynamic';
@@ -95,4 +96,37 @@ export async function POST(request: NextRequest) {
     return withBookingAccess(NextResponse.json({ success: true, existing: result.existing, booking },
       { status: result.existing ? 200 : 201, headers: { 'Cache-Control': 'no-store' } }), booking.bookingId);
   } catch (error) { return failure(error, 'Unable to complete the booking. Please retry.'); }
+}
+
+/** Attendee self-service: only the browser that made the booking holds its access cookie. */
+function managedBookingId(request: NextRequest, value: unknown) {
+  const bookingId = typeof value === 'string' ? value.trim() : '';
+  if (!bookingId) throw new BookingError(400, 'Booking reference is required.');
+  if (!hasBookingAccess(request, bookingId)) {
+    throw new BookingError(403, 'For your security, bookings can only be changed on the device used to book. Please contact event staff.');
+  }
+  return bookingId;
+}
+
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = await request.json().catch(() => null);
+    const bookingId = managedBookingId(request, body?.bookingId);
+    await connectDB();
+    const eventId = await rescheduleOwnBooking(bookingId,
+      typeof body?.dayScheduleId === 'string' ? body.dayScheduleId : '', typeof body?.slotId === 'string' ? body.slotId : '');
+    emitRealtimeChange({ resource: 'bookings', action: 'updated', id: eventId });
+    const booking = await loadPublicBooking(bookingId);
+    return NextResponse.json({ success: true, booking }, { headers: { 'Cache-Control': 'no-store' } });
+  } catch (error) { return failure(error, 'Unable to change the time slot. Please retry.'); }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const bookingId = managedBookingId(request, request.nextUrl.searchParams.get('bookingId'));
+    await connectDB();
+    const eventId = await cancelOwnBooking(bookingId);
+    emitRealtimeChange({ resource: 'bookings', action: 'deleted', id: eventId });
+    return NextResponse.json({ success: true }, { headers: { 'Cache-Control': 'no-store' } });
+  } catch (error) { return failure(error, 'Unable to cancel the booking. Please retry.'); }
 }
