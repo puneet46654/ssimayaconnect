@@ -1,4 +1,4 @@
-import { UserBottomNav, UserFooter, UserHeader } from '@/components/user/UserChrome';
+import { UserBottomNav, UserHeader } from '@/components/user/UserChrome';
 
 export default function EventsLayout({
   children,
@@ -10,7 +10,6 @@ export default function EventsLayout({
     <div className="[--user-nav-h:calc(60px+env(safe-area-inset-bottom))] max-md:[&>main]:min-h-[calc(100dvh-53px-env(safe-area-inset-top)-var(--user-nav-h))]">
       <UserHeader />
       {children}
-      <UserFooter />
       {/* Keeps page content clear of the fixed bottom nav on mobile */}
       <div aria-hidden="true" className="h-[var(--user-nav-h)] md:hidden" />
       <UserBottomNav />

@@ -7,13 +7,12 @@ import { useState } from 'react';
 import { AppFeedbackDialog } from '@/components/user/AppFeedback';
 
 /*
- * One header, footer and (on phones) bottom nav for every user-side page,
+ * One header and (on phones) bottom nav for every user-side page,
  * so the frame never changes while moving through the booking flow.
  * Pages render only their own content below the header.
  */
 
 const ROOT_PAGES = ['/events', '/events/mytickets'];
-const YEAR = new Date().getFullYear();
 
 const BUTTON = 'inline-flex h-10 items-center justify-center gap-2 rounded-lg border px-4 text-[11px] font-semibold transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/15';
 const BUTTON_IDLE = 'border-gray-200 bg-white text-secondary hover:border-primary/25 hover:bg-primary/[0.035] hover:text-primary';
@@ -119,23 +118,6 @@ export function UserHeader() {
       </header>
       {feedbackOpen && <AppFeedbackDialog onClose={() => setFeedbackOpen(false)} />}
     </>
-  );
-}
-
-export function UserFooter() {
-  return (
-    <footer className="border-t border-gray-200/80 bg-white">
-      <div className="mx-auto flex w-full max-w-[1500px] flex-col items-center gap-3 px-4 py-5 text-[11px] text-gray-500 md:flex-row md:justify-between md:px-6 lg:px-10">
-        <div className="flex items-center gap-2">
-          <Image src="/logos/ssilogo.png" alt="" width={18} height={18} className="shrink-0 object-contain" />
-          <span>© {YEAR} SS Innovations International, Inc. · SSI Maya Connect</span>
-        </div>
-        <nav aria-label="Footer" className="flex items-center gap-4 font-semibold text-secondary">
-          <Link href="/events" className="hover:text-primary">Events</Link>
-          <Link href="/events/mytickets" className="hover:text-primary">My Tickets</Link>
-        </nav>
-      </div>
-    </footer>
   );
 }
 
