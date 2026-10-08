@@ -3,6 +3,8 @@ import { connectDB } from '@/lib/db';
 import { Booking } from '@/models/Booking';
 import { isValidPhone, normalizePhone, phoneIdentity } from '@/lib/phone';
 import { loadPublicBooking } from '@/lib/bookings/public-booking';
+import { hasBookingAccess } from '@/lib/bookings/access';
+import { slotInstant } from '@/lib/events/dates';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -22,7 +24,11 @@ export async function POST(request: NextRequest) {
       .filter(b => phoneIdentity(b.details?.mobile || b.details?.phone, b.details?.countryCode) === wanted)
       .map(b => b.bookingId);
     const loaded = await Promise.all(ids.map(id => loadPublicBooking(id)));
-    const tickets = loaded.filter((t): t is NonNullable<typeof t> => !!t);
+    // Only the device that made a booking may reschedule or cancel it (a phone number alone is not proof),
+    // and only before its slot starts.
+    const tickets = loaded.filter((t): t is NonNullable<typeof t> => !!t)
+      .map(ticket => ({ ...ticket, canManage: ticket.status === 'ACTIVE' && hasBookingAccess(request, ticket.bookingId)
+        && slotInstant(ticket.date, ticket.startTime, ticket.timeZone).getTime() > Date.now() }));
     return NextResponse.json({ success: true, tickets }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     console.error('Ticket lookup failed:', error);
