@@ -1,6 +1,7 @@
 'use client';
 
 import { calendarDate, calendarDateFormatter, eventTimeZone, zonedDate } from '@/lib/events/dates';
+import { confirmBooking } from '@/lib/bookings/confirm-booking';
 
 import Image from 'next/image';
 
@@ -145,6 +146,7 @@ export default function TimeSlotsPage() {
     setError,
   ] =
     useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   const slotsRequest = useRef<AbortController | null>(null);
 
@@ -417,7 +419,8 @@ export default function TimeSlotsPage() {
     setError('');
   }
 
-  function handleContinue() {
+  async function handleContinue() {
+    if (submitting) return;
     if (
       event?.status === 'CANCELLED' || !selectedDay ||
       !selectedSlot || !selectedSlot.available
@@ -429,65 +432,19 @@ export default function TimeSlotsPage() {
       return;
     }
 
-    const slotStorageKey =
-      `ssi-booking-slot:${eventId}:${selectedDay._id}:${selectedSlot._id}`;
-
-    sessionStorage.setItem(
-      slotStorageKey,
-      JSON.stringify({
-        timeZone: eventTimeZone(event?.timeZone),
-        eventId,
-
-        dayScheduleId:
-          selectedDay._id,
-
-        date:
-          selectedDay.date,
-
-        slotId:
-          selectedSlot._id,
-
-        startTime:
-          selectedSlot.startTime,
-
-        endTime:
-          selectedSlot.endTime,
-      }),
-    );
-
-    sessionStorage.setItem(
-      `ssi-booking-slot:${eventId}:latest`,
-      JSON.stringify({
-        timeZone: eventTimeZone(event?.timeZone),
-        eventId,
-
-        dayScheduleId:
-          selectedDay._id,
-
-        date:
-          selectedDay.date,
-
-        slotId:
-          selectedSlot._id,
-
-        startTime:
-          selectedSlot.startTime,
-
-        endTime:
-          selectedSlot.endTime,
-      }),
-    );
-
-    // Back-compat cleanup for older per-event slot keys.
-    sessionStorage.removeItem(
-      `ssi-booking-slot:${eventId}`,
-    );
-
-    router.replace(
-      `/events/${encodeURIComponent(
-        eventId,
-      )}/book/confirm`,
-    );
+    // The booking is created here, then the attendee lands on My Tickets with the new ticket highlighted.
+    setSubmitting(true);
+    setError('');
+    try {
+      const booking = await confirmBooking(eventId, { dayScheduleId: selectedDay._id, slotId: selectedSlot._id });
+      router.replace(`/events/mytickets?booked=${encodeURIComponent(booking.bookingId)}`);
+    } catch (err) {
+      // Seats may have changed while the attendee was choosing; refresh first, since loading clears errors.
+      await loadSlots(true);
+      setSubmitting(false);
+      setSelectedSlotId('');
+      setError(err instanceof Error ? err.message : 'Unable to confirm booking. Please retry.');
+    }
   }
 
   /* ============================================================
@@ -1889,12 +1846,8 @@ export default function TimeSlotsPage() {
 
               <button
                 type="button"
-                disabled={
-                  !selectedSlot
-                }
-                onClick={
-                  handleContinue
-                }
+                disabled={!selectedSlot || submitting}
+                onClick={() => void handleContinue()}
                 className="
                   flex
                   h-12
@@ -1924,7 +1877,7 @@ export default function TimeSlotsPage() {
                   disabled:shadow-none
                 "
               >
-                {availableCount === 0 ? 'No slots left for this date' : 'Continue'}
+                {submitting ? 'Booking your slot...' : availableCount === 0 ? 'No slots left for this date' : 'Confirm booking'}
               </button>
             </div>
           </div>
@@ -2066,12 +2019,8 @@ export default function TimeSlotsPage() {
 
           <button
             type="button"
-            disabled={
-              !selectedSlot
-            }
-            onClick={
-              handleContinue
-            }
+            disabled={!selectedSlot || submitting}
+                onClick={() => void handleContinue()}
             className="
               flex
               h-12
@@ -2100,7 +2049,7 @@ export default function TimeSlotsPage() {
               disabled:shadow-none
             "
           >
-            {availableCount === 0 ? 'No slots left for this date' : 'Continue'}
+            {submitting ? 'Booking your slot...' : availableCount === 0 ? 'No slots left for this date' : 'Confirm booking'}
           </button>
 
           <button
