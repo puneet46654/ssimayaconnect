@@ -44,42 +44,12 @@ type AttendanceStatus =
   | 'NOT_PRESENT'
   | 'PRESENT';
 
-type FeedbackStatus =
-  | 'SUBMITTED'
-  | 'SKIPPED'
-  | 'NONE';
-
-type BookingFeedback = {
-  status:
-    FeedbackStatus;
-
-  rating:
-    number | null;
-
-  message:
-    string;
-
-  suggestedFeature:
-    string;
-
-  submittedAt:
-    string | null;
-};
-
-type FeedbackCategories = {
-  event:
-    BookingFeedback;
-
-  application:
-    BookingFeedback;
-};
-
 type BookingData = {
   _id: string;
 
   bookingId: string;
 
-  /** Details submitted but no slot chosen: no ticket, attendance or feedback yet. */
+  /** Details submitted but no slot chosen: no ticket or attendance yet. */
   pending?: boolean;
 
   details:
@@ -120,8 +90,6 @@ type BookingResponse = {
   booking?:
     BookingData;
 
-  feedback?:
-    FeedbackCategories;
 
   message?:
     string;
@@ -172,32 +140,6 @@ const PROFILE_DETAIL_KEYS =
     'mobile',
   ]);
 
-const EMPTY_FEEDBACK:
-  BookingFeedback = {
-  status:
-    'NONE',
-
-  rating:
-    null,
-
-  message:
-    '',
-
-  suggestedFeature:
-    '',
-
-  submittedAt:
-    null,
-};
-
-const EMPTY_FEEDBACK_CATEGORIES:
-  FeedbackCategories = {
-  event:
-    EMPTY_FEEDBACK,
-  application:
-    EMPTY_FEEDBACK,
-};
-
 /* ============================================================
    PAGE
 ============================================================ */
@@ -232,13 +174,6 @@ export default function BookingDetailsPage() {
       null,
     );
 
-  const [
-    feedback,
-    setFeedback,
-  ] =
-    useState<FeedbackCategories>(
-      EMPTY_FEEDBACK_CATEGORIES,
-    );
 
   const [
     draft,
@@ -336,10 +271,6 @@ export default function BookingDetailsPage() {
           data.booking,
         );
 
-        setFeedback(
-          data.feedback ||
-            EMPTY_FEEDBACK_CATEGORIES,
-        );
 
         setDraft(
           normalizeDetails(
@@ -580,10 +511,6 @@ export default function BookingDetailsPage() {
         data.booking,
       );
 
-      setFeedback(
-        data.feedback ||
-          EMPTY_FEEDBACK_CATEGORIES,
-      );
 
       setDraft(
         normalizeDetails(
@@ -641,7 +568,6 @@ export default function BookingDetailsPage() {
       const data = (await response.json()) as BookingResponse;
       if (!response.ok || !data.success || !data.booking) throw new Error(data.message || 'Unable to update attendance.');
       setBooking(data.booking);
-      setFeedback(data.feedback || EMPTY_FEEDBACK_CATEGORIES);
       setSuccess(attendanceStatus === 'PRESENT' ? 'Marked as present.' : 'Marked as not present.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to mark attendance.');
@@ -1617,7 +1543,7 @@ export default function BookingDetailsPage() {
               <CompactCard icon={<AttendanceIcon />} title="Time Slot">
                 <p className="text-[13px] leading-5 text-gray-600">
                   Not selected yet. This attendee entered their details but left before choosing a slot,
-                  so there is no ticket, attendance or feedback. It will be removed automatically when they
+                  so there is no ticket or attendance yet. It will be removed automatically when they
                   book or when the event ends.
                 </p>
               </CompactCard>
@@ -1647,16 +1573,6 @@ export default function BookingDetailsPage() {
               />
             </CompactCard>
 
-            <CompactCard
-              icon={
-                <FeedbackIcon />
-              }
-              title="Feedback"
-            >
-              <FeedbackPanel
-                categories={feedback}
-              />
-            </CompactCard>
             </>)}
           </div>
         </div>
@@ -2502,376 +2418,6 @@ function AttendancePanel({
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-/* ============================================================
-   FEEDBACK
-============================================================ */
-
-function FeedbackPanel({
-  categories,
-}: {
-  categories:
-    FeedbackCategories;
-}) {
-  return (
-    <div
-      className="
-        grid
-        gap-4
-        lg:grid-cols-2
-      "
-    >
-      <FeedbackCategory
-        title="Event experience"
-        description="Feedback about this event and its programme."
-        feedback={categories.event}
-      />
-      <FeedbackCategory
-        title="SSI Maya Connect app"
-        description="Feedback about booking and using the application."
-        feedback={categories.application}
-      />
-    </div>
-  );
-}
-
-function FeedbackCategory({
-  title,
-  description,
-  feedback,
-}: {
-  title: string;
-  description: string;
-  feedback: BookingFeedback;
-}) {
-  return (
-    <section
-      className="
-        rounded-xl
-        border
-        border-gray-200
-        bg-white
-        p-3.5
-      "
-    >
-      <div className="mb-3">
-        <p className="text-[12px] font-semibold text-secondary">
-          {title}
-        </p>
-        <p className="mt-0.5 text-[10px] leading-4 text-gray-400">
-          {description}
-        </p>
-      </div>
-
-      <FeedbackDetails
-        feedback={feedback}
-      />
-    </section>
-  );
-}
-
-function FeedbackDetails({
-  feedback,
-}: {
-  feedback: BookingFeedback;
-}) {
-  if (
-    feedback.status ===
-    'NONE'
-  ) {
-    return (
-      <div
-        className="
-          rounded-lg
-
-          border
-          border-dashed
-          border-gray-200
-
-          bg-gray-50
-
-          px-4
-          py-5
-
-          text-center
-        "
-      >
-        <span
-          className="
-            mx-auto
-
-            grid
-            h-9
-            w-9
-
-            place-items-center
-
-            rounded-full
-
-            bg-white
-
-            text-gray-400
-
-            shadow-sm
-          "
-        >
-          <FeedbackIcon />
-        </span>
-
-        <p
-          className="
-            mt-2
-
-            text-[12px]
-            font-semibold
-
-            text-secondary
-          "
-        >
-          No feedback submitted
-        </p>
-      </div>
-    );
-  }
-
-  if (
-    feedback.status ===
-    'SKIPPED'
-  ) {
-    return (
-      <div
-        className="
-          rounded-lg
-
-          border
-          border-gray-200
-
-          bg-gray-50
-
-          px-4
-          py-4
-        "
-      >
-        <p
-          className="
-            text-[12px]
-            font-semibold
-
-            text-secondary
-          "
-        >
-          Feedback skipped
-        </p>
-
-        {feedback.submittedAt && (
-          <p
-            className="
-              mt-1
-
-              text-[10px]
-
-              text-gray-400
-            "
-          >
-            {formatDateTime(
-              feedback.submittedAt,
-            )}
-          </p>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <div
-        className="
-          flex
-          flex-wrap
-
-          items-center
-          justify-between
-
-          gap-3
-        "
-      >
-        <div>
-          <div
-            className="
-              flex
-              items-center
-
-              gap-1
-            "
-          >
-            {[
-              1,
-              2,
-              3,
-              4,
-              5,
-            ].map(
-              (
-                value,
-              ) => (
-                <StarIcon
-                  key={
-                    value
-                  }
-                  active={
-                    Boolean(
-                      feedback.rating &&
-                        value <=
-                          feedback.rating,
-                    )
-                  }
-                />
-              ),
-            )}
-          </div>
-
-          <p
-            className="
-              mt-1
-
-              text-[11px]
-              font-semibold
-
-              text-secondary
-            "
-          >
-            {feedback.rating
-              ? `${feedback.rating}/5 · ${ratingText(
-                  feedback.rating,
-                )}`
-              : 'Feedback submitted'}
-          </p>
-        </div>
-
-        {feedback.submittedAt && (
-          <span
-            className="
-              text-[10px]
-
-              text-gray-400
-            "
-          >
-            {formatDate(
-              feedback.submittedAt,
-            )}
-          </span>
-        )}
-      </div>
-
-      {feedback.message && (
-        <div
-          className="
-            mt-4
-          "
-        >
-          <p
-            className="
-              text-[10px]
-              font-semibold
-
-              uppercase
-
-              tracking-[0.045em]
-
-              text-gray-400
-            "
-          >
-            Comment
-          </p>
-
-          <p
-            className="
-              mt-1.5
-
-              whitespace-pre-wrap
-
-              rounded-lg
-
-              bg-gray-50
-
-              px-3
-              py-2.5
-
-              text-[12px]
-              leading-5
-
-              text-gray-700
-            "
-          >
-            {feedback.message}
-          </p>
-        </div>
-      )}
-
-      {feedback.suggestedFeature && (
-        <div
-          className="
-            mt-3
-          "
-        >
-          <p
-            className="
-              text-[10px]
-              font-semibold
-
-              uppercase
-
-              tracking-[0.045em]
-
-              text-gray-400
-            "
-          >
-            Suggested Feature
-          </p>
-
-          <p
-            className="
-              mt-1.5
-
-              rounded-lg
-
-              border
-              border-primary/10
-
-              bg-primary/[0.04]
-
-              px-3
-              py-2.5
-
-              text-[12px]
-              leading-5
-
-              text-gray-700
-            "
-          >
-            {feedback.suggestedFeature}
-          </p>
-        </div>
-      )}
-
-      {!feedback.message &&
-        !feedback.suggestedFeature && (
-          <p
-            className="
-              mt-3
-
-              text-[11px]
-              leading-5
-
-              text-gray-500
-            "
-          >
-            A rating was submitted without a written comment.
-          </p>
-        )}
     </div>
   );
 }
@@ -3872,33 +3418,6 @@ function formatTime(
    RATING
 ============================================================ */
 
-function ratingText(
-  rating:
-    number,
-) {
-  switch (
-    rating
-  ) {
-    case 1:
-      return 'Needs improvement';
-
-    case 2:
-      return 'Fair';
-
-    case 3:
-      return 'Good';
-
-    case 4:
-      return 'Very good';
-
-    case 5:
-      return 'Excellent';
-
-    default:
-      return '';
-  }
-}
-
 /* ============================================================
    INPUT TYPE
 ============================================================ */
@@ -4089,29 +3608,6 @@ function AttendanceIcon() {
   );
 }
 
-function FeedbackIcon() {
-  return (
-    <svg
-      className="h-4 w-4"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth={1.9}
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M5 5.5h14v10H9l-4 3v-13Z"
-      />
-
-      <path
-        strokeLinecap="round"
-        d="M8.5 9h7M8.5 12h4.5"
-      />
-    </svg>
-  );
-}
-
 function EditIcon() {
   return (
     <svg
@@ -4265,35 +3761,3 @@ function SpinnerIcon() {
   );
 }
 
-function StarIcon({
-  active,
-}: {
-  active:
-    boolean;
-}) {
-  return (
-    <svg
-      className={
-        active
-          ? `
-              h-4
-              w-4
-
-              text-amber-400
-            `
-          : `
-              h-4
-              w-4
-
-              text-gray-200
-            `
-      }
-      viewBox="0 0 24 24"
-      fill="currentColor"
-    >
-      <path
-        d="m12 2.7 2.86 5.8 6.4.93-4.63 4.51 1.09 6.37L12 17.3l-5.72 3.01 1.09-6.37-4.63-4.51 6.4-.93L12 2.7Z"
-      />
-    </svg>
-  );
-}

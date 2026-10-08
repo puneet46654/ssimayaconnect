@@ -39,7 +39,6 @@ export async function GET() {
       if (path === '/events/:id') return name;
       if (path === '/events/:id/book') return `${name} · registration form`;
       if (path === '/events/:id/book/slots') return `${name} · choosing a slot`;
-      if (path === '/events/:id/book/feedback') return `${name} · feedback`;
       return path;
     };
 

@@ -16,6 +16,7 @@ type Analytics = {
   referrers: Named[]; countries: Named[]; cities: Named[]; devices: Named[]; browsers: Named[]; os: Named[];
   api: { endpoint: string; method: string; count: number; errors: number; errorRate: number; p50: number; p95: number; max: number }[];
   statuses: { status: number | string; count: number }[];
+  feedback: { total: number; average: number; stars: { star: number; count: number }[]; latest: { rating: number; message: string; submittedAt: string }[] };
 };
 
 const COLORS = { primary: '#1a9e8f', secondary: '#1b4b6b', blue: '#4387b3', red: '#d75d5d', amber: '#d49c35' };
@@ -157,6 +158,10 @@ export default function AdminAnalyticsPage() {
         </Panel>
       </div>
 
+      <Panel title="App feedback" subtitle="Star ratings from attendees (all time)" className="mt-4">
+        <FeedbackSummary feedback={data?.feedback} loading={loading} />
+      </Panel>
+
       <Panel title="API performance" subtitle="Response times as visitors experienced them (p50 = typical, p95 = slowest 5%)" className="mt-4">
         <Table loading={loading} empty={!data?.api.length} head={['Endpoint', 'Requests', 'p50', 'p95', 'Max', 'Errors']}
           rows={(data?.api || []).map(row => [
@@ -293,6 +298,51 @@ function Panel({ title, subtitle, className = '', children }: { title: string; s
       {subtitle && <p className="mt-0.5 text-[11px] text-gray-400">{subtitle}</p>}
       <div className="mt-3">{children}</div>
     </section>
+  );
+}
+
+function Stars({ value }: { value: number }) {
+  return (
+    <span aria-label={`${value} out of 5 stars`} className="whitespace-nowrap">
+      {[1, 2, 3, 4, 5].map(star => <span key={star} aria-hidden="true" className={star <= Math.round(value) ? 'text-amber-400' : 'text-gray-200'}>★</span>)}
+    </span>
+  );
+}
+
+function FeedbackSummary({ feedback, loading }: { feedback?: Analytics['feedback']; loading: boolean }) {
+  if (!feedback?.total) return loading ? <Empty loading /> : <p className="py-6 text-center text-[12px] text-gray-400">No feedback yet. Attendees are asked on My Tickets after booking.</p>;
+  const max = Math.max(...feedback.stars.map(row => row.count));
+  return (
+    <div className="grid gap-6 lg:grid-cols-[220px_1fr]">
+      <div>
+        <p className="text-[34px] font-bold leading-none text-secondary">{feedback.average.toFixed(1)}</p>
+        <p className="mt-1 text-[18px]"><Stars value={feedback.average} /></p>
+        <p className="mt-1 text-[12px] text-gray-500">{number.format(feedback.total)} rating{feedback.total === 1 ? '' : 's'}</p>
+        <ul className="mt-4 space-y-1.5">
+          {feedback.stars.map(row => (
+            <li key={row.star} className="grid grid-cols-[28px_1fr_32px] items-center gap-2 text-[12px]">
+              <span className="text-gray-500">{row.star} ★</span>
+              <Bar value={row.count} max={max || 1} color={COLORS.amber} />
+              <span className="text-right text-gray-500">{number.format(row.count)}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="min-w-0">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Latest</p>
+        <ul className="mt-2 divide-y divide-gray-100">
+          {feedback.latest.map((row, index) => (
+            <li key={index} className="py-2.5">
+              <div className="flex items-center justify-between gap-2 text-[12px]">
+                <Stars value={row.rating} />
+                <span className="text-gray-400">{new Date(row.submittedAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+              </div>
+              {row.message ? <p className="mt-1 whitespace-pre-line text-[13px] text-secondary">{row.message}</p> : <p className="mt-1 text-[12px] italic text-gray-400">No comment</p>}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
   );
 }
 
