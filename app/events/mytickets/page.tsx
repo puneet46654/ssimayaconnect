@@ -132,6 +132,8 @@ export default function MyTicketsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  // Set when the attendee arrives straight from booking a slot.
+  const [justBooked, setJustBooked] = useState('');
   const [managing, setManaging] = useState<{ ticket: Ticket; mode: 'reschedule' | 'cancel' } | null>(null);
   const [loaded, setLoaded] = useState(false);
   const lookupRef = useRef<string | null>(null);
@@ -178,6 +180,12 @@ export default function MyTicketsPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
+      const booked = new URLSearchParams(window.location.search).get('booked');
+      if (booked) {
+        setJustBooked(booked);
+        // A refresh should not repeat the confirmation.
+        window.history.replaceState(window.history.state, '', window.location.pathname);
+      }
       try {
         const cachedMobile = localStorage.getItem(CACHE_KEY);
         if (cachedMobile) void loadTickets(cachedMobile);
@@ -200,6 +208,12 @@ export default function MyTicketsPage() {
       .catch(() => { /* Keep India as the only option. */ });
     return () => controller.abort();
   }, []);
+
+  useEffect(() => {
+    if (!justBooked || !tickets.some(ticket => ticket.bookingId === justBooked)) return;
+    const frame = requestAnimationFrame(() => document.getElementById(`ticket-${justBooked}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+    return () => cancelAnimationFrame(frame);
+  }, [justBooked, tickets]);
 
   /** The number as typed, with the selected country code unless the visitor typed their own +code. */
   function fullNumber(value: string) {
@@ -781,6 +795,24 @@ export default function MyTicketsPage() {
         {/* TICKETS */}
 
 
+        {justBooked && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            role="status"
+            className="mt-6 flex items-start gap-3 rounded-xl border border-primary/25 bg-primary/[0.06] px-4 py-3"
+          >
+            <span aria-hidden="true" className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-[13px] font-bold text-white">✓</span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[14px] font-semibold text-secondary">Booking confirmed</p>
+              <p className="mt-0.5 text-[12px] text-gray-600">
+                Your ticket {justBooked} is ready below. Tap QR Ticket and show it at the venue, or add it to your calendar.
+              </p>
+            </div>
+            <button type="button" onClick={() => setJustBooked('')} aria-label="Dismiss" className="text-[18px] leading-none text-gray-400 hover:text-gray-600">×</button>
+          </motion.div>
+        )}
+
         <div
           className="
             mt-6
@@ -815,6 +847,7 @@ export default function MyTicketsPage() {
                     )
                   }
                   onManage={mode => setManaging({ ticket, mode })}
+                  highlighted={ticket.bookingId === justBooked}
                 />
 
               ),
@@ -1009,6 +1042,7 @@ function TicketCard({
   ticket,
   onClick,
   onManage,
+  highlighted = false,
 }:{
   ticket:
     Ticket;
@@ -1016,6 +1050,7 @@ function TicketCard({
     ()=>void;
   onManage:
     (mode: 'reschedule' | 'cancel')=>void;
+  highlighted?: boolean;
 }) {
   const upcoming = ticket.status === 'ACTIVE';
   const changeable = upcoming && !!ticket.canManage;
@@ -1024,6 +1059,7 @@ function TicketCard({
   return (
 
     <motion.article
+      id={`ticket-${ticket.bookingId}`}
 
       initial={{
         opacity:0,
@@ -1035,18 +1071,7 @@ function TicketCard({
         y:0,
       }}
 
-      className="
-        overflow-hidden
-
-        rounded-xl
-
-        border
-        border-gray-200
-
-        bg-white
-
-        shadow-sm
-      "
+      className={`overflow-hidden rounded-xl border bg-white shadow-sm ${highlighted ? 'border-primary ring-2 ring-primary/30' : 'border-gray-200'}`}
 
     >
 

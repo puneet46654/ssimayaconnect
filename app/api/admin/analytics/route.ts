@@ -16,7 +16,6 @@ const FUNNEL = [
   ['Event page', '/events/:id'],
   ['Registration form', '/events/:id/book'],
   ['Slot selection', '/events/:id/book/slots'],
-  ['Confirmation', '/events/:id/book/confirm'],
 ] as const;
 
 type Count = { _id: string | null; count: number };
@@ -85,6 +84,12 @@ export async function GET(request: NextRequest) {
           { $sort: { count: -1 } },
           { $limit: 25 },
         ],
+        // Bookings are created from the slot page, so a successful POST marks a confirmed session.
+        booked: [
+          { $match: { kind: 'api', path: '/api/bookings', method: 'POST', status: 201 } },
+          { $group: { _id: '$sessionId' } },
+          { $count: 'count' },
+        ],
         statuses: [
           { $match: { kind: 'api' } },
           { $group: { _id: '$status', count: { $sum: 1 } } },
@@ -104,7 +109,7 @@ export async function GET(request: NextRequest) {
 
     const totals = facets.totals[0] || { views: 0, visitors: 0, sessions: 0 };
     const pathRows = facets.paths as { _id: string; views: number; sessions: number }[];
-    const confirmedSessions = pathRows.find(row => row._id === '/events/:id/book/confirm')?.sessions || 0;
+    const confirmedSessions = (facets.booked as { count: number }[])[0]?.count || 0;
 
     return NextResponse.json({
       success: true,
@@ -119,7 +124,10 @@ export async function GET(request: NextRequest) {
         conversion: totals.sessions ? Math.round((confirmedSessions / totals.sessions) * 1000) / 10 : 0,
       },
       series: facets.series,
-      funnel: FUNNEL.map(([step, path]) => ({ step, sessions: pathRows.find(row => row._id === path)?.sessions || 0 })),
+      funnel: [
+        ...FUNNEL.map(([step, path]) => ({ step, sessions: pathRows.find(row => row._id === path)?.sessions || 0 })),
+        { step: 'Booking confirmed', sessions: confirmedSessions },
+      ],
       topPages: pathRows.slice(0, 10).map(row => ({ path: row._id, views: row.views, sessions: row.sessions })),
       topEvents: (facets.events as { _id: string; views: number; visitors: number }[])
         .map(row => ({ eventId: row._id, name: eventNames.get(row._id) || 'Deleted event', views: row.views, visitors: row.visitors })),

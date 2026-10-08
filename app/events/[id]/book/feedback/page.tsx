@@ -312,7 +312,7 @@ function FeedbackForm() {
   function goBack() {
     if (feedbackScope === 'application') {
       router.push(
-        `/events/${eventId}/book/confirm?feedback=skipped`,
+        '/events/mytickets',
       );
       return;
     }
@@ -412,7 +412,7 @@ function FeedbackForm() {
 
     router.push(
       feedbackScope === 'application'
-        ? `/events/${eventId}/book/confirm?feedback=skipped`
+        ? '/events/mytickets'
         : '/events',
     );
   }
