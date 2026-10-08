@@ -625,27 +625,24 @@ export default function BookingDetailsPage() {
 
   const [markingPresent, setMarkingPresent] = useState(false);
 
-  async function markPresent() {
+  // Admin correction: unlike ticket scanning, this is not limited to the live check-in window.
+  async function setAttendance(attendanceStatus: AttendanceStatus) {
     if (!booking || markingPresent) return;
     setMarkingPresent(true);
     setError('');
     setSuccess('');
     try {
-      const response = await fetch('/api/admin/attendance', {
-        method: 'POST',
+      const response = await fetch(`/api/admin/bookings/${id}`, {
+        method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ eventId: toText(booking.eventId?._id), bookingId: booking.bookingId, method: 'MANUAL' }),
+        body: JSON.stringify({ details: originalDraft, attendanceStatus }),
       });
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.message || 'Unable to mark attendance.');
-      setBooking((current) => current && {
-        ...current,
-        attendanceStatus: 'PRESENT',
-        checkedInAt: data.booking?.checkedInAt ?? current.checkedInAt,
-        checkInMethod: current.checkInMethod ?? 'MANUAL',
-      });
-      setSuccess(data.message || 'Attendance recorded successfully.');
+      const data = (await response.json()) as BookingResponse;
+      if (!response.ok || !data.success || !data.booking) throw new Error(data.message || 'Unable to update attendance.');
+      setBooking(data.booking);
+      setFeedback(data.feedback || EMPTY_FEEDBACK_CATEGORIES);
+      setSuccess(attendanceStatus === 'PRESENT' ? 'Marked as present.' : 'Marked as not present.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to mark attendance.');
     } finally {
@@ -1096,8 +1093,8 @@ export default function BookingDetailsPage() {
               </span>
 
               <span>
-                Created{' '}
-                {formatDate(
+                Booked on{' '}
+                {formatDateTime(
                   booking.createdAt,
                 )}
               </span>
@@ -1211,14 +1208,14 @@ export default function BookingDetailsPage() {
               </>
             ) : (
               <>
-              {attendance !== 'PRESENT' && !booking.pending && (
+              {!booking.pending && (
                 <AdminAccess permission="check-in"><button
                   type="button"
                   disabled={markingPresent}
-                  onClick={() => void markPresent()}
+                  onClick={() => void setAttendance(attendance === 'PRESENT' ? 'NOT_PRESENT' : 'PRESENT')}
                   className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-primary/30 bg-white px-4 text-[12px] font-semibold text-primary transition hover:bg-primary/[0.05] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {markingPresent ? <><SpinnerIcon /> Marking...</> : 'Mark Present'}
+                  {markingPresent ? <><SpinnerIcon /> Saving...</> : attendance === 'PRESENT' ? 'Mark Not Present' : 'Mark Present'}
                 </button></AdminAccess>
               )}
               <AdminAccess permission="bookings" action="write"><button
