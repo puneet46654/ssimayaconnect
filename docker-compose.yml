@@ -1,0 +1,31 @@
+# Load-balanced self-hosted stack: nginx -> APP_REPLICAS containers -> CLUSTER_WORKERS each.
+# Run: docker compose up --build   (scale: APP_REPLICAS=5 docker compose up --build)
+services:
+  app:
+    build: .
+    env_file: .env.local
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+      CLUSTER_WORKERS: ${CLUSTER_WORKERS:-2}
+      REDIS_URL: redis://redis:6379
+    deploy:
+      replicas: ${APP_REPLICAS:-3}
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "${LB_PORT:-8080}:80"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+    restart: unless-stopped
