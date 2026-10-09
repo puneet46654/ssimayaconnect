@@ -6,6 +6,8 @@ import { connectDB } from '@/lib/db';
 declare global {
   // Set by server.mjs when the application is running with Socket.IO.
   var realtimeIO: SocketIOServer | undefined;
+  // Set by server.mjs when other workers or servers must hear about changes.
+  var realtimeBroadcast: ((change: RealtimeChange) => void) | undefined;
   var eventsListCache: { at: number; body: unknown } | undefined;
 }
 
@@ -49,10 +51,15 @@ export async function getRealtimeVersions() {
 }
 
 export function emitRealtimeChange(change: RealtimeChange) {
-  // Drop the in-process public event list so the next read is fresh.
-  globalThis.eventsListCache = undefined;
-  // Instant push when running under server.mjs (local dev / self-hosted).
-  globalThis.realtimeIO?.emit('data.changed', change);
+  if (globalThis.realtimeBroadcast) {
+    // Clustered: every worker (this one included) clears its cache and pushes.
+    globalThis.realtimeBroadcast(change);
+  } else {
+    // Drop the in-process public event list so the next read is fresh.
+    globalThis.eventsListCache = undefined;
+    // Instant push when running under server.mjs (local dev / self-hosted).
+    globalThis.realtimeIO?.emit('data.changed', change);
+  }
 
   const bump = connectDB()
     .then(() =>

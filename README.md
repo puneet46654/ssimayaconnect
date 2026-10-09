@@ -49,9 +49,11 @@ The database URI must point at your own configured replica set. Keep secrets sta
 | `BOOKING_ACCESS_SECRET` | Signs public ticket grants. Set explicitly; current compatibility fallback uses `MONGODB_URI`. Changing it invalidates existing grants, but tickets remain recoverable. |
 | `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_S3_BUCKET_NAME` | Existing S3 overrides. The existing hardcoded fallback configuration is intentionally unchanged by this bug-fix work. |
 | `PORT`, `HOSTNAME` | Custom server address, read from the process environment before Next loads local configuration. Set these in the shell. |
+| `CLUSTER_WORKERS` | Worker processes for `server.mjs`. Defaults to one per CPU in production and 1 in development. |
+| `REDIS_URL` | Optional. Shares realtime pushes across servers behind a load balancer. |
 | `NODE_ENV` | `development` for development; `production` for a built server. |
 
-Redis is installed but is not a required service for the implemented flows. There is no required Redis environment variable or mandatory email/OTP service.
+Redis is optional: it is only needed to share realtime pushes when several servers run behind a load balancer. There is no mandatory email/OTP service.
 
 ### Development
 
@@ -77,6 +79,14 @@ npm start
 ```
 
 Run `server.mjs` for Socket.IO support; `next start` alone does not run the custom realtime server. Production cookies are secure and require HTTPS when using a deployed production server.
+
+## Scaling and load balancing
+
+In production `server.mjs` forks one worker per CPU (Node cluster) and restarts any worker that crashes; set `CLUSTER_WORKERS` to change the count. Realtime changes are relayed to every worker, or to every server through Redis when `REDIS_URL` is set. Socket.IO clients use websocket only, so no sticky sessions are needed.
+
+For a self-hosted, load-balanced stack (requires Docker), `docker compose up --build` starts nginx on port 8080 in front of 3 app containers (2 workers each) plus Redis. Scale with `APP_REPLICAS=5 docker compose up --build`. The app containers read `.env.local`.
+
+On Vercel, `server.mjs` is not used; Vercel already load-balances and autoscales serverless functions, and clients fall back to polling for live updates.
 
 ## Images
 
