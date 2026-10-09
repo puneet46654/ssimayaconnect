@@ -10,7 +10,10 @@
     "test": "tsx --test tests/unit/*.test.ts",
     "test:integration": "tsx --test tests/integration/*.test.ts",
     "test:browser": "playwright test",
-    "test:scenario": "tsx tests/scenarios/event-day-load.ts"
+    "test:scenario": "tsx tests/scenarios/event-day-load.ts",
+    "backup:sync": "node --env-file-if-exists=.env.local scripts/backup-sync.mjs",
+    "backup:full": "node --env-file-if-exists=.env.local scripts/backup-sync.mjs --full",
+    "backup:verify": "node --env-file-if-exists=.env.local scripts/backup-sync.mjs --verify"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1134.0",
