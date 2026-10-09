@@ -14,6 +14,8 @@ const redisUrl = process.env.REDIS_URL;
 const REDIS_CHANNEL = 'ssimaya:realtime';
 
 if (workers > 1 && cluster.isPrimary) {
+  // Round-robin on every OS (Windows otherwise lets one worker take most connections).
+  cluster.schedulingPolicy = cluster.SCHED_RR;
   console.log(`> Primary ${process.pid} starting ${workers} workers`);
   for (let i = 0; i < workers; i += 1) cluster.fork();
 
