@@ -152,6 +152,7 @@ Keep secrets stable across restarts so that signed access keeps working.
 | `npm run test:integration` | Live API tests (isolated test database only). |
 | `npm run test:browser` | Playwright browser tests. |
 | `npm run test:scenario` | Event-day load scenario. |
+| `npm run test:backup` | Backup sync end-to-end tests on disposable local replica sets. Needs a `mongod` binary (`MONGOD_BIN`, or the mongodb-memory-server cache). |
 | `npm run backup:sync` | Run the backup sync continuously. Copies everything first if needed. |
 | `npm run backup:full` | Copy all data again (additive), then keep syncing. |
 | `npm run backup:verify` | Check that every primary document exists in the backup. |
@@ -362,6 +363,11 @@ Both runs used 30 requests in flight and returned the expected capacity conflict
   - copied no TTL indexes;
   - passed `--verify`.
 - **Not run:** Docker Compose was not run on the test machine.
+
+**9 October 2026: backup test suite and live backup**
+- `npm run test:backup`: 23/23 passed, twice (MongoDB 5.0.19 locally). It starts three throwaway replica sets and runs the real script. It covers startup guards, the initial copy (all BSON types, indexes without `unique`/TTL, empty collections, views skipped), writes during the copy, live inserts/updates/replaces/upserts, a 5,000-insert burst, committed and aborted transactions, deletes, TTL expiry, dropped and renamed collections, `dropDatabase`, a crash mid-copy, a restart, a backup outage, lost change-stream history after an oplog rollover, `--full`, `--verify` and `BACKUP_DB_NAME`.
+- Fixed: an empty collection on the primary was not created in the backup.
+- Live Atlas backup (`BackupCluster`, MongoDB 8.0): the full copy and `--verify` passed, with every collection matching. Indexes matched, and the latest 20 documents of every collection were identical. Round trip is about 25 ms per write, so live sync applies roughly 30–40 changes per second. Bursts larger than that catch up after a short delay.
 
 ## Project structure
 

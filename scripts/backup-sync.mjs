@@ -94,9 +94,12 @@ async function fullCopy(sourceDb, backupDb, state) {
     (info) => info.type === 'collection' && isAppCollection(info.name),
   );
 
+  const existing = new Set((await backupDb.listCollections({}, { nameOnly: true }).toArray()).map((info) => info.name));
   for (const { name } of collections) {
     const from = sourceDb.collection(name);
     const to = backupDb.collection(name);
+    // Empty collections with no indexes would otherwise never appear in the backup.
+    if (!existing.has(name)) await backupDb.createCollection(name);
     await copyIndexes(from, to);
 
     let ops = [];

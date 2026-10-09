@@ -11,6 +11,7 @@
     "test:integration": "tsx --test tests/integration/*.test.ts",
     "test:browser": "playwright test",
     "test:scenario": "tsx tests/scenarios/event-day-load.ts",
+    "test:backup": "node --test tests/backup/backup-sync.test.mjs",
     "backup:sync": "node --env-file-if-exists=.env.local scripts/backup-sync.mjs",
     "backup:full": "node --env-file-if-exists=.env.local scripts/backup-sync.mjs --full",
     "backup:verify": "node --env-file-if-exists=.env.local scripts/backup-sync.mjs --verify"
